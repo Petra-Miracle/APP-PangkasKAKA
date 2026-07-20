@@ -5,12 +5,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/lib/auth";
 import { COLORS, FONT } from "@/src/lib/api";
+import { AuthHero, GradientButton } from "@/src/components/AuthUI";
 
 export default function Login() {
   const { login } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -37,35 +39,30 @@ export default function Login() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={[]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={styles.wrap} keyboardShouldPersistTaps="handled">
-          <View style={styles.logoBox}>
-            <View style={styles.logoBadge}>
-              <Ionicons name="cut" size={26} color={COLORS.brand} />
-            </View>
-            <Text style={styles.brand} testID="brand-title">
-              PANGKAS<Text style={{ color: COLORS.brand }}>KAKA</Text>
-            </Text>
-            <Text style={styles.sub}>Barbershop On-Demand · Kupang NTT</Text>
-          </View>
+        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <AuthHero />
 
           <View style={styles.card}>
-            <Text style={styles.heading}>Masuk ke Akun</Text>
-            <Text style={styles.headingSub}>Selamat datang kembali</Text>
+            <Text style={styles.heading}>Selamat Datang</Text>
+            <Text style={styles.headingSub}>Masuk ke akun PangkasKAKA Anda</Text>
 
             <Text style={styles.label}>Email</Text>
             <View style={styles.inputWrap}>
               <Ionicons name="mail-outline" size={18} color={COLORS.textDim} />
               <TextInput testID="login-email" style={styles.input} value={email} onChangeText={setEmail}
-                placeholder="email@contoh.com" placeholderTextColor={COLORS.textDim} autoCapitalize="none" keyboardType="email-address" />
+                placeholder="nama@contoh.com" placeholderTextColor={COLORS.textDim} autoCapitalize="none" keyboardType="email-address" />
             </View>
 
             <Text style={styles.label}>Password</Text>
             <View style={styles.inputWrap}>
               <Ionicons name="lock-closed-outline" size={18} color={COLORS.textDim} />
               <TextInput testID="login-password" style={styles.input} value={password} onChangeText={setPassword}
-                placeholder="Masukkan password" placeholderTextColor={COLORS.textDim} secureTextEntry />
+                placeholder="Password Anda" placeholderTextColor={COLORS.textDim} secureTextEntry={!showPw} />
+              <Pressable onPress={() => setShowPw((v) => !v)} testID="toggle-pw">
+                <Ionicons name={showPw ? "eye-off-outline" : "eye-outline"} size={18} color={COLORS.textDim} />
+              </Pressable>
             </View>
 
             {err && (
@@ -75,30 +72,38 @@ export default function Login() {
               </View>
             )}
 
-            <Pressable testID="login-submit-button" style={({ pressed }) => [styles.btn, pressed && { opacity: 0.8 }]} onPress={onSubmit} disabled={loading}>
-              <Text style={styles.btnText}>{loading ? "MEMPROSES..." : "MASUK"}</Text>
+            <GradientButton testID="login-submit-button" label="MASUK" icon="arrow-forward" onPress={onSubmit} loading={loading} />
+
+            <Pressable style={styles.forgotBtn}>
+              <Text style={styles.forgotText}>Lupa password?</Text>
             </Pressable>
 
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>DEMO CEPAT</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <View style={styles.demoRow}>
+              {[
+                { key: "customer", label: "Pelanggan", icon: "person" },
+                { key: "owner", label: "Owner", icon: "storefront" },
+                { key: "admin", label: "Admin", icon: "shield-checkmark" },
+                { key: "karyawan", label: "Barber", icon: "cut" },
+              ].map((r) => (
+                <Pressable key={r.key} testID={`demo-${r.key}`} style={styles.demoBtn} onPress={() => fill(r.key)}>
+                  <Ionicons name={r.icon as any} size={16} color={COLORS.brand} />
+                  <Text style={styles.demoText}>{r.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+
             <Link href="/(auth)/register" asChild>
-              <Pressable testID="goto-register">
-                <Text style={styles.linkText}>Belum punya akun? <Text style={{ color: COLORS.brand, fontFamily: FONT.bold }}>Daftar</Text></Text>
+              <Pressable testID="goto-register" style={styles.regLink}>
+                <Text style={styles.regLinkText}>Belum punya akun? </Text>
+                <Text style={[styles.regLinkText, { color: COLORS.brand, fontFamily: FONT.bold }]}>Daftar Sekarang</Text>
               </Pressable>
             </Link>
-          </View>
-
-          <Text style={styles.demoTitle}>Demo Login Cepat</Text>
-          <View style={styles.demoRow}>
-            {[
-              { key: "customer", label: "Pelanggan", icon: "person" },
-              { key: "owner", label: "Owner", icon: "storefront" },
-              { key: "admin", label: "Admin", icon: "shield-checkmark" },
-              { key: "karyawan", label: "Barber", icon: "cut" },
-            ].map((r) => (
-              <Pressable key={r.key} testID={`demo-${r.key}`} style={styles.demoBtn} onPress={() => fill(r.key)}>
-                <Ionicons name={r.icon as any} size={16} color={COLORS.brand} />
-                <Text style={styles.demoText}>{r.label}</Text>
-              </Pressable>
-            ))}
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -108,27 +113,31 @@ export default function Login() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  wrap: { padding: 24, paddingTop: 40, paddingBottom: 40 },
-  logoBox: { alignItems: "center", marginBottom: 24 },
-  logoBadge: { width: 64, height: 64, borderRadius: 20, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  brand: { fontSize: 32, color: COLORS.text, fontFamily: FONT.extrabold, letterSpacing: -0.5 },
-  sub: { color: COLORS.textDim, marginTop: 6, fontFamily: FONT.medium, fontSize: 13 },
   card: {
-    backgroundColor: COLORS.surface, padding: 24, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: "#0A2540", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.06, shadowRadius: 24, elevation: 4,
+    backgroundColor: "#FFFFFF",
+    marginTop: -36,
+    marginHorizontal: 20,
+    padding: 24,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    shadowColor: "#0A2540", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.08, shadowRadius: 24, elevation: 6,
   },
-  heading: { color: COLORS.text, fontSize: 22, fontFamily: FONT.extrabold },
-  headingSub: { color: COLORS.textDim, fontFamily: FONT.regular, marginTop: 4, marginBottom: 8 },
-  label: { color: COLORS.textMuted, marginTop: 16, marginBottom: 8, fontSize: 12, fontFamily: FONT.semibold, letterSpacing: 0.3 },
+  heading: { color: COLORS.text, fontSize: 22, fontFamily: FONT.extrabold, letterSpacing: -0.3 },
+  headingSub: { color: COLORS.textDim, fontFamily: FONT.medium, marginTop: 4, fontSize: 13, marginBottom: 8 },
+  label: { color: COLORS.textMuted, marginTop: 14, marginBottom: 8, fontSize: 12, fontFamily: FONT.semibold, letterSpacing: 0.3 },
   inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface2, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
   input: { flex: 1, color: COLORS.text, paddingVertical: 14, fontFamily: FONT.medium, fontSize: 14 },
   errBox: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF2F2", padding: 12, borderRadius: 12, marginTop: 14 },
   errText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium, fontSize: 13 },
-  btn: { backgroundColor: COLORS.brand, padding: 16, borderRadius: 14, alignItems: "center", marginTop: 24, shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 12, elevation: 6 },
-  btnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 1, fontSize: 14 },
-  linkText: { color: COLORS.textDim, marginTop: 20, textAlign: "center", fontFamily: FONT.medium },
-  demoTitle: { color: COLORS.textDim, marginTop: 32, marginBottom: 12, fontSize: 12, fontFamily: FONT.semibold, letterSpacing: 0.5, textTransform: "uppercase" },
-  demoRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
-  demoBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 14, backgroundColor: COLORS.surface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
+  forgotBtn: { alignSelf: "center", marginTop: 12 },
+  forgotText: { color: COLORS.brand, fontFamily: FONT.semibold, fontSize: 13 },
+  divider: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 24, marginBottom: 12 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: COLORS.border },
+  dividerText: { color: COLORS.textDim, fontSize: 10, fontFamily: FONT.bold, letterSpacing: 1 },
+  demoRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
+  demoBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 14, backgroundColor: COLORS.brandDim, borderRadius: 12, borderWidth: 1, borderColor: "transparent" },
   demoText: { color: COLORS.brand, fontSize: 12, fontFamily: FONT.bold },
+  regLink: { flexDirection: "row", justifyContent: "center", marginTop: 24, padding: 8 },
+  regLinkText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13 },
 });
