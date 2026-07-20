@@ -154,6 +154,23 @@ class ShopRegisterIn(BaseModel):
     doc_nib: Optional[str] = None
     doc_npwp: Optional[str] = None
     doc_surat_usaha: Optional[str] = None
+    doc_toko: Optional[str] = None
+
+
+class DocReviewIn(BaseModel):
+    status: Literal["valid", "invalid", "needs_revision"]
+    note: Optional[str] = None
+
+
+class DocReplaceIn(BaseModel):
+    doc_key: Literal["ktp", "nib", "npwp", "surat_usaha", "toko"]
+    file_base64: str
+
+
+class ChatSendIn(BaseModel):
+    text: Optional[str] = None
+    attachment: Optional[str] = None  # base64 image/pdf
+    doc_ref: Optional[str] = None  # e.g. "ktp", "nib"
 
 
 class VerifyShopIn(BaseModel):
@@ -586,6 +603,16 @@ async def owner_shop(user=Depends(require_role("owner"))):
 async def register_shop(body: ShopRegisterIn, user=Depends(require_role("owner"))):
     existing = await db.barbershops.find_one({"owner_id": user["id"]})
     sid = existing["id"] if existing else new_id()
+    # Build per-doc status sub-doc
+    def _doc(url):
+        return {"url": url or "", "status": "pending" if url else "missing", "note": "", "reviewed_at": None, "reviewed_by": None}
+    docs = {
+        "ktp": _doc(body.doc_ktp),
+        "nib": _doc(body.doc_nib),
+        "npwp": _doc(body.doc_npwp),
+        "surat_usaha": _doc(body.doc_surat_usaha),
+        "toko": _doc(body.doc_toko),
+    }
     doc = {
         "id": sid,
         "owner_id": user["id"],
@@ -604,19 +631,107 @@ async def register_shop(body: ShopRegisterIn, user=Depends(require_role("owner")
         "bank_name": body.bank_name or "",
         "account_number": body.account_number or "",
         "account_holder": body.account_holder or "",
+        # legacy flat fields kept for backwards compat
         "doc_ktp": body.doc_ktp or "",
         "doc_nib": body.doc_nib or "",
         "doc_npwp": body.doc_npwp or "",
         "doc_surat_usaha": body.doc_surat_usaha or "",
+        "doc_toko": body.doc_toko or "",
+        # new per-doc validation
+        "docs": docs,
+        "revision_count": 0,
+        "last_reviewed_by": None,
+        "last_reviewed_at": None,
+        "chat_closed": False,
         "docs_submitted_at": now_utc().isoformat(),
         "created_at": existing["created_at"] if existing else now_utc().isoformat(),
     }
     await db.barbershops.replace_one({"id": sid}, doc, upsert=True)
-    # notify admins
     admins = await db.profiles.find({"role": "admin"}, {"_id": 0, "id": 1}).to_list(50)
     for a in admins:
         await send_notif(a["id"], "Pengajuan Toko Baru", f"{body.name} menunggu verifikasi.", "system")
     return {"shop": clean(doc)}
+
+
+@api.put("/owner/shop/documents")
+async def replace_document(body: DocReplaceIn, user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0})
+    if not shop:
+        raise HTTPException(404, "Toko tidak ditemukan")
+    # size check: base64 length ~1.33x binary; 2MB = ~2.66M chars
+    if body.file_base64 and len(body.file_base64) > 2_800_000:
+        raise HTTPException(400, "Ukuran file melebihi 2MB")
+    key = body.doc_key
+    update_path = f"docs.{key}"
+    docs = shop.get("docs", {})
+    docs[key] = {"url": body.file_base64, "status": "pending", "note": "", "reviewed_at": None, "reviewed_by": None}
+    revision_count = shop.get("revision_count", 0) + 1
+    # if shop was rejected, move back to pending
+    new_verification_status = "pending" if shop.get("verification_status") == "rejected" else shop.get("verification_status", "pending")
+    await db.barbershops.update_one(
+        {"id": shop["id"]},
+        {"$set": {
+            f"doc_{key}": body.file_base64,
+            "docs": docs,
+            "revision_count": revision_count,
+            "verification_status": new_verification_status,
+            "is_verified": False if new_verification_status != "approved" else shop.get("is_verified", False),
+        }},
+    )
+    # notify admins
+    admins = await db.profiles.find({"role": "admin"}, {"_id": 0, "id": 1}).to_list(50)
+    for a in admins:
+        await send_notif(a["id"], "Revisi dokumen", f"{shop['name']} mengunggah ulang dokumen {key.upper()}.", "system")
+    return {"ok": True, "revision_count": revision_count}
+
+
+@api.post("/admin/shops/{shop_id}/documents/{doc_key}/review")
+async def admin_review_doc(shop_id: str, doc_key: str, body: DocReviewIn, user=Depends(require_role("admin"))):
+    if doc_key not in ("ktp", "nib", "npwp", "surat_usaha", "toko"):
+        raise HTTPException(400, "Doc key tidak valid")
+    shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0})
+    if not shop:
+        raise HTTPException(404, "Toko tidak ditemukan")
+    if body.status in ("invalid", "needs_revision") and not (body.note and body.note.strip()):
+        raise HTTPException(400, "Catatan wajib diisi untuk status ini")
+    docs = shop.get("docs", {})
+    if doc_key not in docs:
+        docs[doc_key] = {"url": "", "status": "pending", "note": "", "reviewed_at": None, "reviewed_by": None}
+    docs[doc_key] = {
+        **docs[doc_key],
+        "status": body.status,
+        "note": body.note or "",
+        "reviewed_at": now_utc().isoformat(),
+        "reviewed_by": user["id"],
+    }
+    # Auto-approve if all 5 required docs are valid
+    required = ["ktp", "nib", "npwp", "surat_usaha", "toko"]
+    all_valid = all(docs.get(k, {}).get("status") == "valid" for k in required)
+    updates: dict = {
+        "docs": docs,
+        "last_reviewed_by": user["id"],
+        "last_reviewed_at": now_utc().isoformat(),
+    }
+    if all_valid:
+        updates.update({"is_verified": True, "verification_status": "approved", "verified_at": now_utc().isoformat(), "verification_note": ""})
+        await send_notif(shop["owner_id"], "Toko disetujui!", "Semua dokumen valid. Toko Anda kini aktif.", "system")
+    else:
+        # keep verification_status pending; if any invalid, set rejected soft flag
+        if any(docs.get(k, {}).get("status") == "invalid" for k in required):
+            updates["verification_status"] = "rejected"
+            updates["is_verified"] = False
+        else:
+            updates["verification_status"] = "pending"
+        # Send per-doc notification
+        label_map = {"ktp": "KTP", "nib": "NIB", "npwp": "NPWP", "surat_usaha": "Surat Izin Usaha", "toko": "Foto Toko"}
+        if body.status == "invalid":
+            await send_notif(shop["owner_id"], f"Dokumen {label_map[doc_key]} ditolak", body.note or "Silakan hubungi admin.", "system")
+        elif body.status == "needs_revision":
+            await send_notif(shop["owner_id"], f"Perlu revisi: {label_map[doc_key]}", body.note or "Silakan unggah ulang.", "system")
+        elif body.status == "valid":
+            await send_notif(shop["owner_id"], f"Dokumen {label_map[doc_key]} valid ✓", "Menunggu dokumen lainnya diverifikasi.", "system")
+    await db.barbershops.update_one({"id": shop_id}, {"$set": updates})
+    return {"ok": True, "docs": docs, "all_valid": all_valid}
 
 
 @api.get("/owner/dashboard")
@@ -1137,7 +1252,16 @@ async def seed_all():
                 "rating": 4.6, "status": "active",
                 "created_at": now_utc().isoformat()
             })
-    # Add a pending shop for admin verification demo
+    # Add pending shops with per-doc statuses for admin demo
+    demo_docs_mixed = {
+        "ktp": {"url": "seeded-ktp.jpg", "status": "valid", "note": "", "reviewed_at": now_utc().isoformat(), "reviewed_by": admin_id},
+        "nib": {"url": "seeded-nib.pdf", "status": "valid", "note": "", "reviewed_at": now_utc().isoformat(), "reviewed_by": admin_id},
+        "npwp": {"url": "seeded-npwp.pdf", "status": "needs_revision", "note": "Foto NPWP buram, mohon unggah ulang yang lebih jelas", "reviewed_at": now_utc().isoformat(), "reviewed_by": admin_id},
+        "surat_usaha": {"url": "seeded-surat.pdf", "status": "pending", "note": "", "reviewed_at": None, "reviewed_by": None},
+        "toko": {"url": "seeded-toko.jpg", "status": "pending", "note": "", "reviewed_at": None, "reviewed_by": None},
+    }
+    demo_docs_fresh = {k: {"url": f"seeded-{k}.jpg", "status": "pending", "note": "", "reviewed_at": None, "reviewed_by": None} for k in ["ktp", "nib", "npwp", "surat_usaha", "toko"]}
+
     if not await db.barbershops.find_one({"name": "Barber Nusa Tenggara (Pending)"}):
         sid = new_id()
         await db.barbershops.insert_one({
@@ -1149,6 +1273,43 @@ async def seed_all():
             "bank_name": "BRI", "account_number": "9876543210", "account_holder": "Bapak Yosua",
             "doc_ktp": "seeded-ktp.jpg", "doc_nib": "seeded-nib.pdf",
             "doc_npwp": "seeded-npwp.pdf", "doc_surat_usaha": "seeded-surat.pdf",
+            "doc_toko": "seeded-toko.jpg",
+            "docs": demo_docs_mixed,
+            "revision_count": 1,
+            "chat_closed": False,
+            "docs_submitted_at": now_utc().isoformat(),
+            "created_at": now_utc().isoformat(),
+        })
+        # Seed chat messages for demo
+        msgs_seed = [
+            (admin_id, "admin", "Halo, saya sudah cek dokumen Anda. Foto NPWP terlihat sedikit buram.", "npwp"),
+            (owner_id, "owner", "Terima kasih infonya. Saya akan foto ulang dan upload segera.", "npwp"),
+            (admin_id, "admin", "Baik, ditunggu. Sementara dokumen KTP dan NIB sudah saya validasi ✓", ""),
+            (owner_id, "owner", "Siap admin, mohon dibantu prosesnya.", ""),
+        ]
+        base_time = now_utc()
+        for i, (uid, role, text, ref) in enumerate(msgs_seed):
+            await db.chat_messages.insert_one({
+                "id": new_id(), "shop_id": sid, "sender_id": uid, "sender_role": role,
+                "text": text, "attachment": "", "doc_ref": ref,
+                "is_read": True, "created_at": (base_time + timedelta(minutes=i * 5)).isoformat(),
+            })
+
+    if not await db.barbershops.find_one({"name": "Barbershop Timor (Fresh)"}):
+        sid = new_id()
+        await db.barbershops.insert_one({
+            "id": sid, "owner_id": owner_id, "name": "Barbershop Timor (Fresh)",
+            "category": "Barbershop", "address": "Jl. Herewila No. 22, Kupang",
+            "latitude": -10.1750, "longitude": 123.6150, "image": "https://images.unsplash.com/photo-1503951914875-452162b0f3f1?w=800",
+            "price_range": "Rp 30.000 - Rp 80.000", "rating": 0, "reviews_count": 0,
+            "is_verified": False, "verification_status": "pending",
+            "bank_name": "Mandiri", "account_number": "1122334455", "account_holder": "Bapak Yosua",
+            "doc_ktp": "seeded-ktp.jpg", "doc_nib": "seeded-nib.pdf",
+            "doc_npwp": "seeded-npwp.pdf", "doc_surat_usaha": "seeded-surat.pdf",
+            "doc_toko": "seeded-toko.jpg",
+            "docs": demo_docs_fresh,
+            "revision_count": 0,
+            "chat_closed": False,
             "docs_submitted_at": now_utc().isoformat(),
             "created_at": now_utc().isoformat(),
         })
@@ -1158,6 +1319,103 @@ async def seed_all():
 @api.post("/seed")
 async def do_seed():
     await seed_all()
+    return {"ok": True}
+
+
+# ============================================================
+# CHAT (Owner ↔ Admin, per-shop thread)
+# ============================================================
+async def _shop_access(shop_id: str, user: dict):
+    shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0})
+    if not shop:
+        raise HTTPException(404, "Toko tidak ditemukan")
+    if user["role"] == "admin":
+        return shop
+    if user["role"] == "owner" and shop["owner_id"] == user["id"]:
+        return shop
+    raise HTTPException(403, "Akses ditolak")
+
+
+@api.get("/chat/threads")
+async def list_threads(user=Depends(get_current_user)):
+    if user["role"] == "admin":
+        shops = await db.barbershops.find({}, {"_id": 0}).to_list(500)
+    elif user["role"] == "owner":
+        shops = await db.barbershops.find({"owner_id": user["id"]}, {"_id": 0}).to_list(50)
+    else:
+        raise HTTPException(403, "Hanya owner & admin")
+    result = []
+    for s in shops:
+        unread = await db.chat_messages.count_documents({"shop_id": s["id"], "sender_id": {"$ne": user["id"]}, "is_read": False})
+        last = await db.chat_messages.find({"shop_id": s["id"]}, {"_id": 0}).sort("created_at", -1).limit(1).to_list(1)
+        result.append({
+            "shop_id": s["id"], "shop_name": s["name"], "shop_image": s.get("image", ""),
+            "owner_id": s["owner_id"], "verification_status": s.get("verification_status"),
+            "closed": s.get("chat_closed", False),
+            "unread": unread,
+            "last_message": last[0] if last else None,
+        })
+    result.sort(key=lambda x: (x["last_message"] or {}).get("created_at", ""), reverse=True)
+    return {"threads": result}
+
+
+@api.get("/chat/threads/{shop_id}")
+async def get_thread(shop_id: str, user=Depends(get_current_user)):
+    shop = await _shop_access(shop_id, user)
+    msgs = await db.chat_messages.find({"shop_id": shop_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    # enrich sender name
+    for m in msgs:
+        p = await db.profiles.find_one({"id": m["sender_id"]}, {"_id": 0, "name": 1, "role": 1})
+        m["sender_name"] = p["name"] if p else "?"
+    return {"shop": {"id": shop["id"], "name": shop["name"], "image": shop.get("image", ""), "closed": shop.get("chat_closed", False)}, "messages": msgs}
+
+
+@api.post("/chat/threads/{shop_id}/messages")
+async def send_msg(shop_id: str, body: ChatSendIn, user=Depends(get_current_user)):
+    shop = await _shop_access(shop_id, user)
+    if shop.get("chat_closed"):
+        raise HTTPException(400, "Percakapan telah ditutup")
+    if not body.text and not body.attachment:
+        raise HTTPException(400, "Pesan atau lampiran wajib diisi")
+    if body.attachment and len(body.attachment) > 2_800_000:
+        raise HTTPException(400, "Lampiran melebihi 2MB")
+    msg = {
+        "id": new_id(),
+        "shop_id": shop_id,
+        "sender_id": user["id"],
+        "sender_role": user["role"],
+        "text": body.text or "",
+        "attachment": body.attachment or "",
+        "doc_ref": body.doc_ref or "",
+        "is_read": False,
+        "created_at": now_utc().isoformat(),
+    }
+    await db.chat_messages.insert_one(msg)
+    # notify other side
+    if user["role"] == "owner":
+        admins = await db.profiles.find({"role": "admin"}, {"_id": 0, "id": 1}).to_list(50)
+        for a in admins:
+            await send_notif(a["id"], "Pesan baru dari owner", f"{shop['name']}: {body.text or '📎 Lampiran'}", "system")
+    else:
+        await send_notif(shop["owner_id"], "Pesan baru dari admin", body.text or "📎 Lampiran", "system")
+    m = dict(msg); m.pop("_id", None); m["sender_name"] = user["name"]
+    return {"message": m}
+
+
+@api.post("/chat/threads/{shop_id}/read")
+async def mark_thread_read(shop_id: str, user=Depends(get_current_user)):
+    await _shop_access(shop_id, user)
+    await db.chat_messages.update_many({"shop_id": shop_id, "sender_id": {"$ne": user["id"]}}, {"$set": {"is_read": True}})
+    return {"ok": True}
+
+
+@api.post("/chat/threads/{shop_id}/close")
+async def close_thread(shop_id: str, user=Depends(require_role("admin"))):
+    shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0})
+    if not shop:
+        raise HTTPException(404, "Toko tidak ditemukan")
+    await db.barbershops.update_one({"id": shop_id}, {"$set": {"chat_closed": True}})
+    await send_notif(shop["owner_id"], "Percakapan ditutup", "Admin telah menutup percakapan verifikasi.", "system")
     return {"ok": True}
 
 

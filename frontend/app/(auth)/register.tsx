@@ -26,7 +26,7 @@ export default function Register() {
   const [shopForm, setShopForm] = useState({
     name: "", address: "", price_range: "Rp 25.000 - Rp 75.000",
     bank_name: "", account_number: "", account_holder: "",
-    doc_ktp: "", doc_nib: "", doc_npwp: "", doc_surat_usaha: "",
+    doc_ktp: "", doc_nib: "", doc_npwp: "", doc_surat_usaha: "", doc_toko: "",
   });
   const [karyawanForm, setKaryawanForm] = useState({
     portfolio_url: "", work_experience: "", certificates: "",
@@ -56,8 +56,8 @@ export default function Register() {
   };
   const validOwner = () => {
     if (!shopForm.name || !shopForm.address) return "Nama & alamat toko wajib diisi";
-    if (!shopForm.doc_ktp || !shopForm.doc_nib || !shopForm.doc_npwp || !shopForm.doc_surat_usaha)
-      return "Keempat dokumen legal wajib di-upload";
+    if (!shopForm.doc_ktp || !shopForm.doc_nib || !shopForm.doc_npwp || !shopForm.doc_surat_usaha || !shopForm.doc_toko)
+      return "Kelima dokumen wajib di-upload (KTP, NIB, NPWP, Surat Usaha, Foto Toko)";
     return null;
   };
   const validKaryawan = () => {
@@ -86,7 +86,7 @@ export default function Register() {
           latitude: -10.1789 + (Math.random() - 0.5) * 0.05, longitude: 123.607 + (Math.random() - 0.5) * 0.05,
           image: "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=800",
           bank_name: shopForm.bank_name, account_number: shopForm.account_number, account_holder: shopForm.account_holder,
-          doc_ktp: shopForm.doc_ktp, doc_nib: shopForm.doc_nib, doc_npwp: shopForm.doc_npwp, doc_surat_usaha: shopForm.doc_surat_usaha,
+          doc_ktp: shopForm.doc_ktp, doc_nib: shopForm.doc_nib, doc_npwp: shopForm.doc_npwp, doc_surat_usaha: shopForm.doc_surat_usaha, doc_toko: shopForm.doc_toko,
         });
         router.replace("/(owner)/dashboard");
       } else if (u.role === "karyawan") {
@@ -187,11 +187,12 @@ export default function Register() {
 
                 <View style={styles.divider} />
                 <Text style={styles.sectionLabel}>DOKUMEN LEGAL (WAJIB)</Text>
-                <Text style={styles.hint}>Upload keempat dokumen dalam format gambar. Admin akan memverifikasi manual.</Text>
+                <Text style={styles.hint}>Upload kelima dokumen dalam format gambar JPG/PNG (maks 2MB). Admin akan memverifikasi setiap dokumen satu per satu.</Text>
                 <DocPicker label="KTP Pemilik" testID="doc-ktp" value={shopForm.doc_ktp} onPick={() => pickDoc((v) => setShopForm({ ...shopForm, doc_ktp: v }))} />
                 <DocPicker label="NIB (Nomor Induk Berusaha)" testID="doc-nib" value={shopForm.doc_nib} onPick={() => pickDoc((v) => setShopForm({ ...shopForm, doc_nib: v }))} />
                 <DocPicker label="NPWP" testID="doc-npwp" value={shopForm.doc_npwp} onPick={() => pickDoc((v) => setShopForm({ ...shopForm, doc_npwp: v }))} />
                 <DocPicker label="Surat Izin Usaha" testID="doc-surat" value={shopForm.doc_surat_usaha} onPick={() => pickDoc((v) => setShopForm({ ...shopForm, doc_surat_usaha: v }))} />
+                <DocPicker label="Foto Toko (tampak depan)" testID="doc-toko" value={shopForm.doc_toko} onPick={() => pickDoc((v) => setShopForm({ ...shopForm, doc_toko: v }))} />
 
                 {err && <ErrorMsg msg={err} />}
                 <GradientButton testID="reg-submit-owner" label="KIRIM PENGAJUAN" icon="checkmark-circle" onPress={submitOwner} loading={loading} />
