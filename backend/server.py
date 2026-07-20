@@ -268,10 +268,7 @@ DAY_NAMES = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 
 async def compute_available_slots(shop_id: str, barber_id: str, date_str: str, service_duration: int):
     d = datetime.strptime(date_str, "%Y-%m-%d").date()
-    day_name = DAY_NAMES[d.weekday() + 1 if d.weekday() < 6 else 0] if False else DAY_NAMES[(d.weekday() + 1) % 7]
-    # weekday: Mon=0..Sun=6 ; DAY_NAMES index 0=Minggu
-    # Map: Sun(6)->0, Mon(0)->1 ...
-    wd = d.weekday()
+    wd = d.weekday()  # Mon=0..Sun=6
     day_name = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][wd]
     sched = await db.shop_schedules.find_one({"shop_id": shop_id, "day_name": day_name}, {"_id": 0})
     if not sched or sched.get("is_closed"):
