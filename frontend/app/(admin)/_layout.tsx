@@ -1,12 +1,14 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { COLORS } from "@/src/lib/api";
+import { COLORS, FONT } from "@/src/lib/api";
 export default function AdminLayout() {
   return (
     <Tabs screenOptions={{
-      headerShown: false, tabBarActiveTintColor: COLORS.brand, tabBarInactiveTintColor: COLORS.textDim,
-      tabBarStyle: { backgroundColor: COLORS.surface, borderTopColor: COLORS.border, borderTopWidth: 1, height: 64, paddingBottom: 8, paddingTop: 8 },
-      tabBarLabelStyle: { fontSize: 11, fontWeight: "700" },
+      headerShown: false,
+      tabBarActiveTintColor: "#FFFFFF",
+      tabBarInactiveTintColor: COLORS.sidebarTextDim,
+      tabBarStyle: { backgroundColor: COLORS.sidebar, borderTopColor: COLORS.sidebarSurface, borderTopWidth: 1, height: 72, paddingBottom: 12, paddingTop: 10 },
+      tabBarLabelStyle: { fontSize: 11, fontFamily: FONT.semibold, marginTop: 2 },
     }}>
       <Tabs.Screen name="dashboard" options={{ title: "Dashboard", tabBarIcon: ({ color, size }) => <Ionicons name="grid" color={color} size={size} /> }} />
       <Tabs.Screen name="verification" options={{ title: "Verifikasi", tabBarIcon: ({ color, size }) => <Ionicons name="shield-checkmark" color={color} size={size} /> }} />

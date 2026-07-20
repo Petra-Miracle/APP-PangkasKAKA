@@ -40,10 +40,36 @@ export const tanggal = (s: string) => {
 export const formatJarak = (km: number | null) =>
   km == null ? "-" : km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1).replace(".", ",")} km`;
 
+// Electric Blue Theme — Hackathon PIDI.id
 export const COLORS = {
-  bg: "#121212", surface: "#1E1E1E", surface2: "#292929",
-  text: "#F5F5F5", textDim: "#A3A3A3", textMuted: "#D4D4D4",
-  brand: "#FF5722", brandDim: "#4E2112", brandLight: "#FF8A65",
-  success: "#00BFA5", warning: "#FFC107", error: "#D32F2F",
-  border: "#333333", borderStrong: "#4D4D4D",
+  bg: "#F9F9FA",           // main background (light gray)
+  surface: "#FFFFFF",       // card white
+  surface2: "#F3F3F4",      // soft container / input bg
+  text: "#0A2540",          // dark navy — primary text
+  textDim: "#6B7C8F",       // muted body
+  textMuted: "#2D3F55",     // secondary
+  brand: "#006FEE",         // electric blue
+  brandDim: "#E6F0FF",      // brand tint background
+  brandLight: "#3B8CFF",    // brand lighter for accents/links
+  success: "#00B27A",
+  warning: "#F5A524",
+  info: "#0EA5E9",
+  error: "#DC2626",
+  border: "#E5E7EB",
+  borderStrong: "#D1D5DB",
+  textInverse: "#FFFFFF",   // text on brand button
+  sidebar: "#0A2540",       // dark navy for owner/admin nav
+  sidebarSurface: "#0F2E4F",// slightly lighter navy
+  sidebarText: "#FFFFFF",
+  sidebarTextDim: "#8FA5BF",
+  shadow: "rgba(10, 37, 64, 0.08)",
+};
+
+// Plus Jakarta Sans font stack
+export const FONT = {
+  regular: "PlusJakartaSans-Regular",
+  medium: "PlusJakartaSans-Medium",
+  semibold: "PlusJakartaSans-SemiBold",
+  bold: "PlusJakartaSans-Bold",
+  extrabold: "PlusJakartaSans-ExtraBold",
 };
