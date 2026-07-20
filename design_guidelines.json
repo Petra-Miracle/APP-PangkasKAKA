@@ -1,0 +1,166 @@
+{
+  "app_name": "PangkasKAKA",
+  "personality": "7 Dark-First Utility DARK",
+  "personality_one_liner": "A sleek, command-center experience optimized for fast scanning, precise bookings, and rugged masculine grooming, anchored by Kupang-inspired warm sandalwood accents.",
+  "color": {
+    "surface": "#121212",
+    "onSurface": "#F5F5F5",
+    "surfaceSecondary": "#1E1E1E",
+    "onSurfaceSecondary": "#D4D4D4",
+    "surfaceTertiary": "#292929",
+    "onSurfaceTertiary": "#A3A3A3",
+    "surfaceInverse": "#FAFAFA",
+    "onSurfaceInverse": "#121212",
+    "brand": "#D84315",
+    "brandPrimary": "#FF5722",
+    "onBrandPrimary": "#121212",
+    "brandSecondary": "#FF8A65",
+    "onBrandSecondary": "#121212",
+    "brandTertiary": "#4E2112",
+    "onBrandTertiary": "#FF8A65",
+    "success": "#00BFA5",
+    "onSuccess": "#00332C",
+    "warning": "#FFC107",
+    "onWarning": "#332601",
+    "error": "#D32F2F",
+    "onError": "#4A0F0F",
+    "info": "#455A64",
+    "onInfo": "#ECEFF1",
+    "border": "#333333",
+    "borderStrong": "#4D4D4D",
+    "divider": "#292929"
+  },
+  "typography": {
+    "displayFontFamily": "Barlow Condensed",
+    "textFontFamily": "DM Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Dense and tactical. Use dividers and tonal separation over heavy shadows. Maintain strict grid alignment.",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 4,
+    "md": 8,
+    "lg": 12,
+    "pill": 999
+  },
+  "shadow_tier": "0",
+  "navigation": "bottom_tabs",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": false,
+    "do's": [
+      "Use solid surfaceSecondary and surfaceTertiary with clear borders for layering."
+    ],
+    "dont's": [
+      "No blur or glassmorphism. This app requires performance-first, sweat-proof, operational clarity."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "solid surfaceSecondary",
+      "android": "solid surfaceSecondary",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Customer - Home (GPS Discovery)",
+      "purpose": "Discover nearest barbershops via Haversine sorting with a prominent CTA for AI Hairstyle Recommendation.",
+      "states": {
+        "loading": "Dark skeleton cards with subtle pulse, skeleton map placeholder.",
+        "empty": "Phosphor MapPin icon + 'No barbershops found nearby in Kupang' + 'Refresh Location' brand CTA.",
+        "error": "Error reading GPS. Retry button."
+      },
+      "layout": "Sticky top search/filter row. AI Face Scan CTA floats above the list as a brandTertiary tinted banner with a face-scan illustration. Main content is a vertical list of barbershop cards (distance prominently displayed in Barlow Condensed). Thumb zone contains the bottom tabs."
+    },
+    {
+      "name": "Customer - AI Face Scan & Recommendation",
+      "purpose": "Analyze face shape via camera/upload and present instant, explainable hairstyle recommendations.",
+      "states": {
+        "loading": "Bounding box pulsing with 'Analyzing facial landmarks...' text. <1s delay.",
+        "empty": "Face not detected prompt. Single sentence warning (e.g., 'Move to even lighting').",
+        "error": "Camera permission denied + 'Open Settings' button."
+      },
+      "layout": "Minimalist capture screen with real-time bounding box and tilt guards. Instant results dashboard: visually distinct 'Detected Shape: Oval' (with explanation 'Why?'), followed by horizontal scroll of recommended hairstyles using large image cards and 'Book This Style' CTA."
+    },
+    {
+      "name": "Customer - 4-Step Booking & QRIS Payment",
+      "purpose": "Streamlined booking flow culminating in a time-sensitive QRIS payment.",
+      "states": {
+        "loading": "Loading slots or generating QR code...",
+        "empty": "No slots available for selected date.",
+        "error": "Payment timeout or network failure."
+      },
+      "layout": "Progress indicator at the top. Split panels for shop/service/barber selection. Time slots displayed in dense, tactical grid (pill controls). Payment screen features a massive, oversized countdown timer (Bebas/Barlow Condensed) dominating the top half, with the QRIS code cleanly contained in a surfaceInverse container for scanability."
+    },
+    {
+      "name": "Owner - Dashboard & Realtime Orders",
+      "purpose": "Command center for barbershop owners to view stats, manage incoming orders, and track employee evaluation.",
+      "states": {
+        "loading": "Skeleton metrics grid.",
+        "empty": "Zero orders today. 'Wait for incoming bookings'.",
+        "error": "Failed to fetch realtime data."
+      },
+      "layout": "Operational dashboard. Oversized metrics for 'Today's Orders' and 'Revenue' in Barlow Condensed. Persistent status visibility. Real-time incoming orders arrive as high-contrast notification toasts at the top. Sectioned layout for managing Barber/Service/Schedule CRUD."
+    },
+    {
+      "name": "Admin - Verification & Monitoring",
+      "purpose": "Data-dense operational table for verifying KTP/NIB/NPWP and suspending non-compliant shops.",
+      "states": {
+        "loading": "Table skeleton.",
+        "empty": "No pending verifications.",
+        "error": "Database sync error."
+      },
+      "layout": "Desktop-like density optimized for mobile. Stacked modules, sticky filter rows, and split panels. Status badges (Pending, Verified, Suspended) use strict status colors. Quick-action swipe rows for mass-cancel or approve."
+    }
+  ],
+  "images": {
+    "hero_barbershop": {
+      "url": "https://images.unsplash.com/photo-1621645582931-d1d3e6564943?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzOTB8MHwxfHNlYXJjaHwyfHxwcmVtaXVtJTIwYmFyYmVyc2hvcCUyMGludGVyaW9yfGVufDB8fHx8MTc4NDU0NjI1Mnww&ixlib=rb-4.1.0&q=85",
+      "alt": "premium black and silver barber chair in industrial interior"
+    },
+    "barber_working": {
+      "url": "https://images.unsplash.com/photo-1605497788044-5a32c7078486?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHxtYW4lMjBnZXR0aW5nJTIwYSUyMGhhaXJjdXR8ZW58MHx8fHwxNzg0NTQ2MjUyfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "Barber cutting customer's hair"
+    },
+    "ai_face_scan": {
+      "url": "https://images.pexels.com/photos/8090294/pexels-photo-8090294.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "alt": "Conceptual portrait with red laser scanning for facial recognition"
+    }
+  },
+  "haptics": {
+    "primary_button_press": "impactLight",
+    "tab_change": "selection",
+    "qris_timeout_warning": "notificationWarning",
+    "order_confirmed": "notificationSuccess",
+    "realtime_new_order": "impactHeavy"
+  },
+  "instructions_to_main_agent": [
+    "Strictly follow the Dark-First Utility DARK guidelines. Do not use blur or glassmorphism; this is a rugged, fast-scanning operational app.",
+    "Implement the UI using a deep obsidian background (#121212) with high-contrast Terracotta/Amber (#FF5722) accents. Do NOT use any blue, purple, or indigo.",
+    "Ensure the QRIS payment screen utilizes Barlow Condensed for a massive, aggressive countdown timer, mimicking sports/tactical operational UI.",
+    "For the AI Face Scan UI, implement a clear bounding box with a tilt/rotation guard UI. Use short, single-sentence guidance text like 'Move to even lighting'.",
+    "Owner and Admin dashboards must be dense, utilizing 'sm' radius and 'sm'/'md' spacing to maximize data visibility without scrolling.",
+    "Ensure all lists of real entities (Barbershops, Karyawan) prefer real photo avatars or logos; fallback to initials inside a brandTertiary tinted circle.",
+    "Text overlaid on images must use a mandatory vertical linear gradient scrim (0% to >70% surfaceInverse) to guarantee contrast."
+  ]
+}
