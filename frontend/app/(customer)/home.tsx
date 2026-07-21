@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
-import { api, COLORS, FONT, formatJarak } from "@/src/lib/api";
+import { api, COLORS, FONT, formatJarak, rupiah, tanggal } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 
 type Shop = { id: string; name: string; image: string; address: string; rating: number; reviews_count: number; price_range: string; distance_km: number | null; is_verified: boolean };
@@ -25,12 +25,14 @@ export default function Home() {
   const [sort, setSort] = useState("terdekat");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [search, setSearch] = useState("");
+  const [analytics, setAnalytics] = useState<any>(null);
 
   const loadShops = useCallback(async (s: string, c: { lat: number; lng: number } | null) => {
     let url = `/shops?sort=${s}`;
     if (c) url += `&lat=${c.lat}&lng=${c.lng}`;
     const res = await api.get(url);
     setShops(res.shops);
+    try { const a = await api.get("/analytics/customer"); setAnalytics(a); } catch {}
   }, []);
 
   const init = useCallback(async () => {
@@ -95,6 +97,38 @@ export default function Home() {
               </View>
               <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
             </Pressable>
+
+            {analytics?.active_booking ? (
+              <Pressable style={styles.activeCard} onPress={() => router.push("/(customer)/orders")} testID="active-booking-card">
+                <View style={styles.activeHead}>
+                  <Text style={styles.activeLabel}>BOOKING AKTIF</Text>
+                  <View style={styles.countdownPill}>
+                    <Ionicons name="time" size={12} color="#FFFFFF" />
+                    <Text style={styles.countdownText}>
+                      {analytics.active_booking.days_until > 0 ? `${analytics.active_booking.days_until} hari lagi` :
+                       analytics.active_booking.hours_until > 0 ? `${analytics.active_booking.hours_until} jam lagi` : "Segera"}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.activeShop} numberOfLines={1}>{analytics.active_booking.shop?.name}</Text>
+                <Text style={styles.activeMeta}>{analytics.active_booking.service?.name} · {analytics.active_booking.booking_time} WITA</Text>
+                <View style={styles.trackerRow}>
+                  {["Menunggu Bayar", "Terkonfirmasi", "Selesai"].map((step, i) => {
+                    const st = analytics.active_booking.status;
+                    const activeIdx = st === "pending" ? 0 : st === "confirmed" ? 1 : st === "completed" ? 2 : 0;
+                    const done = i <= activeIdx;
+                    return (
+                      <View key={step} style={styles.trackerStep}>
+                        <View style={[styles.trackerDot, done && { backgroundColor: "#FFFFFF" }]}>
+                          {done && <Ionicons name="checkmark" size={10} color={COLORS.brand} />}
+                        </View>
+                        <Text style={[styles.trackerLabel, done && { color: "#FFFFFF", fontFamily: FONT.bold }]}>{step}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              </Pressable>
+            ) : null}
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ maxHeight: 56, marginTop: 16 }}>
               {FILTERS.map((f) => (
@@ -180,4 +214,15 @@ const styles = StyleSheet.create({
   rateText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
   rateCount: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.medium },
   price: { color: COLORS.brand, fontSize: 12, fontFamily: FONT.bold },
+  activeCard: { backgroundColor: COLORS.brand, borderRadius: 16, padding: 16, marginTop: 12, shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 16, elevation: 6 },
+  activeHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  activeLabel: { color: "rgba(255,255,255,0.85)", fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.8 },
+  countdownPill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.2)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  countdownText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 11 },
+  activeShop: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 18, marginTop: 8 },
+  activeMeta: { color: "rgba(255,255,255,0.9)", fontFamily: FONT.medium, fontSize: 12, marginTop: 2 },
+  trackerRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 14, gap: 6 },
+  trackerStep: { flex: 1, alignItems: "center", gap: 4 },
+  trackerDot: { width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(255,255,255,0.25)", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "rgba(255,255,255,0.5)" },
+  trackerLabel: { color: "rgba(255,255,255,0.7)", fontSize: 10, fontFamily: FONT.semibold },
 });

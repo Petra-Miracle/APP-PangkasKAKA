@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal, Linking, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -52,13 +52,48 @@ export default function ShopDetail() {
     setCreating(true);
     try {
       const r = await api.post("/bookings", { shop_id: id, barber_id: barber.id, service_id: service.id, booking_date: date, booking_time: slotTime });
-      setPayModal(r.booking);
+      const bookingId = r.booking.id;
+      // Cek mode pembayaran
+      let mode = "simulation";
+      try { const m = await api.get("/payments/mode"); mode = m.mode || "simulation"; } catch {}
+
+      if (mode === "simulation") {
+        // Tampilkan modal QRIS mock (demo mode)
+        setPayModal({ ...r.booking, mode });
+      } else {
+        // Sandbox / production: buat payment link Durianpay
+        try {
+          const p = await api.post(`/payments/create/${bookingId}`);
+          if (p?.payment_link_url) {
+            // Redirect ke status screen, dan buka payment link di browser eksternal
+            router.replace(`/payment/status/${bookingId}?url=${encodeURIComponent(p.payment_link_url)}`);
+            try { await Linking.openURL(p.payment_link_url); } catch {}
+          } else {
+            Alert.alert("Pembayaran", "Gagal membuat link pembayaran, silakan coba lagi");
+          }
+        } catch (e: any) {
+          Alert.alert("Pembayaran", e.message || "Gagal membuat link pembayaran, silakan coba lagi");
+        }
+      }
     } catch (e: any) { alert(e.message); } finally { setCreating(false); }
   };
 
   const doPay = async () => {
-    try { await api.post(`/bookings/${payModal.id}/pay`); setPayModal(null); router.replace("/(customer)/orders"); }
-    catch (e: any) { alert(e.message); }
+    // Mode simulasi: langsung tandai sukses via endpoint /simulate/
+    try {
+      await api.post(`/payments/simulate/${payModal.id}`);
+      setPayModal(null);
+      router.replace(`/payment/status/${payModal.id}`);
+    } catch (e: any) {
+      // Fallback ke endpoint lama bila simulate tidak aktif
+      try {
+        await api.post(`/bookings/${payModal.id}/pay`);
+        setPayModal(null);
+        router.replace(`/payment/status/${payModal.id}`);
+      } catch (err: any) {
+        alert(err.message);
+      }
+    }
   };
 
   if (loading || !shop) return <SafeAreaView style={styles.safe}><ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} /></SafeAreaView>;

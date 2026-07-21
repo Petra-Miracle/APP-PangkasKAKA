@@ -5,6 +5,9 @@ On-demand barbershop booking platform for Kupang City, Indonesia
 import os
 import math
 import uuid
+import json
+import hmac
+import hashlib
 import base64
 import logging
 import asyncio
@@ -13,13 +16,23 @@ from datetime import datetime, timedelta, timezone, date, time as dtime
 from typing import List, Optional, Any, Literal
 
 import bcrypt
+import httpx
 import jwt as pyjwt
 from dotenv import load_dotenv
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Body
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Body, Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr
+
+# Cryptography (Durianpay webhook RSA-2048 verification)
+try:
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding as _crypto_padding
+    from cryptography.exceptions import InvalidSignature
+    _HAS_CRYPTO = True
+except Exception:  # pragma: no cover
+    _HAS_CRYPTO = False
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -30,6 +43,20 @@ JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGO = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", 168))
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+
+# ---------- Durianpay Configuration ----------
+# PAYMENT_MODE:
+#   - "simulation"  → gunakan endpoint /simulate/{booking_id} (mock lokal, TIDAK panggil Durianpay)
+#   - "sandbox"     → panggil Durianpay sandbox API (dp_test_ key)
+#   - "production"  → panggil Durianpay production API (dp_live_ key) → GANTI SAAT GO-LIVE
+PAYMENT_MODE = os.environ.get("PAYMENT_MODE", "simulation").lower()
+DURIANPAY_API_KEY = os.environ.get("DURIANPAY_API_KEY", "")
+DURIANPAY_API_BASE = os.environ.get("DURIANPAY_API_BASE", "https://api.durianpay.id/v1")
+DURIANPAY_PAYMENT_LINK_BASE = os.environ.get("DURIANPAY_PAYMENT_LINK_BASE", "https://links.durianpay.id/payment")
+# Public key PEM dari Durianpay Dashboard → Settings → Webhook (RSA-2048)
+DURIANPAY_PUBLIC_KEY_PEM = os.environ.get("DURIANPAY_PUBLIC_KEY_PEM", "").replace("\\n", "\n")
+# Opsional: HMAC secret untuk verifikasi tambahan (legacy webhook / signature payment fallback)
+DURIANPAY_WEBHOOK_SECRET = os.environ.get("DURIANPAY_WEBHOOK_SECRET", "")
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -1422,6 +1449,657 @@ async def close_thread(shop_id: str, user=Depends(require_role("admin"))):
 @api.get("/")
 async def root():
     return {"app": "PangkasKAKA", "status": "ok"}
+
+
+# ============================================================
+# ANALYTICS
+# ============================================================
+def _kec_from_addr(addr: str) -> str:
+    a = (addr or "").lower()
+    for k in ["oebobo", "kelapa lima", "maulafa", "kota raja", "oesapa"]:
+        if k in a: return k.title()
+    return "Lainnya"
+
+
+@api.get("/analytics/owner")
+async def analytics_owner(user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0})
+    if not shop:
+        return {"shop": None}
+    sid = shop["id"]
+    now = datetime.now(WITA)
+    today = now.date().isoformat()
+    week_ago = (now - timedelta(days=7)).isoformat()
+    prev_week = (now - timedelta(days=14)).isoformat()
+
+    # total bookings this month + growth (7d vs prev 7d)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    total_month = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": month_start}})
+    last_7 = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": week_ago}})
+    prev_7 = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": prev_week, "$lt": week_ago}})
+    growth = 0.0
+    if prev_7 > 0: growth = round((last_7 - prev_7) / prev_7 * 100, 1)
+    elif last_7 > 0: growth = 100.0
+
+    # today's fill %
+    today_bookings = await db.bookings.count_documents({"shop_id": sid, "booking_date": today, "status": {"$ne": "cancelled"}})
+    active_barbers = await db.barbers.count_documents({"shop_id": sid, "status": "active"})
+    wd = now.weekday()
+    day_name = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][wd]
+    sched = await db.shop_schedules.find_one({"shop_id": sid, "day_name": day_name})
+    total_slots = 0
+    if sched and not sched.get("is_closed"):
+        slots = gen_time_slots(sched["open_time"], sched["close_time"], 30)
+        total_slots = len(slots) * max(active_barbers, 1)
+    fill_pct = round((today_bookings / total_slots) * 100) if total_slots else 0
+
+    # retention (90 days)
+    d90_ago = (now - timedelta(days=90)).isoformat()
+    b90 = await db.bookings.find({"shop_id": sid, "created_at": {"$gte": d90_ago}, "status": {"$ne": "cancelled"}}, {"_id": 0, "user_id": 1}).to_list(5000)
+    counts: dict = {}
+    for b in b90:
+        counts[b["user_id"]] = counts.get(b["user_id"], 0) + 1
+    unique_customers = len(counts)
+    returning = sum(1 for v in counts.values() if v > 1)
+    retention = round((returning / unique_customers) * 100) if unique_customers else 0
+
+    # productivity (90 days)
+    scheds = await db.shop_schedules.find({"shop_id": sid}).to_list(20)
+    total_daily_slots = 0
+    for s in scheds:
+        if s.get("is_closed"): continue
+        total_daily_slots += len(gen_time_slots(s["open_time"], s["close_time"], 30))
+    total_avail_90 = total_daily_slots * (90 / 7) * max(active_barbers, 1)
+    prod = round((len(b90) / total_avail_90) * 100) if total_avail_90 else 0
+    prod = min(100, prod)
+
+    # popular services (donut)
+    ball = await db.bookings.find({"shop_id": sid}, {"_id": 0, "service_id": 1}).to_list(5000)
+    svc_counts: dict = {}
+    for b in ball:
+        svc_counts[b["service_id"]] = svc_counts.get(b["service_id"], 0) + 1
+    services = await db.services.find({"shop_id": sid}, {"_id": 0}).to_list(200)
+    svc_names = {s["id"]: s["name"] for s in services}
+    total_all = sum(svc_counts.values()) or 1
+    donut = sorted([{"name": svc_names.get(sid_, "Lainnya"), "count": c, "pct": round(c / total_all * 100)} for sid_, c in svc_counts.items()], key=lambda x: -x["count"])[:5]
+
+    return {
+        "shop": shop,
+        "total_bookings_month": total_month,
+        "growth_pct": growth,
+        "today_appointments": today_bookings,
+        "today_total_slots": total_slots,
+        "today_fill_pct": fill_pct,
+        "retention_pct": retention,
+        "productivity_pct": prod,
+        "popular_services": donut,
+    }
+
+
+@api.get("/analytics/owner/appointments")
+async def owner_appointments(date: str, user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop: return {"appointments": []}
+    rows = await db.bookings.find({"shop_id": shop["id"], "booking_date": date}, {"_id": 0}).sort("booking_time", 1).to_list(500)
+    for r in rows:
+        u = await db.profiles.find_one({"id": r["user_id"]}, {"_id": 0, "name": 1, "phone": 1, "photo": 1})
+        sv = await db.services.find_one({"id": r["service_id"]}, {"_id": 0, "name": 1, "duration": 1, "price": 1})
+        br = await db.barbers.find_one({"id": r["barber_id"]}, {"_id": 0, "name": 1, "photo": 1})
+        r["customer"] = u
+        r["service"] = sv
+        r["barber"] = br
+    return {"appointments": rows}
+
+
+@api.get("/analytics/admin")
+async def analytics_admin(user=Depends(require_role("admin"))):
+    now = datetime.now(WITA)
+    total_shops = await db.barbershops.count_documents({})
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    new_shops = await db.barbershops.count_documents({"created_at": {"$gte": month_start}})
+    pending = await db.barbershops.count_documents({"verification_status": "pending"})
+    customers = await db.profiles.count_documents({"role": "customer"})
+    week_ago = (now - timedelta(days=7)).isoformat()
+    prev_week = (now - timedelta(days=14)).isoformat()
+    new_cust_week = await db.profiles.count_documents({"role": "customer", "created_at": {"$gte": week_ago}})
+    prev_cust_week = await db.profiles.count_documents({"role": "customer", "created_at": {"$gte": prev_week, "$lt": week_ago}})
+    cust_growth = round(((new_cust_week - prev_cust_week) / prev_cust_week) * 100, 1) if prev_cust_week else (100.0 if new_cust_week else 0.0)
+
+    today = now.date().isoformat()
+    yesterday = (now - timedelta(days=1)).date().isoformat()
+    today_paid = await db.bookings.find({"payment_status": "paid", "booking_date": today}, {"_id": 0, "total_price": 1}).to_list(5000)
+    yst_paid = await db.bookings.find({"payment_status": "paid", "booking_date": yesterday}, {"_id": 0, "total_price": 1}).to_list(5000)
+    today_rev = sum(b["total_price"] for b in today_paid)
+    yst_rev = sum(b["total_price"] for b in yst_paid)
+    rev_growth = round(((today_rev - yst_rev) / yst_rev) * 100, 1) if yst_rev else (100.0 if today_rev else 0.0)
+
+    # avg rating + warning shops
+    shops = await db.barbershops.find({"is_verified": True}, {"_id": 0}).to_list(1000)
+    ratings = [s.get("rating", 0) for s in shops if s.get("reviews_count", 0) > 0]
+    avg_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
+    warning_shops: list = []
+    for s in shops:
+        cur = s.get("rating", 0)
+        prev_field = s.get("rating_last_week", cur)
+        if prev_field - cur > 0.5:
+            warning_shops.append({"id": s["id"], "name": s["name"], "drop": round(prev_field - cur, 1), "current": cur})
+
+    # distribution by kecamatan (donut)
+    kec_counts: dict = {}
+    for s in shops:
+        k = _kec_from_addr(s.get("address", ""))
+        kec_counts[k] = kec_counts.get(k, 0) + 1
+    total = sum(kec_counts.values()) or 1
+    donut = [{"name": k, "count": v, "pct": round(v / total * 100)} for k, v in kec_counts.items()]
+    donut.sort(key=lambda x: -x["count"])
+
+    return {
+        "kpi": {
+            "total_shops": total_shops, "new_shops_month": new_shops,
+            "pending": pending,
+            "total_customers": customers, "customer_growth_pct": cust_growth,
+            "revenue_today": today_rev, "revenue_growth_pct": rev_growth,
+        },
+        "health": {"avg_rating": avg_rating, "warning_shops": warning_shops[:5]},
+        "distribution": donut,
+    }
+
+
+@api.get("/analytics/customer")
+async def analytics_customer(user=Depends(require_role("customer"))):
+    now = datetime.now(WITA)
+    year_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    bookings = await db.bookings.find({"user_id": user["id"]}, {"_id": 0}).to_list(1000)
+    completed = [b for b in bookings if b["status"] == "completed" and b["created_at"] >= year_start]
+    total_cuts_year = len(completed)
+
+    # active booking (next upcoming)
+    upcoming = [b for b in bookings if b["status"] in ("pending", "confirmed") and b["booking_date"] >= now.date().isoformat()]
+    upcoming.sort(key=lambda x: (x["booking_date"], x["booking_time"]))
+    active = None
+    if upcoming:
+        b = upcoming[0]
+        b["shop"] = await db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0, "name": 1, "image": 1, "address": 1})
+        b["service"] = await db.services.find_one({"id": b["service_id"]}, {"_id": 0, "name": 1})
+        # days until
+        try:
+            dt = datetime.strptime(f"{b['booking_date']} {b['booking_time']}", "%Y-%m-%d %H:%M").replace(tzinfo=WITA)
+            b["days_until"] = (dt - now).days
+            b["hours_until"] = int((dt - now).total_seconds() / 3600)
+        except: pass
+        active = b
+
+    # favorite shop
+    shop_counts: dict = {}
+    for b in completed:
+        shop_counts[b["shop_id"]] = shop_counts.get(b["shop_id"], 0) + 1
+    fav_shop = None
+    if shop_counts:
+        top = max(shop_counts, key=shop_counts.get)
+        fav_shop = await db.barbershops.find_one({"id": top}, {"_id": 0, "name": 1, "image": 1})
+        if fav_shop: fav_shop["visits"] = shop_counts[top]
+
+    # favorite barber
+    barber_counts: dict = {}
+    for b in completed:
+        barber_counts[b["barber_id"]] = barber_counts.get(b["barber_id"], 0) + 1
+    fav_barber = None
+    if barber_counts:
+        top = max(barber_counts, key=barber_counts.get)
+        fav_barber = await db.barbers.find_one({"id": top}, {"_id": 0, "name": 1, "photo": 1, "skill_level": 1})
+        if fav_barber: fav_barber["visits"] = barber_counts[top]
+
+    return {
+        "active_booking": active,
+        "total_cuts_year": total_cuts_year,
+        "fav_shop": fav_shop,
+        "fav_barber": fav_barber,
+    }
+
+
+
+# ==================== DURIANPAY PAYMENT GATEWAY ====================
+# Integrasi Payment Link API Durianpay dengan mode:
+#   • simulation → mock lokal untuk demo tanpa internet
+#   • sandbox    → panggil API Durianpay sandbox (dp_test_)
+#   • production → panggil API Durianpay production (dp_live_)  ← GANTI KEY SAAT GO-LIVE
+
+DURIANPAY_ERR_GENERIC = "Gagal membuat link pembayaran, silakan coba lagi"
+
+
+def _durianpay_basic_auth() -> str:
+    """Build Basic Auth header for Durianpay API. Format: base64(API_KEY + ':')."""
+    token = base64.b64encode(f"{DURIANPAY_API_KEY}:".encode()).decode()
+    return f"Basic {token}"
+
+
+def _expiry_rfc3339_wita(minutes: int = 15) -> str:
+    """Return RFC3339 timestamp WITA (UTC+8) N minutes from now."""
+    dt = datetime.now(WITA) + timedelta(minutes=minutes)
+    # Format: 2026-07-21T14:45:00+08:00
+    return dt.replace(microsecond=0).isoformat()
+
+
+def _verify_durianpay_webhook(raw_body: bytes, method: str, path: str,
+                              signature_b64: Optional[str], timestamp: Optional[str]) -> bool:
+    """
+    Verify Durianpay webhook using RSA-2048 (X-SIGNATURE + X-TIMESTAMP).
+    String to sign: {METHOD}:{PATH}:{sha256_hex(raw_body)}:{timestamp}
+    Falls back to HMAC-SHA256 verification if PUBLIC_KEY not configured but WEBHOOK_SECRET is set.
+    """
+    if not signature_b64 or not timestamp:
+        return False
+
+    digest_hex = hashlib.sha256(raw_body).hexdigest()
+    string_to_sign = f"{method}:{path}:{digest_hex}:{timestamp}"
+
+    # Prefer RSA verification (official Durianpay method)
+    if DURIANPAY_PUBLIC_KEY_PEM and _HAS_CRYPTO:
+        try:
+            pub_key = serialization.load_pem_public_key(DURIANPAY_PUBLIC_KEY_PEM.encode())
+            pub_key.verify(
+                base64.b64decode(signature_b64),
+                string_to_sign.encode(),
+                _crypto_padding.PKCS1v15(),
+                hashes.SHA256(),
+            )
+            return True
+        except (InvalidSignature, ValueError, Exception) as e:
+            log.warning("Durianpay RSA verify failed: %s", e)
+            return False
+
+    # Fallback: HMAC-SHA256 with shared secret (timing-safe compare)
+    if DURIANPAY_WEBHOOK_SECRET:
+        expected = hmac.new(
+            DURIANPAY_WEBHOOK_SECRET.encode(),
+            string_to_sign.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        try:
+            # signature may be hex or base64
+            given = signature_b64.strip()
+            return hmac.compare_digest(expected, given)
+        except Exception:
+            return False
+
+    # No verification key configured → reject in production, accept only in dev
+    log.error("Durianpay webhook verification skipped (no public key/HMAC secret configured)")
+    return False
+
+
+async def _load_booking_for_payment(booking_id: str, user: dict) -> dict:
+    """Validate ownership + status. Raises HTTPException on invalid state."""
+    b = await db.bookings.find_one({"id": booking_id, "user_id": user["id"]}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    if b["status"] != "pending" or b["payment_status"] != "unpaid":
+        raise HTTPException(400, "Pesanan ini tidak lagi menunggu pembayaran")
+    # expiry guard
+    try:
+        created = datetime.fromisoformat(b["created_at"])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+    except Exception:
+        created = now_utc()
+    if (now_utc() - created).total_seconds() > 15 * 60:
+        await db.bookings.update_one(
+            {"id": booking_id},
+            {"$set": {"status": "cancelled", "payment_status": "forfeited"}}
+        )
+        raise HTTPException(410, "Pembayaran kadaluarsa, silakan pesan ulang")
+    return b
+
+
+async def _mark_booking_paid(booking: dict, provider_ref: str, method: str = "durianpay"):
+    """Idempotent: update booking + payment, send notifications. Skips if already paid."""
+    bid = booking["id"]
+    fresh = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    if fresh and fresh.get("payment_status") == "paid":
+        return False  # already processed
+
+    await db.bookings.update_one(
+        {"id": bid},
+        {"$set": {"payment_status": "paid", "status": "confirmed",
+                  "paid_at": now_utc().isoformat()}}
+    )
+    await db.payments.update_one(
+        {"booking_id": bid},
+        {"$set": {"status": "success", "method": method,
+                  "provider_ref": provider_ref,
+                  "paid_at": now_utc().isoformat()}}
+    )
+    # Notify customer + owner
+    shop = await db.barbershops.find_one({"id": booking["shop_id"]}, {"_id": 0})
+    customer = await db.profiles.find_one({"id": booking["user_id"]}, {"_id": 0, "name": 1})
+    await send_notif(
+        booking["user_id"],
+        "Pembayaran berhasil",
+        f"Booking di {shop['name'] if shop else 'toko'} telah dikonfirmasi.",
+        "payment",
+    )
+    if shop:
+        await send_notif(
+            shop["owner_id"],
+            "Pesanan baru masuk!",
+            f"Pesanan baru masuk dari {customer['name'] if customer else 'customer'}.",
+            "booking",
+        )
+    return True
+
+
+# ---------- 1) CREATE PAYMENT LINK ----------
+@api.post("/payments/create/{booking_id}")
+async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
+    """
+    Buat Durianpay payment link untuk booking.
+    - Amount SELALU dari database (tidak menerima dari client)
+    - Expiry 15 menit
+    - Aktif hanya ketika PAYMENT_MODE ∈ {sandbox, production}
+    """
+    if PAYMENT_MODE == "simulation":
+        raise HTTPException(400, "Payment gateway sedang mode simulasi. Gunakan endpoint /payments/simulate/")
+
+    if not DURIANPAY_API_KEY:
+        log.error("DURIANPAY_API_KEY tidak dikonfigurasi")
+        raise HTTPException(500, DURIANPAY_ERR_GENERIC)
+
+    b = await _load_booking_for_payment(booking_id, user)
+
+    # Ambil customer info dari database
+    profile = await db.profiles.find_one({"id": user["id"]}, {"_id": 0})
+    given_name = (profile or {}).get("name") or "Customer"
+    email = (profile or {}).get("email") or "noreply@pangkaskaka.id"
+    mobile = (profile or {}).get("phone") or "0800000000"
+
+    # Reuse payment link jika masih valid (idempotent bila user klik ulang)
+    existing_pay = await db.payments.find_one({"booking_id": booking_id}, {"_id": 0})
+    if existing_pay and existing_pay.get("payment_link_url") and existing_pay.get("status") == "pending":
+        return {
+            "payment_link_url": existing_pay["payment_link_url"],
+            "transaction_id": existing_pay.get("transaction_id"),
+            "reused": True,
+        }
+
+    payload = {
+        "amount": str(int(b["total_price"])),
+        "currency": "IDR",
+        "payment_option": "full_payment",
+        "is_payment_link": True,
+        "order_ref_id": booking_id,
+        "expiry_date": _expiry_rfc3339_wita(15),
+        "customer": {
+            "customer_ref_id": user["id"],
+            "given_name": given_name,
+            "email": email,
+            "mobile": mobile,
+        },
+        "metadata": {
+            "app": "pangkaskaka",
+            "shop_id": b["shop_id"],
+            "booking_date": b["booking_date"],
+            "booking_time": b["booking_time"],
+        },
+    }
+
+    headers = {
+        "Authorization": _durianpay_basic_auth(),
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            r = await http.post(f"{DURIANPAY_API_BASE}/orders", json=payload, headers=headers)
+    except (httpx.TimeoutException, httpx.RequestError) as e:
+        log.error("Durianpay request failed: %s", e)
+        raise HTTPException(502, DURIANPAY_ERR_GENERIC)
+
+    if r.status_code >= 400:
+        log.error("Durianpay API error %d: %s", r.status_code, r.text[:500])
+        raise HTTPException(502, DURIANPAY_ERR_GENERIC)
+
+    try:
+        data = r.json().get("data", {})
+    except Exception:
+        raise HTTPException(502, DURIANPAY_ERR_GENERIC)
+
+    code = data.get("payment_link_url") or ""
+    dp_order_id = data.get("id") or ""  # format: ord_xxxxx
+    full_url = code if code.startswith("http") else f"{DURIANPAY_PAYMENT_LINK_BASE}/{code}"
+
+    # Simpan ke payments — transaction_id = Durianpay order id
+    await db.payments.update_one(
+        {"booking_id": booking_id},
+        {"$set": {
+            "transaction_id": dp_order_id,
+            "payment_link_code": code,
+            "payment_link_url": full_url,
+            "method": "durianpay",
+            "status": "pending",
+            "amount": int(b["total_price"]),
+            "expires_at": payload["expiry_date"],
+            "updated_at": now_utc().isoformat(),
+        }, "$setOnInsert": {
+            "id": new_id(),
+            "booking_id": booking_id,
+            "created_at": now_utc().isoformat(),
+        }},
+        upsert=True,
+    )
+
+    return {
+        "payment_link_url": full_url,
+        "transaction_id": dp_order_id,
+        "expires_at": payload["expiry_date"],
+    }
+
+
+# ---------- 2) WEBHOOK (Durianpay → Backend) ----------
+@app.post("/api/payments/webhook/durianpay")
+async def durianpay_webhook(request: Request):
+    """
+    Terima notifikasi pembayaran dari Durianpay.
+    - Verifikasi signature RSA-2048 (X-SIGNATURE + X-TIMESTAMP) — timing-safe
+    - Idempotent: webhook duplikat langsung balas 200 OK
+    - Selalu balas 200 OK bila payload valid, agar Durianpay tidak retry (2, 5, 10, 90, 210 menit)
+    - Log setiap webhook ke koleksi `payment_webhooks`
+    """
+    raw = await request.body()
+    sig = request.headers.get("x-signature") or request.headers.get("X-Signature")
+    ts = request.headers.get("x-timestamp") or request.headers.get("X-Timestamp")
+
+    # Log dulu sebelum verify (untuk debugging bila signature gagal)
+    log_entry = {
+        "id": new_id(),
+        "raw_body": raw.decode(errors="replace")[:8000],
+        "headers": {"x-signature": sig, "x-timestamp": ts},
+        "received_at": now_utc().isoformat(),
+        "status": "received",
+    }
+
+    if not _verify_durianpay_webhook(raw, "POST", "/api/payments/webhook/durianpay", sig, ts):
+        log_entry["status"] = "invalid_signature"
+        await db.payment_webhooks.insert_one(log_entry)
+        raise HTTPException(401, "Invalid webhook signature")
+
+    # Idempotency: dedupe berdasar hash payload
+    dedupe_key = hashlib.sha256(raw).hexdigest()
+    existing = await db.payment_webhooks.find_one({"dedupe_key": dedupe_key, "status": "processed"})
+    if existing:
+        return {"ok": True, "duplicate": True}
+
+    try:
+        body = json.loads(raw)
+    except Exception:
+        log_entry["status"] = "invalid_json"
+        await db.payment_webhooks.insert_one(log_entry)
+        raise HTTPException(400, "Invalid JSON")
+
+    event = body.get("event") or body.get("type") or ""
+    data = body.get("data", body)
+    order_ref_id = data.get("order_ref_id") or data.get("orderRefId")
+    order_id = data.get("order_id") or data.get("id")
+    status = (data.get("status") or "").lower()
+
+    log_entry["dedupe_key"] = dedupe_key
+    log_entry["event"] = event
+    log_entry["order_ref_id"] = order_ref_id
+
+    # Success events per Durianpay docs
+    is_success = event in (
+        "payment.completed", "order.completed", "payment.success",
+    ) or status in ("completed", "paid", "success", "settled")
+
+    is_failed = event in ("payment.failed", "payment.expired", "payment.cancelled",
+                          "order.failed", "order.expired") or status in ("failed", "expired", "cancelled")
+
+    booking = None
+    if order_ref_id:
+        booking = await db.bookings.find_one({"id": order_ref_id}, {"_id": 0})
+    if not booking and order_id:
+        # fallback: cari via payments.transaction_id
+        p = await db.payments.find_one({"transaction_id": order_id}, {"_id": 0})
+        if p:
+            booking = await db.bookings.find_one({"id": p["booking_id"]}, {"_id": 0})
+
+    if not booking:
+        log_entry["status"] = "booking_not_found"
+        await db.payment_webhooks.insert_one(log_entry)
+        # Tetap balas 200 agar tidak retry
+        return {"ok": True, "warning": "booking not found"}
+
+    if is_success:
+        await _mark_booking_paid(booking, provider_ref=order_id or "", method="durianpay")
+        log_entry["status"] = "processed"
+    elif is_failed:
+        await db.bookings.update_one(
+            {"id": booking["id"], "payment_status": {"$ne": "paid"}},
+            {"$set": {"status": "cancelled", "payment_status": "forfeited"}}
+        )
+        await db.payments.update_one(
+            {"booking_id": booking["id"]},
+            {"$set": {"status": "failed", "last_event": event}}
+        )
+        log_entry["status"] = "processed"
+    else:
+        log_entry["status"] = "ignored"
+
+    await db.payment_webhooks.insert_one(log_entry)
+    return {"ok": True}
+
+
+# ---------- 3) STATUS POLLING (Frontend → Backend, DB only) ----------
+@api.get("/payments/status/{booking_id}")
+async def payment_status(booking_id: str, user=Depends(get_current_user)):
+    """Polling endpoint: return current booking + payment status from DB."""
+    await expire_stale_bookings()
+    b = await db.bookings.find_one({"id": booking_id, "user_id": user["id"]}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    p = await db.payments.find_one({"booking_id": booking_id}, {"_id": 0})
+    shop = await db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0, "name": 1, "image": 1, "address": 1})
+    service = await db.services.find_one({"id": b["service_id"]}, {"_id": 0, "name": 1, "duration": 1})
+    barber = await db.barbers.find_one({"id": b["barber_id"]}, {"_id": 0, "name": 1, "photo": 1})
+
+    # Hitung sisa waktu (detik) sampai expiry
+    try:
+        created = datetime.fromisoformat(b["created_at"])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+    except Exception:
+        created = now_utc()
+    expires_at = created + timedelta(minutes=15)
+    remaining = max(0, int((expires_at - now_utc()).total_seconds()))
+
+    return {
+        "booking": b,
+        "payment": p,
+        "shop": shop,
+        "service": service,
+        "barber": barber,
+        "remaining_seconds": remaining,
+        "payment_status": b.get("payment_status"),
+        "booking_status": b.get("status"),
+        "payment_link_url": (p or {}).get("payment_link_url"),
+    }
+
+
+# ---------- 4) FALLBACK STATUS CHECK (Backend → Durianpay) ----------
+@api.post("/payments/fallback-check/{booking_id}")
+async def fallback_check(booking_id: str, user=Depends(get_current_user)):
+    """
+    Bila webhook belum diterima setelah user kembali dari halaman pembayaran,
+    panggil Durianpay langsung untuk cek status pembayaran.
+    Panggil setelah > 2 menit tanpa update webhook.
+    """
+    if PAYMENT_MODE == "simulation":
+        raise HTTPException(400, "Payment mode adalah simulasi, tidak ada fallback ke Durianpay")
+
+    b = await db.bookings.find_one({"id": booking_id, "user_id": user["id"]}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    if b.get("payment_status") == "paid":
+        return {"ok": True, "already_paid": True}
+
+    p = await db.payments.find_one({"booking_id": booking_id}, {"_id": 0})
+    if not p or not p.get("transaction_id"):
+        raise HTTPException(404, "Transaksi belum dibuat")
+
+    order_id = p["transaction_id"]
+    headers = {"Authorization": _durianpay_basic_auth()}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            r = await http.get(f"{DURIANPAY_API_BASE}/orders/{order_id}", headers=headers)
+    except (httpx.TimeoutException, httpx.RequestError) as e:
+        log.error("Fallback check request failed: %s", e)
+        raise HTTPException(502, "Gagal memeriksa status ke Durianpay")
+
+    if r.status_code >= 400:
+        raise HTTPException(502, "Gagal memeriksa status ke Durianpay")
+
+    try:
+        data = r.json().get("data", {})
+    except Exception:
+        raise HTTPException(502, "Response tidak valid")
+
+    status = (data.get("status") or "").lower()
+    if status in ("completed", "paid", "success", "settled"):
+        await _mark_booking_paid(b, provider_ref=order_id, method="durianpay")
+        return {"ok": True, "paid": True}
+    if status in ("failed", "expired", "cancelled"):
+        await db.bookings.update_one(
+            {"id": booking_id, "payment_status": {"$ne": "paid"}},
+            {"$set": {"status": "cancelled", "payment_status": "forfeited"}}
+        )
+        return {"ok": True, "paid": False, "status": status}
+    return {"ok": True, "paid": False, "status": status or "pending"}
+
+
+# ---------- 5) SIMULATION MODE (demo only, offline) ----------
+@api.post("/payments/simulate/{booking_id}")
+async def simulate_payment(booking_id: str, user=Depends(get_current_user)):
+    """
+    Mode simulasi: langsung tandai pembayaran sukses TANPA panggil Durianpay.
+    Endpoint ini OTOMATIS NONAKTIF ketika PAYMENT_MODE=sandbox / production.
+    Berguna untuk demo presentasi bila akses sandbox belum ada.
+    """
+    if PAYMENT_MODE != "simulation":
+        raise HTTPException(403, "Endpoint simulasi hanya aktif pada PAYMENT_MODE=simulation")
+
+    b = await _load_booking_for_payment(booking_id, user)
+    processed = await _mark_booking_paid(
+        b, provider_ref=f"SIM-{int(now_utc().timestamp())}", method="simulation"
+    )
+    return {"ok": True, "simulated": True, "processed": processed}
+
+
+# ---------- 6) PAYMENT MODE INFO (frontend detect mode) ----------
+@api.get("/payments/mode")
+async def payments_mode():
+    """Return current payment mode so frontend knows which flow to use."""
+    return {"mode": PAYMENT_MODE}
+
+
+# ==================== END DURIANPAY ====================
 
 
 # Register router
