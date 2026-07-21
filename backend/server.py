@@ -800,12 +800,17 @@ async def owner_orders(user=Depends(require_role("owner"))):
         return {"orders": []}
     orders = await db.bookings.find({"shop_id": shop["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
     for o in orders:
-        u = await db.profiles.find_one({"id": o["user_id"]}, {"_id": 0, "name": 1, "phone": 1})
-        s = await db.services.find_one({"id": o["service_id"]}, {"_id": 0, "name": 1})
-        br = await db.barbers.find_one({"id": o["barber_id"]}, {"_id": 0, "name": 1})
+        u = await db.profiles.find_one(
+            {"id": o["user_id"]},
+            {"_id": 0, "name": 1, "phone": 1, "email": 1, "photo": 1, "address": 1}
+        )
+        s = await db.services.find_one({"id": o["service_id"]}, {"_id": 0, "name": 1, "duration": 1})
+        br = await db.barbers.find_one({"id": o["barber_id"]}, {"_id": 0, "name": 1, "photo": 1})
         o["customer"] = u
         o["service_name"] = s["name"] if s else ""
+        o["service_duration"] = s.get("duration") if s else 0
         o["barber_name"] = br["name"] if br else ""
+        o["barber_photo"] = (br or {}).get("photo", "")
     return {"orders": orders}
 
 
