@@ -246,12 +246,17 @@ class ReviewIn(BaseModel):
 
 class KaryawanApplyIn(BaseModel):
     shop_id: str
+    # WAJIB: KTP + Ijazah + Pengalaman kerja
+    ktp_photo: str  # base64 atau URL
+    diploma_photo: str  # ijazah, base64 atau URL
+    work_experience: str  # deskripsi teks pengalaman
+    # OPSIONAL tapi dianjurkan: portofolio (foto hasil cukur)
     portfolio_url: Optional[str] = None
-    work_experience: Optional[str] = None
     tools_photo: Optional[str] = None
     bnsp_cert: Optional[str] = None
     certificates: Optional[str] = None
-    diploma_photo: Optional[str] = None
+    # WAJIB: konfirmasi memenuhi kriteria
+    criteria_agreed: bool = False
 
 
 class EvaluateKaryawanIn(BaseModel):
@@ -900,6 +905,9 @@ async def evaluate_karyawan(kid: str, body: EvaluateKaryawanIn, user=Depends(req
     k = await db.karyawan.find_one({"id": kid, "shop_id": shop["id"]}, {"_id": 0})
     if not k:
         raise HTTPException(404, "Pelamar tidak ditemukan")
+    # Wajib sudah tahap menunggu_tes (setelah lolos berkas + koordinasi tes)
+    if k["status"] not in ("menunggu_tes", "seleksi_berkas_lolos"):
+        raise HTTPException(400, f"Pelamar harus lolos seleksi berkas dulu (status saat ini: {k['status']})")
     weights = body.dict()
     total = sum(weights.values())
     status = "active" if total >= 60 else "rejected"
@@ -914,9 +922,11 @@ async def evaluate_karyawan(kid: str, body: EvaluateKaryawanIn, user=Depends(req
             "specialization": "", "skill_level": skill, "rating": 0.0,
             "status": "active", "created_at": now_utc().isoformat(),
         })
-        await send_notif(k["profile_id"], "Selamat! Anda diterima", f"Skor: {total}. Level: {skill}", "system")
+        await send_notif(k["profile_id"], "Selamat! Anda diterima sebagai barber",
+                         f"Skor tes: {total}/120. Level: {skill}. Profil barber Anda sudah aktif.", "system")
     else:
-        await send_notif(k["profile_id"], "Lamaran ditolak", f"Skor Anda: {total}", "system")
+        await send_notif(k["profile_id"], "Lamaran ditolak setelah tes",
+                         f"Skor tes: {total}/120 (di bawah nilai minimum 60).", "system")
     return {"ok": True, "total_score": total, "status": status}
 
 
@@ -925,9 +935,23 @@ async def evaluate_karyawan(kid: str, body: EvaluateKaryawanIn, user=Depends(req
 # ============================================================
 @api.post("/karyawan/apply")
 async def karyawan_apply(body: KaryawanApplyIn, user=Depends(require_role("karyawan"))):
+    # Validasi berkas WAJIB
+    if not body.ktp_photo or len(body.ktp_photo) < 20:
+        raise HTTPException(400, "Foto KTP wajib diunggah")
+    if not body.diploma_photo or len(body.diploma_photo) < 20:
+        raise HTTPException(400, "Foto/scan ijazah wajib diunggah")
+    if not body.work_experience or len(body.work_experience.strip()) < 20:
+        raise HTTPException(400, "Pengalaman kerja wajib diisi minimal 20 karakter")
+    if not body.criteria_agreed:
+        raise HTTPException(400, "Anda harus menyetujui kriteria platform")
+
     existing = await db.karyawan.find_one({"profile_id": user["id"], "shop_id": body.shop_id})
     if existing:
         raise HTTPException(400, "Anda sudah melamar ke toko ini")
+
+    # Update juga profil karyawan dengan KTP (untuk akses admin)
+    await db.profiles.update_one({"id": user["id"]}, {"$set": {"ktp_photo": body.ktp_photo}})
+
     doc = {
         "id": new_id(),
         "profile_id": user["id"],
@@ -935,19 +959,24 @@ async def karyawan_apply(body: KaryawanApplyIn, user=Depends(require_role("karya
         "email": user["email"],
         "phone": user["phone"],
         "shop_id": body.shop_id,
+        # WAJIB
+        "ktp_photo": body.ktp_photo,
+        "diploma_photo": body.diploma_photo,
+        "work_experience": body.work_experience,
+        "criteria_agreed": True,
+        # Opsional
         "portfolio_url": body.portfolio_url or "",
-        "work_experience": body.work_experience or "",
         "tools_photo": body.tools_photo or "",
         "bnsp_cert": body.bnsp_cert or "",
         "certificates": body.certificates or "",
-        "diploma_photo": body.diploma_photo or "",
         "total_score": 0, "status": "pending",
         "created_at": now_utc().isoformat(),
     }
     await db.karyawan.insert_one(doc)
     shop = await db.barbershops.find_one({"id": body.shop_id}, {"_id": 0, "owner_id": 1, "name": 1})
     if shop:
-        await send_notif(shop["owner_id"], "Lamaran baru", f"{user['name']} melamar sebagai barber.", "system")
+        await send_notif(shop["owner_id"], "Lamaran baru masuk",
+                         f"{user['name']} melamar sebagai barber di toko Anda.", "system")
     return {"application": clean(doc)}
 
 
@@ -2105,6 +2134,307 @@ async def payments_mode():
 
 
 # ==================== END DURIANPAY ====================
+
+
+# ==================== BULK SEED KUPANG BARBERSHOPS ====================
+from kupang_seed_data import build_seed_records, DEFAULT_SERVICES, DEFAULT_SCHEDULE
+
+
+@api.post("/seed/kupang-shops")
+async def seed_kupang_shops(user=Depends(require_role("admin"))):
+    """
+    Bulk seed 120 barbershop akun dari data Kupang Excel.
+    Idempotent: cek by email; skip yang sudah ada.
+    Response: rekap seluruh akun (email + password + status verifikasi).
+    """
+    records = build_seed_records()
+    created = []
+    skipped = []
+    for r in records:
+        existing = await db.profiles.find_one({"email": r["email"]}, {"_id": 0, "id": 1})
+        if existing:
+            # ambil shop yang sudah ada
+            shop_existing = await db.barbershops.find_one({"owner_id": existing["id"]}, {"_id": 0, "verification_status": 1})
+            skipped.append({
+                "shop_name": r["shop_name"], "owner_name": r["owner_name"],
+                "email": r["email"], "password": r["password"],
+                "verification_status": (shop_existing or {}).get("verification_status", "approved"),
+                "status": "already_exists",
+            })
+            continue
+
+        # 1. Create owner profile
+        uid = new_id()
+        await db.profiles.insert_one({
+            "id": uid,
+            "email": r["email"],
+            "password": hash_pw(r["password"]),
+            "name": r["owner_name"],
+            "phone": r["phone"],
+            "role": "owner",
+            "photo": "",
+            "address": r["addr"],
+            "created_at": now_utc().isoformat(),
+        })
+
+        # 2. Create shop (auto-approved via seed)
+        sid = new_id()
+        await db.barbershops.insert_one({
+            "id": sid,
+            "owner_id": uid,
+            "name": r["shop_name"],
+            "category": r["cat"],
+            "address": r["addr"],
+            "latitude": r["lat"],
+            "longitude": r["lng"],
+            "price_range": "Rp 25.000 - Rp 100.000",
+            "image": r["img"],
+            "rating": r["rating"],
+            "reviews_count": r["reviews"],
+            "verification_status": "approved",
+            "chat_closed": False,
+            "created_at": now_utc().isoformat(),
+        })
+
+        # 3. Default services
+        for s in DEFAULT_SERVICES:
+            await db.services.insert_one({
+                "id": new_id(), "shop_id": sid,
+                **s, "created_at": now_utc().isoformat(),
+            })
+
+        # 4. Default schedule
+        for sc in DEFAULT_SCHEDULE:
+            await db.schedules.insert_one({
+                "id": new_id(), "shop_id": sid, **sc,
+                "created_at": now_utc().isoformat(),
+            })
+
+        created.append({
+            "shop_name": r["shop_name"], "owner_name": r["owner_name"],
+            "email": r["email"], "password": r["password"],
+            "verification_status": "approved",
+            "status": "created",
+        })
+
+    return {
+        "ok": True,
+        "total_records": len(records),
+        "created": len(created),
+        "skipped": len(skipped),
+        "accounts": created + skipped,
+    }
+
+
+# ==================== RECRUITMENT SYSTEM (Multi-stage) ====================
+# Status flow: pending → seleksi_berkas_lolos → menunggu_tes → active / rejected
+
+RECRUITMENT_CRITERIA_SEED = [
+    "Berusia minimal 17 tahun dan sehat jasmani",
+    "Bersedia bekerja sesuai jadwal toko (shift/full-time)",
+    "Memiliki pengalaman memangkas rambut minimal 6 bulan (perkiraan)",
+    "Memiliki alat cukur pribadi atau bersedia menggunakan alat toko",
+    "Bersedia mengikuti standar layanan dan higiene toko",
+    "Berkomitmen menjaga kebersihan dan keramahan terhadap pelanggan",
+]
+
+
+class BerkasDecisionIn(BaseModel):
+    decision: Literal["lolos", "tolak"]
+    reason: Optional[str] = None
+
+
+class RecruitmentMessageIn(BaseModel):
+    text: str
+
+
+class UpdateCriteriaIn(BaseModel):
+    items: List[str]
+
+
+@api.get("/recruitment/criteria")
+async def get_recruitment_criteria(user=Depends(get_current_user)):
+    """Public criteria list (untuk ditampilkan saat karyawan apply)."""
+    doc = await db.recruitment_criteria.find_one({"id": "global"}, {"_id": 0})
+    if not doc:
+        doc = {"id": "global", "items": RECRUITMENT_CRITERIA_SEED,
+               "updated_at": now_utc().isoformat()}
+        await db.recruitment_criteria.insert_one(doc)
+        doc.pop("_id", None)
+    return {"items": doc.get("items", []), "updated_at": doc.get("updated_at")}
+
+
+@api.put("/admin/recruitment/criteria")
+async def update_recruitment_criteria(body: UpdateCriteriaIn, user=Depends(require_role("admin"))):
+    if not body.items or len(body.items) < 1:
+        raise HTTPException(400, "Minimal 1 kriteria")
+    await db.recruitment_criteria.update_one(
+        {"id": "global"},
+        {"$set": {"items": body.items, "updated_at": now_utc().isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True, "count": len(body.items)}
+
+
+@api.post("/owner/karyawan/{kid}/berkas-decision")
+async def berkas_decision(kid: str, body: BerkasDecisionIn, user=Depends(require_role("owner"))):
+    """
+    Tahap 1: Owner memutuskan berkas pelamar lolos atau ditolak.
+    - lolos → status seleksi_berkas_lolos (langsung siap koordinasi tes via chat)
+    - tolak → status rejected dengan alasan
+    """
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(404, "Toko tidak ditemukan")
+    k = await db.karyawan.find_one({"id": kid, "shop_id": shop["id"]}, {"_id": 0})
+    if not k:
+        raise HTTPException(404, "Pelamar tidak ditemukan")
+    if k["status"] != "pending":
+        raise HTTPException(400, f"Berkas pelamar sudah diproses (status: {k['status']})")
+
+    if body.decision == "lolos":
+        new_status = "seleksi_berkas_lolos"
+        notif_title = "Berkas Anda LOLOS seleksi!"
+        notif_msg = "Selamat! Berkas Anda diterima. Owner akan mengoordinasikan jadwal tes kemampuan via chat."
+        # Otomatis pindah ke menunggu_tes (buka ruang chat)
+        new_status = "menunggu_tes"
+    else:
+        new_status = "rejected"
+        notif_title = "Lamaran Ditolak"
+        notif_msg = body.reason or "Mohon maaf, berkas Anda belum memenuhi persyaratan."
+
+    await db.karyawan.update_one(
+        {"id": kid},
+        {"$set": {
+            "status": new_status,
+            "berkas_reviewed_at": now_utc().isoformat(),
+            "berkas_reason": body.reason or "",
+        }}
+    )
+    await send_notif(k["profile_id"], notif_title, notif_msg, "system")
+
+    # Kalau lolos → kirim pesan pembuka otomatis di chat rekrutmen
+    if new_status == "menunggu_tes":
+        await db.recruitment_messages.insert_one({
+            "id": new_id(),
+            "karyawan_id": kid,
+            "sender_id": user["id"],
+            "sender_role": "owner",
+            "text": f"Selamat, berkas Anda lolos seleksi! Silakan koordinasi jadwal uji tes kemampuan memangkas di sini. Kapan Anda bisa datang?",
+            "is_read": False,
+            "created_at": now_utc().isoformat(),
+        })
+    return {"ok": True, "status": new_status}
+
+
+@api.get("/recruitment/{kid}/messages")
+async def get_recruitment_messages(kid: str, user=Depends(get_current_user)):
+    """
+    Chat rekrutmen antara owner & pelamar.
+    Akses: pemilik toko atau pelamar itu sendiri.
+    """
+    k = await db.karyawan.find_one({"id": kid}, {"_id": 0})
+    if not k:
+        raise HTTPException(404, "Pelamar tidak ditemukan")
+    # Akses check
+    if user["role"] == "karyawan":
+        if k["profile_id"] != user["id"]:
+            raise HTTPException(403, "Akses ditolak")
+    elif user["role"] == "owner":
+        shop = await db.barbershops.find_one({"id": k["shop_id"]}, {"_id": 0, "owner_id": 1})
+        if not shop or shop["owner_id"] != user["id"]:
+            raise HTTPException(403, "Bukan toko Anda")
+    elif user["role"] != "admin":
+        raise HTTPException(403, "Akses ditolak")
+
+    msgs = await db.recruitment_messages.find({"karyawan_id": kid}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    # Mark others' messages as read
+    await db.recruitment_messages.update_many(
+        {"karyawan_id": kid, "sender_id": {"$ne": user["id"]}, "is_read": False},
+        {"$set": {"is_read": True}}
+    )
+    return {"messages": msgs, "karyawan": k}
+
+
+@api.post("/recruitment/{kid}/messages")
+async def send_recruitment_message(kid: str, body: RecruitmentMessageIn, user=Depends(get_current_user)):
+    k = await db.karyawan.find_one({"id": kid}, {"_id": 0})
+    if not k:
+        raise HTTPException(404, "Pelamar tidak ditemukan")
+    if k["status"] not in ("menunggu_tes", "seleksi_berkas_lolos", "active"):
+        raise HTTPException(400, "Chat tidak tersedia pada tahap ini")
+
+    # Access
+    if user["role"] == "karyawan" and k["profile_id"] != user["id"]:
+        raise HTTPException(403, "Akses ditolak")
+    if user["role"] == "owner":
+        shop = await db.barbershops.find_one({"id": k["shop_id"]}, {"_id": 0, "owner_id": 1})
+        if not shop or shop["owner_id"] != user["id"]:
+            raise HTTPException(403, "Bukan toko Anda")
+
+    msg = {
+        "id": new_id(),
+        "karyawan_id": kid,
+        "sender_id": user["id"],
+        "sender_role": user["role"],
+        "text": body.text.strip(),
+        "is_read": False,
+        "created_at": now_utc().isoformat(),
+    }
+    if not msg["text"]:
+        raise HTTPException(400, "Pesan kosong")
+    await db.recruitment_messages.insert_one(msg)
+
+    # Notifikasi lawan bicara
+    recipient_id = k["profile_id"] if user["role"] == "owner" else None
+    if not recipient_id:
+        shop = await db.barbershops.find_one({"id": k["shop_id"]}, {"_id": 0, "owner_id": 1})
+        recipient_id = (shop or {}).get("owner_id")
+    if recipient_id:
+        await send_notif(recipient_id, "Pesan Rekrutmen Baru",
+                         f"{user['name']}: {body.text[:80]}", "system")
+    msg.pop("_id", None)
+    return {"message": msg}
+
+
+@api.get("/karyawan/progress")
+async def karyawan_progress(user=Depends(require_role("karyawan"))):
+    """Timeline pemantauan progres rekrutmen untuk karyawan."""
+    apps = await db.karyawan.find({"profile_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    result = []
+    for a in apps:
+        shop = await db.barbershops.find_one({"id": a["shop_id"]}, {"_id": 0, "name": 1, "image": 1, "address": 1})
+        unread = await db.recruitment_messages.count_documents({
+            "karyawan_id": a["id"], "sender_id": {"$ne": user["id"]}, "is_read": False
+        })
+        # Timeline stages
+        stage_order = ["pending", "seleksi_berkas_lolos", "menunggu_tes", "active"]
+        current_status = a["status"]
+        # Timeline: berkas_dikirim (always done), seleksi_berkas, uji_tes, hasil_akhir
+        timeline = [
+            {"key": "berkas", "label": "Berkas Dikirim", "done": True, "active": False},
+            {"key": "seleksi", "label": "Seleksi Berkas",
+             "done": current_status in ("seleksi_berkas_lolos", "menunggu_tes", "active", "rejected"),
+             "active": current_status == "pending"},
+            {"key": "tes", "label": "Uji Tes Kemampuan",
+             "done": current_status in ("active",),
+             "active": current_status == "menunggu_tes",
+             "rejected": current_status == "rejected" and (a.get("total_score") or 0) > 0},
+            {"key": "hasil", "label": "Hasil Akhir",
+             "done": current_status in ("active", "rejected"),
+             "active": False,
+             "final_status": current_status},
+        ]
+        result.append({
+            "application": a,
+            "shop": shop,
+            "unread_messages": unread,
+            "timeline": timeline,
+        })
+    return {"applications": result}
+
+
+# ==================== END RECRUITMENT ====================
 
 
 # Register router
