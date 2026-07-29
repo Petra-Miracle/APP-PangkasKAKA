@@ -80,9 +80,25 @@ memory/test_credentials.md
 
 # Mobile development
 android-sdk/
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+.kotlin/
+app-example
+
+# Expo
+.expo/
+.metro-cache/
+.metro-health-check*
+web-build/
+expo-env.d.ts
+
 .env
 .env.*
 *.env
+!.env.example
+!**/.env.example
 credentials.json
 *.key
 .credentials
