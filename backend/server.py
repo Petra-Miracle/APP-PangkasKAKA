@@ -44,6 +44,15 @@ JWT_ALGO = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", 168))
 EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
 
+# "development" (default) | "production" — gerbang untuk fitur yang tidak boleh
+# aktif di production (auto-seed demo data, dsb).
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
+
+# Comma-separated origin list untuk CORS, mis. "https://app.pangkaskaka.id,https://admin.pangkaskaka.id"
+# Default "*" (semua origin) — cukup aman untuk mobile-only (native app tidak kirim header Origin),
+# tapi WAJIB diisi eksplisit begitu ada web client yang butuh cookie/credential.
+CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*")
+
 # ---------- Durianpay Configuration ----------
 # PAYMENT_MODE:
 #   - "simulation"  → gunakan endpoint /simulate/{booking_id} (mock lokal, TIDAK panggil Durianpay)
@@ -57,6 +66,13 @@ DURIANPAY_PAYMENT_LINK_BASE = os.environ.get("DURIANPAY_PAYMENT_LINK_BASE", "htt
 DURIANPAY_PUBLIC_KEY_PEM = os.environ.get("DURIANPAY_PUBLIC_KEY_PEM", "").replace("\\n", "\n")
 # Opsional: HMAC secret untuk verifikasi tambahan (legacy webhook / signature payment fallback)
 DURIANPAY_WEBHOOK_SECRET = os.environ.get("DURIANPAY_WEBHOOK_SECRET", "")
+
+if ENVIRONMENT == "production" and PAYMENT_MODE == "simulation":
+    raise RuntimeError(
+        "PAYMENT_MODE=simulation tidak boleh dipakai saat ENVIRONMENT=production "
+        "(pembayaran akan dianggap sukses tanpa transaksi asli). "
+        "Set PAYMENT_MODE=sandbox atau production di environment variables."
+    )
 
 client = AsyncIOMotorClient(MONGO_URL)
 db = client[DB_NAME]
@@ -143,6 +159,22 @@ def clean(d: dict) -> dict:
     d.pop("_id", None)
     d.pop("password", None)
     return d
+
+
+# ---------- Rate limiting (in-memory, per-instance) ----------
+# Cukup untuk 1 instance backend. Kalau nanti scale ke multi-instance,
+# ganti ke penyimpanan bersama (mis. Redis) supaya limit konsisten antar instance.
+_rate_buckets: dict[str, list] = {}
+
+
+def rate_limit(key: str, max_requests: int, window_seconds: int):
+    now = asyncio.get_event_loop().time()
+    bucket = _rate_buckets.setdefault(key, [])
+    while bucket and bucket[0] <= now - window_seconds:
+        bucket.pop(0)
+    if len(bucket) >= max_requests:
+        raise HTTPException(429, "Terlalu banyak percobaan, coba lagi beberapa saat lagi")
+    bucket.append(now)
 
 
 # ---------- Models ----------
@@ -378,7 +410,8 @@ async def recalc_shop_rating(shop_id: str):
 # AUTH ENDPOINTS
 # ============================================================
 @api.post("/auth/register")
-async def register(body: RegisterIn):
+async def register(body: RegisterIn, request: Request):
+    rate_limit(f"register:{request.client.host}", max_requests=10, window_seconds=3600)
     existing = await db.profiles.find_one({"email": body.email.lower()})
     if existing:
         raise HTTPException(400, "Email sudah terdaftar")
@@ -407,7 +440,8 @@ async def register(body: RegisterIn):
 
 
 @api.post("/auth/login")
-async def login(body: LoginIn):
+async def login(body: LoginIn, request: Request):
+    rate_limit(f"login:{request.client.host}", max_requests=5, window_seconds=300)
     user = await db.profiles.find_one({"email": body.email.lower()})
     if not user or not verify_pw(body.password, user["password"]):
         raise HTTPException(401, "Email atau password salah")
@@ -1378,7 +1412,9 @@ async def seed_all():
 
 
 @api.post("/seed")
-async def do_seed():
+async def do_seed(user=Depends(require_role("admin"))):
+    if ENVIRONMENT == "production":
+        raise HTTPException(403, "Seeding dinonaktifkan di production")
     await seed_all()
     return {"ok": True}
 
@@ -2440,10 +2476,18 @@ async def karyawan_progress(user=Depends(require_role("karyawan"))):
 # Register router
 app.include_router(api)
 
+_cors_origins = (
+    ["*"] if CORS_ORIGINS.strip() == "*"
+    else [o.strip() for o in CORS_ORIGINS.split(",") if o.strip()]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=["*"],
+    # allow_credentials + wildcard origin sekaligus itu kombinasi berbahaya
+    # (browser akan meng-echo origin apa pun sebagai origin yang diizinkan).
+    # App ini pakai Bearer token (bukan cookie), jadi credentials cuma
+    # diaktifkan begitu origin sudah dipersempit lewat CORS_ORIGINS.
+    allow_credentials=_cors_origins != ["*"],
+    allow_origins=_cors_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -2451,6 +2495,9 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_seed():
+    if ENVIRONMENT == "production":
+        log.info("ENVIRONMENT=production — auto-seed demo data dilewati.")
+        return
     try:
         await seed_all()
     except Exception as e:
