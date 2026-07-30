@@ -1,41 +1,98 @@
-import { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
+import { useCameraPermission } from "react-native-vision-camera";
+import { Camera as FaceCamera, type Face } from "react-native-vision-camera-face-detector";
+import Svg, { Circle } from "react-native-svg";
 import { api, COLORS, FONT } from "@/src/lib/api";
+import { classifyFaceShape, isFrontalPose, type FaceShapeResult } from "@/src/lib/faceShape";
 
-type ScanResult = { id: string; faceShape: string; confidence: number; reasoning: string; recommendations: any[] };
+type ScanResult = { faceShape: string; confidence: number; reasoning: string; recommendations: any[] };
 
 const SHAPE_LABEL: Record<string, string> = { oval: "Oval", round: "Bulat", square: "Kotak", oblong: "Oblong", heart: "Hati" };
+const STABLE_FRAMES_REQUIRED = 15;
+const RING_SIZE = 240;
+const RING_STROKE = 6;
 
 export default function AIScan() {
   const router = useRouter();
+  const { hasPermission, canRequestPermission, requestPermission } = useCameraPermission();
+
+  const [scanning, setScanning] = useState(true);
+  const [progress, setProgress] = useState(0); // 0-1, drives the ring
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [previewUri, setPreviewUri] = useState<string | null>(null);
 
-  const pickImage = async (fromCamera: boolean) => {
+  const lastShapeRef = useRef<FaceShapeResult["shape"] | null>(null);
+  const stableCountRef = useRef(0);
+  const triggeredRef = useRef(false);
+
+  useEffect(() => {
+    if (!hasPermission && canRequestPermission) requestPermission();
+  }, [hasPermission, canRequestPermission, requestPermission]);
+
+  const onStable = useCallback(async (classified: FaceShapeResult) => {
+    setScanning(false);
+    setAnalyzing(true);
     setErr(null);
-    const perm = fromCamera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (perm.status !== "granted") { setErr("Izin " + (fromCamera ? "kamera" : "galeri") + " ditolak. Silakan pilih opsi lain."); return; }
-    const opts: any = { base64: true, quality: 0.7, allowsEditing: true, aspect: [1, 1], mediaTypes: ImagePicker.MediaTypeOptions.Images };
-    const res = fromCamera ? await ImagePicker.launchCameraAsync(opts) : await ImagePicker.launchImageLibraryAsync(opts);
-    if (res.canceled) return;
-    const asset = res.assets[0];
-    setPreviewUri(asset.uri);
-    await analyze(asset.base64!);
+    try {
+      const r = await api.post("/ai/face-scan", {
+        face_shape: classified.shape,
+        confidence: classified.confidence,
+        measurements: classified.measurements,
+      });
+      setResult(r);
+    } catch (e: any) {
+      setErr(e.message || "Analisis gagal, coba lagi");
+    }
+    setAnalyzing(false);
+  }, []);
+
+  const handleFacesDetected = useCallback((faces: Face[]) => {
+    if (triggeredRef.current || !scanning) return;
+    const face = faces?.[0];
+    const points = face?.contours?.FACE;
+    if (!face || !points || !isFrontalPose(face.pitchAngle, face.rollAngle, face.yawAngle)) {
+      stableCountRef.current = 0;
+      lastShapeRef.current = null;
+      setProgress(0);
+      return;
+    }
+    const classified = classifyFaceShape(points);
+    if (!classified) {
+      stableCountRef.current = 0;
+      setProgress(0);
+      return;
+    }
+    if (lastShapeRef.current === classified.shape) {
+      stableCountRef.current += 1;
+    } else {
+      stableCountRef.current = 1;
+      lastShapeRef.current = classified.shape;
+    }
+    setProgress(Math.min(1, stableCountRef.current / STABLE_FRAMES_REQUIRED));
+    if (stableCountRef.current >= STABLE_FRAMES_REQUIRED) {
+      triggeredRef.current = true;
+      onStable(classified);
+    }
+  }, [scanning, onStable]);
+
+  const retry = () => {
+    setResult(null);
+    setErr(null);
+    setProgress(0);
+    stableCountRef.current = 0;
+    lastShapeRef.current = null;
+    triggeredRef.current = false;
+    setScanning(true);
   };
 
-  const analyze = async (b64: string) => {
-    setAnalyzing(true); setErr(null); setResult(null);
-    try { const r = await api.post("/ai/face-scan", { image_base64: b64 }); setResult(r); }
-    catch (e: any) { setErr(e.message || "Analisis gagal, coba lagi"); }
-    setAnalyzing(false);
-  };
+  const r = (RING_SIZE - RING_STROKE) / 2;
+  const circumference = 2 * Math.PI * r;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -46,36 +103,68 @@ export default function AIScan() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>AI Face Scan</Text>
-            <Text style={styles.sub}>Foto dianalisis oleh AI, lalu dihapus otomatis</Text>
+            <Text style={styles.sub}>Deteksi bentuk wajah real-time, langsung di HP-mu</Text>
           </View>
         </View>
 
         <View style={styles.privacy}>
           <Ionicons name="shield-checkmark" size={16} color={COLORS.success} />
-          <Text style={styles.privacyText}>Privasi terjaga · Foto tidak disimpan di server</Text>
+          <Text style={styles.privacyText}>Foto tidak pernah dikirim ke server — analisis 100% di perangkatmu</Text>
         </View>
 
         {!result && !analyzing && (
-          <View style={styles.preview}>
-            {previewUri ? (
-              <Image source={{ uri: previewUri }} style={styles.previewImg} contentFit="cover" />
-            ) : (
-              <View style={styles.previewEmpty}>
-                <View style={styles.previewIcon}>
-                  <Ionicons name="scan-circle-outline" size={64} color={COLORS.brand} />
-                </View>
-                <Text style={styles.previewText}>Ambil foto wajah</Text>
-                <Text style={styles.previewHint}>Foto depan, pencahayaan merata</Text>
+          <View style={styles.cameraBox}>
+            {!hasPermission && (
+              <View style={styles.permBox}>
+                <Ionicons name="camera-outline" size={48} color={COLORS.textDim} />
+                <Text style={styles.permText}>Izin kamera dibutuhkan untuk AI Face Scan</Text>
+                <Pressable
+                  style={styles.permBtn}
+                  onPress={() => (canRequestPermission ? requestPermission() : Linking.openSettings())}
+                >
+                  <Text style={styles.permBtnText}>{canRequestPermission ? "Izinkan Kamera" : "Buka Pengaturan"}</Text>
+                </Pressable>
               </View>
+            )}
+            {hasPermission && (
+              <>
+                <FaceCamera
+                  style={StyleSheet.absoluteFill}
+                  device="front"
+                  isActive={scanning}
+                  runContours
+                  performanceMode="fast"
+                  onFacesDetected={handleFacesDetected}
+                  onError={(e) => setErr(e.message || "Kamera gagal dimuat")}
+                />
+                <View style={styles.overlay} pointerEvents="none">
+                  <Svg width={RING_SIZE} height={RING_SIZE}>
+                    <Circle cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={r} stroke="rgba(255,255,255,0.3)" strokeWidth={RING_STROKE} fill="none" />
+                    <Circle
+                      cx={RING_SIZE / 2} cy={RING_SIZE / 2} r={r}
+                      stroke={COLORS.brand} strokeWidth={RING_STROKE} fill="none"
+                      strokeDasharray={`${circumference} ${circumference}`}
+                      strokeDashoffset={circumference * (1 - progress)}
+                      strokeLinecap="round"
+                      rotation={-90}
+                      origin={`${RING_SIZE / 2}, ${RING_SIZE / 2}`}
+                    />
+                  </Svg>
+                </View>
+                <View style={styles.instructionBox} pointerEvents="none">
+                  <Text style={styles.instructionText}>
+                    {progress > 0 ? "Tahan posisi wajahmu..." : "Posisikan wajah di dalam lingkaran"}
+                  </Text>
+                </View>
+              </>
             )}
           </View>
         )}
 
         {analyzing && (
-          <View style={styles.preview}>
+          <View style={styles.cameraBox}>
             <ActivityIndicator color={COLORS.brand} size="large" />
-            <Text style={[styles.previewText, { marginTop: 16 }]}>Menganalisis bentuk wajah...</Text>
-            <Text style={styles.previewHint}>AI sedang bekerja, tunggu sebentar</Text>
+            <Text style={[styles.instructionText, { color: COLORS.text, marginTop: 16 }]}>Menganalisis...</Text>
           </View>
         )}
 
@@ -85,18 +174,11 @@ export default function AIScan() {
             <Text style={styles.errText} testID="scan-error">{err}</Text>
           </View>
         )}
-
-        {!analyzing && (
-          <View style={styles.btnRow}>
-            <Pressable testID="scan-camera" style={styles.btnPrimary} onPress={() => pickImage(true)}>
-              <Ionicons name="camera" size={20} color="#FFFFFF" />
-              <Text style={styles.btnPrimaryText}>KAMERA</Text>
-            </Pressable>
-            <Pressable testID="scan-gallery" style={styles.btnSecondary} onPress={() => pickImage(false)}>
-              <Ionicons name="images" size={20} color={COLORS.brand} />
-              <Text style={styles.btnSecondaryText}>GALERI</Text>
-            </Pressable>
-          </View>
+        {err && (
+          <Pressable style={styles.retryBtn} onPress={retry}>
+            <Ionicons name="refresh" size={16} color={COLORS.textMuted} />
+            <Text style={styles.retryText}>Coba Lagi</Text>
+          </Pressable>
         )}
 
         {result && (
@@ -127,7 +209,7 @@ export default function AIScan() {
                 </View>
               </View>
             ))}
-            <Pressable style={styles.retryBtn} onPress={() => { setResult(null); setPreviewUri(null); }}>
+            <Pressable style={styles.retryBtn} onPress={retry}>
               <Ionicons name="refresh" size={16} color={COLORS.textMuted} />
               <Text style={styles.retryText}>Scan Ulang</Text>
             </Pressable>
@@ -145,20 +227,20 @@ const styles = StyleSheet.create({
   title: { color: COLORS.text, fontSize: 22, fontFamily: FONT.extrabold },
   sub: { color: COLORS.textDim, marginTop: 2, fontSize: 12, fontFamily: FONT.medium },
   privacy: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#ECFDF5", padding: 12, borderRadius: 12, marginBottom: 20 },
-  privacyText: { color: COLORS.success, fontFamily: FONT.semibold, fontSize: 12 },
-  preview: { backgroundColor: COLORS.surface, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, height: 320, alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  previewEmpty: { alignItems: "center", padding: 20 },
-  previewIcon: { width: 100, height: 100, borderRadius: 999, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center", marginBottom: 12 },
-  previewImg: { width: "100%", height: "100%" },
-  previewText: { color: COLORS.text, marginTop: 8, fontFamily: FONT.bold, fontSize: 15 },
-  previewHint: { color: COLORS.textDim, fontSize: 12, marginTop: 4, fontFamily: FONT.medium },
-  btnRow: { flexDirection: "row", gap: 12, marginTop: 16 },
-  btnPrimary: { flex: 1, backgroundColor: COLORS.brand, padding: 16, borderRadius: 14, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 8, shadowColor: COLORS.brand, shadowOpacity: 0.25, shadowRadius: 12, elevation: 4 },
-  btnPrimaryText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 1 },
-  btnSecondary: { flex: 1, backgroundColor: COLORS.surface, padding: 16, borderRadius: 14, alignItems: "center", flexDirection: "row", justifyContent: "center", gap: 8, borderWidth: 1, borderColor: COLORS.border },
-  btnSecondaryText: { color: COLORS.brand, fontFamily: FONT.extrabold, letterSpacing: 1 },
+  privacyText: { color: COLORS.success, fontFamily: FONT.semibold, fontSize: 12, flex: 1 },
+
+  cameraBox: { backgroundColor: "#000", borderRadius: 20, height: 420, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  overlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  instructionBox: { position: "absolute", bottom: 20, left: 20, right: 20, alignItems: "center" },
+  instructionText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 13, backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, overflow: "hidden" },
+  permBox: { alignItems: "center", padding: 24, gap: 10 },
+  permText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13, textAlign: "center" },
+  permBtn: { backgroundColor: COLORS.brand, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 999, marginTop: 4 },
+  permBtnText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 13 },
+
   errBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#FEF2F2", padding: 14, borderRadius: 12, marginTop: 12 },
   errText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium },
+
   resultBox: { marginTop: 20 },
   resultCard: { backgroundColor: COLORS.brand, padding: 24, borderRadius: 20, shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 20, elevation: 6 },
   resultLabel: { color: "rgba(255,255,255,0.7)", fontSize: 10, letterSpacing: 1, fontFamily: FONT.bold },

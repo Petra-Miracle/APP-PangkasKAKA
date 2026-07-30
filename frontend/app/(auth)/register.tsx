@@ -90,7 +90,7 @@ export default function Register() {
         });
         router.replace("/(owner)/dashboard");
       } else if (u.role === "karyawan") {
-        await api.post("/karyawan/apply", { shop_id: karyawanForm.shop_id, ...karyawanForm });
+        await api.post("/karyawan/apply", karyawanForm);
         router.replace("/(karyawan)/status");
       } else {
         router.replace("/(customer)/home");

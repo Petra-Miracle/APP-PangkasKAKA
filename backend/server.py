@@ -34,6 +34,12 @@ try:
 except Exception:  # pragma: no cover
     _HAS_CRYPTO = False
 
+# Gemini (AI Face Scan reasoning text — text-only, official Google GenAI SDK)
+try:
+    from google import genai as _genai
+except Exception:  # pragma: no cover
+    _genai = None
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
@@ -42,7 +48,8 @@ DB_NAME = os.environ["DB_NAME"]
 JWT_SECRET = os.environ["JWT_SECRET"]
 JWT_ALGO = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", 168))
-EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+_gemini_client = _genai.Client(api_key=GEMINI_API_KEY) if (_genai and GEMINI_API_KEY) else None
 
 # "development" (default) | "production" — gerbang untuk fitur yang tidak boleh
 # aktif di production (auto-seed demo data, dsb).
@@ -301,7 +308,9 @@ class EvaluateKaryawanIn(BaseModel):
 
 
 class AIFaceScanIn(BaseModel):
-    image_base64: str
+    face_shape: str
+    confidence: int
+    measurements: Optional[dict] = None
 
 
 class NotifyIn(BaseModel):
@@ -1138,50 +1147,44 @@ async def list_hairstyles(shape: Optional[str] = None):
     return {"hairstyles": rows}
 
 
+# Face shape itself is computed on-device (see frontend/src/lib/faceShape.ts) from
+# live camera landmarks — nothing here ever touches an image. Fallback sentences
+# used when GEMINI_API_KEY isn't set or the call fails, so a result is never blocked.
+FACE_SHAPE_FALLBACK_REASONING = {
+    "oval": "Wajah oval punya proporsi seimbang antara dahi, tulang pipi, dan rahang — cocok untuk hampir semua model rambut.",
+    "round": "Wajah bulat punya lebar dan panjang yang mirip dengan garis rahang lembut — model rambut dengan volume di atas bisa menambah kesan memanjang.",
+    "square": "Wajah kotak punya garis rahang tegas dengan lebar dahi dan rahang yang serupa — potongan rambut bertekstur bisa melunakkan sudutnya.",
+    "oblong": "Wajah oblong lebih panjang dari lebarnya — model rambut dengan volume di samping bisa menyeimbangkan proporsi wajah.",
+    "heart": "Wajah hati punya dahi lebih lebar dari rahang yang meruncing ke dagu — poni atau model berlapis bisa menonjolkan bentuk ini.",
+}
+
+
 @api.post("/ai/face-scan")
 async def face_scan(body: AIFaceScanIn, user=Depends(get_current_user)):
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(500, "AI service belum dikonfigurasi")
-    try:
-        from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
-    except Exception as e:
-        raise HTTPException(500, f"AI module tidak tersedia")
-    # strip data uri prefix if present
-    img_b64 = body.image_base64
-    if "," in img_b64 and img_b64.startswith("data:"):
-        img_b64 = img_b64.split(",", 1)[1]
-    system_msg = (
-        "You are a professional stylist analyzing facial geometry from a portrait photo. "
-        "Return ONLY a strict JSON object, no markdown, no prose. Keys: "
-        "faceShape (one of: oval, round, square, oblong, heart), "
-        "confidence (integer 0-100), reasoning (short Bahasa Indonesia sentence explaining detected features)."
-    )
-    prompt = "Analyze the person's face shape in this photo. Return JSON only."
-    try:
-        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=f"face-{new_id()}",
-                       system_message=system_msg).with_model("gemini", "gemini-2.5-flash")
-        msg = UserMessage(text=prompt, file_contents=[ImageContent(image_base64=img_b64)])
-        result = await asyncio.wait_for(chat.send_message(msg), timeout=25.0)
-    except asyncio.TimeoutError:
-        raise HTTPException(504, "Analisis wajah timeout, coba lagi")
-    except Exception as e:
-        log.exception("Gemini face scan failed")
-        raise HTTPException(502, "Analisis gagal, coba lagi")
-    # parse JSON from result
-    import json, re
-    text = result if isinstance(result, str) else str(result)
-    m = re.search(r"\{[\s\S]*\}", text)
-    if not m:
-        raise HTTPException(502, "Analisis gagal, coba lagi")
-    try:
-        parsed = json.loads(m.group(0))
-    except Exception:
-        raise HTTPException(502, "Analisis gagal, coba lagi")
-    shape = str(parsed.get("faceShape", "oval")).lower()
+    shape = body.face_shape.lower()
     if shape not in ("oval", "round", "square", "oblong", "heart"):
-        shape = "oval"
-    conf = int(parsed.get("confidence", 75))
-    reasoning = parsed.get("reasoning", "")
+        raise HTTPException(400, "Bentuk wajah tidak valid")
+    conf = max(0, min(100, body.confidence))
+
+    reasoning = ""
+    if _gemini_client:
+        prompt = (
+            f"Bentuk wajah seseorang terdeteksi sebagai '{shape}' (tingkat keyakinan {conf}%) "
+            "berdasarkan pengukuran geometris real-time di perangkat (lebar dahi, tulang pipi, rahang, "
+            "dan panjang wajah). Tulis 1 kalimat pendek dalam Bahasa Indonesia, gaya seorang stylist "
+            f"profesional yang ramah, menjelaskan ciri khas bentuk wajah '{shape}'. Tanpa markdown, tanpa tanda kutip."
+        )
+        try:
+            resp = await asyncio.wait_for(
+                _gemini_client.aio.models.generate_content(model="gemini-flash-latest", contents=prompt),
+                timeout=10.0,
+            )
+            reasoning = (getattr(resp, "text", "") or "").strip()
+        except Exception:
+            log.exception("Gemini reasoning call failed, falling back to template")
+    if not reasoning:
+        reasoning = FACE_SHAPE_FALLBACK_REASONING.get(shape, "")
+
     # recommendations
     rec_docs = await db.hairstyles.find({"suitable_shapes": shape}, {"_id": 0}).to_list(30)
     rec_docs.sort(key=lambda x: x.get("match_score_map", {}).get(shape, 0), reverse=True)
