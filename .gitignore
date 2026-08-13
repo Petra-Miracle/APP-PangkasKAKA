@@ -61,6 +61,9 @@ chainlit.md
 # Deployment
 .vercel
 
+# Personal working notes (may contain credentials, never commit)
+/Noted/
+
 # Data and databases
 agenthub/agents/youtube/db
 

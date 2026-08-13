@@ -74,7 +74,7 @@ export default function Login() {
 
             <GradientButton testID="login-submit-button" label="MASUK" icon="arrow-forward" onPress={onSubmit} loading={loading} />
 
-            <Pressable style={styles.forgotBtn}>
+            <Pressable style={styles.forgotBtn} onPress={() => router.push("/(auth)/forgot-password" as any)} testID="forgot-password-link">
               <Text style={styles.forgotText}>Lupa password?</Text>
             </Pressable>
 

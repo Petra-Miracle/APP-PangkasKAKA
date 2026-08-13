@@ -48,9 +48,7 @@ export default function OwnerOrders() {
 
   const chatCustomer = (order: any) => {
     setDetail(null);
-    // Note: chat currently threads by shop. For customer-owner chat we route to customer's chat thread.
-    // Fallback: open chat by shop_id (existing feature).
-    router.push(`/chat/${order.shop_id}` as any);
+    router.push(`/chat/booking/${order.id}` as any);
   };
 
   if (loading) return <SafeAreaView style={styles.safe}><ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} /></SafeAreaView>;

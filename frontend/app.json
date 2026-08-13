@@ -3,6 +3,7 @@
     "name": "PangkasKAKA",
     "slug": "pangkaskaka",
     "version": "1.0.0",
+    "platforms": ["ios", "android"],
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "pangkaskaka",
@@ -24,11 +25,6 @@
       "package": "com.pangkaskaka.app",
       "permissions": ["android.permission.CAMERA"]
     },
-    "web": {
-      "bundler": "metro",
-      "output": "single",
-      "favicon": "./assets/images/favicon.png"
-    },
     "plugins": [
       "expo-router",
       [
@@ -39,7 +35,8 @@
           "resizeMode": "contain",
           "backgroundColor": "#000000"
         }
-      ]
+      ],
+      "./plugins/withRawPropsJsiValueFlag.js"
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,11 +1,14 @@
-import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, TextInput, Modal } from "react-native";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, TextInput, Modal, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Image } from "expo-image";
-import { api, COLORS, FONT } from "@/src/lib/api";
+import * as Location from "expo-location";
+import { api, COLORS, FONT, tanggal } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
+
+const LOCATION_PUSH_INTERVAL_MS = 8000;
 
 const STATUS_META: Record<string, { color: string; bg: string; label: string }> = {
   active: { color: COLORS.success, bg: "#ECFDF5", label: "DITERIMA" },
@@ -22,6 +25,46 @@ export default function KaryawanStatus() {
   const [selShop, setSelShop] = useState<any>(null);
   const [form, setForm] = useState({ portfolio_url: "", work_experience: "", certificates: "" });
   const [loading, setLoading] = useState(true);
+  const [sharingLocation, setSharingLocation] = useState(false);
+  const [locError, setLocError] = useState("");
+  const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const lastPushRef = useRef(0);
+  const lastCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+
+  const stopSharing = useCallback(async () => {
+    watchRef.current?.remove();
+    watchRef.current = null;
+    setSharingLocation(false);
+    if (lastCoordsRef.current) {
+      try { await api.post("/karyawan/location", { ...lastCoordsRef.current, is_online: false }); } catch {}
+    }
+  }, []);
+
+  const startSharing = useCallback(async () => {
+    setLocError("");
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") { setLocError("Izin lokasi ditolak"); return; }
+    watchRef.current = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.Balanced, timeInterval: LOCATION_PUSH_INTERVAL_MS, distanceInterval: 20 },
+      async (loc) => {
+        const coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+        lastCoordsRef.current = coords;
+        const now = Date.now();
+        if (now - lastPushRef.current < LOCATION_PUSH_INTERVAL_MS - 500) return;
+        lastPushRef.current = now;
+        try { await api.post("/karyawan/location", { ...coords, is_online: true }); } catch {}
+      }
+    );
+    setSharingLocation(true);
+  }, []);
+
+  const toggleSharing = async (value: boolean) => {
+    if (value) await startSharing(); else await stopSharing();
+  };
+
+  useEffect(() => () => { watchRef.current?.remove(); }, []);
+
+  const [myBookings, setMyBookings] = useState<any[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -29,6 +72,7 @@ export default function KaryawanStatus() {
       const my = await api.get("/karyawan/my");
       const sh = await api.get("/shops?sort=rating");
       setApps(my.applications); setShops(sh.shops);
+      try { const bk = await api.get("/karyawan/bookings"); setMyBookings(bk.bookings); } catch { setMyBookings([]); }
     } catch {} finally { setLoading(false); }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -62,6 +106,38 @@ export default function KaryawanStatus() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
+        {apps.some((a) => a.status === "active") && (
+          <View style={styles.locCard}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.locTitle}>Bagikan Lokasi Real-Time</Text>
+              <Text style={styles.locSub}>
+                {sharingLocation
+                  ? "Aktif — pelanggan bisa menemukanmu di sekitar mereka"
+                  : "Aktifkan saat kamu sedang bekerja, tetap buka aplikasi"}
+              </Text>
+              {!!locError && <Text style={styles.locErrorText}>{locError}</Text>}
+            </View>
+            <Switch value={sharingLocation} onValueChange={toggleSharing} trackColor={{ true: COLORS.brand }} testID="location-share-toggle" />
+          </View>
+        )}
+
+        {myBookings.length > 0 && (
+          <>
+            <Text style={styles.sec}>PESANAN SAYA</Text>
+            {myBookings.map((b: any) => (
+              <View key={b.id} style={styles.appCard}>
+                <Text style={styles.cName}>{b.customer?.name}</Text>
+                <Text style={styles.cMeta}>{b.service?.name} · {b.shop?.name}</Text>
+                <Text style={styles.cMeta}>{tanggal(b.booking_date)} · {b.booking_time} WITA</Text>
+                <Pressable style={styles.chatBtn} onPress={() => router.push(`/chat/booking/${b.id}` as any)} testID={`booking-chat-${b.id}`}>
+                  <Ionicons name="chatbubbles" size={14} color="#FFFFFF" />
+                  <Text style={styles.chatBtnText}>CHAT DENGAN PELANGGAN</Text>
+                </Pressable>
+              </View>
+            ))}
+          </>
+        )}
+
         <Text style={styles.sec}>LAMARAN SAYA</Text>
         {apps.length === 0 && (
           <View style={styles.emptyCard}>
@@ -88,6 +164,12 @@ export default function KaryawanStatus() {
                   <Ionicons name="trophy" size={16} color={COLORS.success} />
                   <Text style={styles.congratsText}>Anda diterima sebagai barber di toko ini!</Text>
                 </View>
+              )}
+              {["menunggu_tes", "seleksi_berkas_lolos", "active"].includes(a.status) && (
+                <Pressable style={styles.chatBtn} onPress={() => router.push(`/chat/recruitment/${a.id}` as any)} testID={`recruitment-chat-${a.id}`}>
+                  <Ionicons name="chatbubbles" size={14} color="#FFFFFF" />
+                  <Text style={styles.chatBtnText}>CHAT DENGAN OWNER</Text>
+                </Pressable>
               )}
             </View>
           );
@@ -144,6 +226,10 @@ const styles = StyleSheet.create({
   headerSub: { color: COLORS.sidebarTextDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 2 },
   logoutBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
   sec: { color: COLORS.textDim, letterSpacing: 0.8, fontSize: 11, fontFamily: FONT.bold, marginTop: 20, marginBottom: 12 },
+  locCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.surface, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border },
+  locTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 14 },
+  locSub: { color: COLORS.textDim, fontSize: 12, marginTop: 2, fontFamily: FONT.medium },
+  locErrorText: { color: COLORS.error, fontSize: 11, marginTop: 4, fontFamily: FONT.semibold },
   emptyCard: { alignItems: "center", padding: 24, backgroundColor: COLORS.surface, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, gap: 8 },
   empty: { color: COLORS.textDim, textAlign: "center", fontFamily: FONT.medium, fontSize: 13 },
   appCard: { backgroundColor: COLORS.surface, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 8 },
@@ -155,6 +241,8 @@ const styles = StyleSheet.create({
   badgeText: { fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.5 },
   congrats: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12, padding: 10, backgroundColor: "#ECFDF5", borderRadius: 10 },
   congratsText: { color: COLORS.success, fontFamily: FONT.semibold, fontSize: 12, flex: 1 },
+  chatBtn: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, backgroundColor: COLORS.brand, padding: 10, borderRadius: 10, marginTop: 10 },
+  chatBtnText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.4 },
   shopRow: { flexDirection: "row", gap: 12, padding: 12, backgroundColor: COLORS.surface, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, marginBottom: 8, alignItems: "center" },
   shopImg: { width: 60, height: 60, borderRadius: 10 },
   starRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },

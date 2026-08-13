@@ -1,10 +1,46 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, TextInput, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { useFocusEffect } from "expo-router";
-import { api, COLORS, FONT, rupiah, tanggal } from "@/src/lib/api";
+import { useFocusEffect, useRouter } from "expo-router";
+import { api, COLORS, FONT, rupiah, tanggal, formatJarak } from "@/src/lib/api";
+
+const LOC_POLL_INTERVAL = 7000;
+
+function LiveLocationCard({ bookingId }: { bookingId: string }) {
+  const [loc, setLoc] = useState<{ distance_km?: number; updated_at: string } | null>(null);
+  const [sharing, setSharing] = useState(true);
+  const pollRef = useRef<any>(null);
+
+  const fetchLoc = useCallback(async () => {
+    try {
+      const r = await api.get(`/bookings/${bookingId}/karyawan-location`);
+      setLoc(r); setSharing(true);
+    } catch { setSharing(false); }
+  }, [bookingId]);
+
+  useEffect(() => {
+    fetchLoc();
+    pollRef.current = setInterval(fetchLoc, LOC_POLL_INTERVAL);
+    return () => clearInterval(pollRef.current);
+  }, [fetchLoc]);
+
+  if (!sharing) return null;
+  const secondsAgo = loc ? Math.max(0, Math.round((Date.now() - new Date(loc.updated_at).getTime()) / 1000)) : null;
+
+  return (
+    <View style={styles.locCard} testID={`live-location-${bookingId}`}>
+      <Ionicons name="navigate-circle" size={20} color={COLORS.brand} />
+      <View style={{ flex: 1 }}>
+        <Text style={styles.locTitle}>
+          Barber sedang menuju lokasimu{loc?.distance_km != null ? ` · ${formatJarak(loc.distance_km)}` : ""}
+        </Text>
+        {secondsAgo !== null && <Text style={styles.locSub}>Diperbarui {secondsAgo}s lalu</Text>}
+      </View>
+    </View>
+  );
+}
 
 const TABS = [
   { key: "aktif", label: "Aktif", statuses: ["pending", "confirmed"] },
@@ -20,6 +56,7 @@ const STATUS_META: Record<string, { color: string; bg: string; label: string }> 
 };
 
 export default function Orders() {
+  const router = useRouter();
   const [tab, setTab] = useState("aktif");
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,6 +128,13 @@ export default function Orders() {
                     <Text style={[styles.badgeText, { color: meta.color }]}>{meta.label}</Text>
                   </View>
                 </View>
+                {o.status === "confirmed" && <LiveLocationCard bookingId={o.id} />}
+                {(o.status === "pending" || o.status === "confirmed") && (
+                  <Pressable style={styles.chatBtn} onPress={() => router.push(`/chat/booking/${o.id}` as any)} testID={`chat-barber-${o.id}`}>
+                    <Ionicons name="chatbubbles-outline" size={16} color={COLORS.brand} />
+                    <Text style={styles.chatBtnText}>Chat dengan Barber</Text>
+                  </Pressable>
+                )}
                 {o.status === "pending" && o.payment_status === "unpaid" && (
                   <Pressable testID={`pay-${o.id}`} style={styles.payBtn} onPress={() => pay(o.id)}>
                     <Ionicons name="wallet" size={16} color="#FFFFFF" />
@@ -158,6 +202,11 @@ const styles = StyleSheet.create({
   dateRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
   date: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium },
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 12 },
+  locCard: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.brandDim, padding: 10, borderRadius: 12, marginTop: 4, marginBottom: 8 },
+  locTitle: { color: COLORS.text, fontFamily: FONT.semibold, fontSize: 12 },
+  locSub: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 10, marginTop: 1 },
+  chatBtn: { flexDirection: "row", justifyContent: "center", gap: 6, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.brand, padding: 12, borderRadius: 12, alignItems: "center", marginTop: 4, marginBottom: 4 },
+  chatBtnText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 12 },
   rowBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   price: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 18 },
   badge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },

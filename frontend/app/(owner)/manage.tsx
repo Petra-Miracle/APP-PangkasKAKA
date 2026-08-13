@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, ActivityIndic
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import Slider from "@react-native-community/slider";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
 
@@ -20,6 +20,7 @@ const CRITERIA: { key: string; label: string; desc: string; icon: string; docKey
 const initWeights = () => ({ portfolio_weight: 0, experience_weight: 0, tools_weight: 0, bnsp_weight: 0, cert_weight: 0, diploma_weight: 0 });
 
 export default function Manage() {
+  const router = useRouter();
   const [tab, setTab] = useState<"barbers" | "services" | "karyawan">("barbers");
   const [shop, setShop] = useState<any>(null);
   const [karyawan, setKaryawan] = useState<any[]>([]);
@@ -179,6 +180,12 @@ export default function Manage() {
                   <Pressable style={styles.evalBtnGhost} onPress={() => openEvaluate(k)}>
                     <Ionicons name="eye-outline" size={16} color={COLORS.brand} />
                     <Text style={styles.evalBtnGhostText}>LIHAT DETAIL</Text>
+                  </Pressable>
+                )}
+                {["menunggu_tes", "seleksi_berkas_lolos", "active"].includes(k.status) && (
+                  <Pressable style={styles.evalBtnGhost} onPress={() => router.push(`/chat/recruitment/${k.id}` as any)} testID={`chat-${k.id}`}>
+                    <Ionicons name="chatbubbles-outline" size={16} color={COLORS.brand} />
+                    <Text style={styles.evalBtnGhostText}>CHAT PELAMAR</Text>
                   </Pressable>
                 )}
               </View>

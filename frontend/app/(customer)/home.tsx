@@ -26,6 +26,7 @@ export default function Home() {
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [search, setSearch] = useState("");
   const [analytics, setAnalytics] = useState<any>(null);
+  const [nearbyBarbers, setNearbyBarbers] = useState<any[]>([]);
 
   const loadShops = useCallback(async (s: string, c: { lat: number; lng: number } | null) => {
     let url = `/shops?sort=${s}`;
@@ -33,6 +34,14 @@ export default function Home() {
     const res = await api.get(url);
     setShops(res.shops);
     try { const a = await api.get("/analytics/customer"); setAnalytics(a); } catch {}
+  }, []);
+
+  const loadNearbyBarbers = useCallback(async (c: { lat: number; lng: number } | null) => {
+    if (!c) { setNearbyBarbers([]); return; }
+    try {
+      const r = await api.get(`/barbers/nearby?lat=${c.lat}&lng=${c.lng}`);
+      setNearbyBarbers(r.barbers || []);
+    } catch { setNearbyBarbers([]); }
   }, []);
 
   const init = useCallback(async () => {
@@ -50,12 +59,13 @@ export default function Home() {
       }
       setCoords(c);
       await loadShops(sort, c);
+      await loadNearbyBarbers(c);
     } catch {} finally { setLoading(false); }
-  }, [loadShops, sort]);
+  }, [loadShops, loadNearbyBarbers, sort]);
 
   useEffect(() => { init(); }, [init]);
 
-  const onRefresh = async () => { setRefreshing(true); await loadShops(sort, coords); setRefreshing(false); };
+  const onRefresh = async () => { setRefreshing(true); await loadShops(sort, coords); await loadNearbyBarbers(coords); setRefreshing(false); };
   const onSort = async (s: string) => { setSort(s); await loadShops(s, coords); };
 
   const filtered = shops.filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()));
@@ -97,6 +107,28 @@ export default function Home() {
               </View>
               <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
             </Pressable>
+
+            {nearbyBarbers.length > 0 && (
+              <View>
+                <View style={styles.nearbyHeaderRow}>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.sectionTitle}>Barber Online Terdekat</Text>
+                </View>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+                  {nearbyBarbers.map((b: any) => (
+                    <Pressable key={b.id} testID={`nearby-barber-${b.id}`} style={styles.barberCard} onPress={() => router.push(`/(customer)/shop/${b.shop_id}` as any)}>
+                      <Image source={{ uri: b.photo }} style={styles.barberImg} contentFit="cover" />
+                      <Text style={styles.barberName} numberOfLines={1}>{b.name}</Text>
+                      <Text style={styles.barberShop} numberOfLines={1}>{b.shop_name}</Text>
+                      <View style={styles.barberDistRow}>
+                        <Ionicons name="navigate" size={11} color={COLORS.brand} />
+                        <Text style={styles.barberDist}>{formatJarak(b.distance_km)}</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
 
             {analytics?.active_booking ? (
               <Pressable style={styles.activeCard} onPress={() => router.push("/(customer)/orders")} testID="active-booking-card">
@@ -197,6 +229,14 @@ const styles = StyleSheet.create({
   chipText: { color: COLORS.textMuted, fontSize: 12, fontFamily: FONT.semibold },
   chipTextActive: { color: "#FFFFFF" },
   sectionTitle: { color: COLORS.text, fontSize: 16, fontFamily: FONT.bold, marginTop: 20, marginBottom: 8 },
+  nearbyHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 20, marginBottom: 8 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.success },
+  barberCard: { width: 120, backgroundColor: COLORS.surface, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, padding: 10 },
+  barberImg: { width: "100%", height: 90, borderRadius: 10, backgroundColor: COLORS.surface2 },
+  barberName: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 12, marginTop: 8 },
+  barberShop: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 10, marginTop: 1 },
+  barberDistRow: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 6 },
+  barberDist: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 11 },
   empty: { color: COLORS.textDim, textAlign: "center", marginTop: 40, fontFamily: FONT.medium },
   card: {
     backgroundColor: COLORS.surface, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden",

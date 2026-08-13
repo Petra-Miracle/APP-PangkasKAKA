@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { useCameraPermission } from "react-native-vision-camera";
-import { Camera as FaceCamera, type Face } from "react-native-vision-camera-face-detector";
+import { Camera, useCameraDevice, useCameraPermission, type CameraRef } from "react-native-vision-camera";
+import { useImageFaceDetector, type Face } from "react-native-vision-camera-face-detector";
 import Svg, { Circle } from "react-native-svg";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import { classifyFaceShape, isFrontalPose, type FaceShapeResult } from "@/src/lib/faceShape";
@@ -20,12 +20,20 @@ const RING_STROKE = 6;
 export default function AIScan() {
   const router = useRouter();
   const { hasPermission, canRequestPermission, requestPermission } = useCameraPermission();
+  const device = useCameraDevice("front");
+  const cameraRef = useRef<CameraRef>(null);
+  // Must be a stable reference — a fresh object literal every render makes
+  // useImageFaceDetector's internal useMemo recreate the native detector on
+  // every re-render (progress updates re-render this component every ~350ms).
+  const detectorOptions = useMemo(() => ({ performanceMode: "fast" as const, runContours: true }), []);
+  const faceDetector = useImageFaceDetector(detectorOptions);
 
   const [scanning, setScanning] = useState(true);
   const [progress, setProgress] = useState(0); // 0-1, drives the ring
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string>("");
 
   const lastShapeRef = useRef<FaceShapeResult["shape"] | null>(null);
   const stableCountRef = useRef(0);
@@ -56,18 +64,28 @@ export default function AIScan() {
     if (triggeredRef.current || !scanning) return;
     const face = faces?.[0];
     const points = face?.contours?.FACE;
-    if (!face || !points || !isFrontalPose(face.pitchAngle, face.rollAngle, face.yawAngle)) {
+    if (!face || !points) {
       stableCountRef.current = 0;
       lastShapeRef.current = null;
       setProgress(0);
+      setDebugInfo(`wajah: ${faces?.length ?? 0} terdeteksi${face ? ", tanpa contour" : ""}`);
+      return;
+    }
+    if (!isFrontalPose(face.pitchAngle, face.rollAngle, face.yawAngle)) {
+      stableCountRef.current = 0;
+      lastShapeRef.current = null;
+      setProgress(0);
+      setDebugInfo(`pitch:${face.pitchAngle.toFixed(0)} roll:${face.rollAngle.toFixed(0)} yaw:${face.yawAngle.toFixed(0)}`);
       return;
     }
     const classified = classifyFaceShape(points);
     if (!classified) {
       stableCountRef.current = 0;
       setProgress(0);
+      setDebugInfo(`contour: ${points.length} titik, gagal diklasifikasi`);
       return;
     }
+    setDebugInfo(`stabil: ${classified.shape} (${stableCountRef.current + 1}/${STABLE_FRAMES_REQUIRED})`);
     if (lastShapeRef.current === classified.shape) {
       stableCountRef.current += 1;
     } else {
@@ -80,6 +98,35 @@ export default function AIScan() {
       onStable(classified);
     }
   }, [scanning, onStable]);
+
+  useEffect(() => {
+    if (!scanning || !device || !hasPermission) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const loop = async () => {
+      if (cancelled) return;
+      try {
+        const cam = cameraRef.current;
+        if (cam) {
+          const snapshot = await cam.takeSnapshot();
+          const path = await snapshot.saveToTemporaryFileAsync("jpg", 70);
+          const faces = faceDetector.detectFaces(`file://${path}`);
+          if (!cancelled) handleFacesDetected(faces);
+        }
+      } catch (e: any) {
+        // Surface capture/detect failures instead of failing silently forever —
+        // this is what used to make the scanner look "frozen" with no feedback.
+        if (!cancelled) setDebugInfo(`error: ${e?.message || String(e)}`);
+      }
+      if (!cancelled) timer = setTimeout(loop, 350);
+    };
+    timer = setTimeout(loop, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [scanning, device, hasPermission, faceDetector, handleFacesDetected]);
 
   const retry = () => {
     setResult(null);
@@ -126,15 +173,19 @@ export default function AIScan() {
                 </Pressable>
               </View>
             )}
-            {hasPermission && (
+            {hasPermission && !device && (
+              <View style={styles.permBox}>
+                <Ionicons name="camera-outline" size={48} color={COLORS.textDim} />
+                <Text style={styles.permText}>Kamera depan tidak ditemukan di perangkat ini</Text>
+              </View>
+            )}
+            {hasPermission && device && (
               <>
-                <FaceCamera
+                <Camera
+                  ref={cameraRef}
                   style={StyleSheet.absoluteFill}
-                  device="front"
+                  device={device}
                   isActive={scanning}
-                  runContours
-                  performanceMode="fast"
-                  onFacesDetected={handleFacesDetected}
                   onError={(e) => setErr(e.message || "Kamera gagal dimuat")}
                 />
                 <View style={styles.overlay} pointerEvents="none">
@@ -155,6 +206,12 @@ export default function AIScan() {
                   <Text style={styles.instructionText}>
                     {progress > 0 ? "Tahan posisi wajahmu..." : "Posisikan wajah di dalam lingkaran"}
                   </Text>
+                  {/* TODO: remove once AI Scan detection is confirmed stable on-device */}
+                  {!!debugInfo && (
+                    <Text style={[styles.instructionText, { marginTop: 6, fontSize: 10, backgroundColor: "rgba(0,0,0,0.6)" }]}>
+                      {debugInfo}
+                    </Text>
+                  )}
                 </View>
               </>
             )}

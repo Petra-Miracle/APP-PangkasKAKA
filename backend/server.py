@@ -11,6 +11,7 @@ import hashlib
 import base64
 import logging
 import asyncio
+import secrets
 from pathlib import Path
 from datetime import datetime, timedelta, timezone, date, time as dtime
 from typing import List, Optional, Any, Literal
@@ -40,6 +41,12 @@ try:
 except Exception:  # pragma: no cover
     _genai = None
 
+# Resend (transactional email — forgot-password OTP)
+try:
+    import resend as _resend
+except Exception:  # pragma: no cover
+    _resend = None
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
@@ -50,6 +57,11 @@ JWT_ALGO = os.environ.get("JWT_ALGORITHM", "HS256")
 JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", 168))
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 _gemini_client = _genai.Client(api_key=GEMINI_API_KEY) if (_genai and GEMINI_API_KEY) else None
+
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "PangkasKAKA <onboarding@resend.dev>")
+if _resend and RESEND_API_KEY:
+    _resend.api_key = RESEND_API_KEY
 
 # "development" (default) | "production" — gerbang untuk fitur yang tidak boleh
 # aktif di production (auto-seed demo data, dsb).
@@ -198,6 +210,16 @@ class LoginIn(BaseModel):
     password: str
 
 
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
+
+
 class UpdateProfileIn(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
@@ -313,6 +335,12 @@ class AIFaceScanIn(BaseModel):
     measurements: Optional[dict] = None
 
 
+class KaryawanLocationIn(BaseModel):
+    lat: float
+    lng: float
+    is_online: bool
+
+
 class NotifyIn(BaseModel):
     user_id: str
     title: str
@@ -332,6 +360,22 @@ async def send_notif(user_id: str, title: str, message: str, type: str = "info")
         "created_at": now_utc().isoformat(),
     }
     await db.notifications.insert_one(doc)
+
+
+async def send_email(to: str, subject: str, html: str) -> bool:
+    """Kirim email transaksional via Resend. No-op (log only) kalau RESEND_API_KEY belum diset."""
+    if not (_resend and RESEND_API_KEY):
+        log.warning("RESEND_API_KEY belum diset, email ke %s tidak dikirim (subject: %s)", to, subject)
+        return False
+    try:
+        await asyncio.to_thread(
+            _resend.Emails.send,
+            {"from": RESEND_FROM_EMAIL, "to": [to], "subject": subject, "html": html},
+        )
+        return True
+    except Exception:
+        log.exception("Gagal mengirim email via Resend ke %s", to)
+        return False
 
 
 # ---------- Helper: Slot Generator ----------
@@ -458,6 +502,48 @@ async def login(body: LoginIn, request: Request):
     return {"token": token, "user": clean(dict(user))}
 
 
+@api.post("/auth/forgot-password")
+async def forgot_password(body: ForgotPasswordIn, request: Request):
+    rate_limit(f"forgot_password:{request.client.host}", max_requests=5, window_seconds=900)
+    generic_msg = {"ok": True, "message": "Jika email terdaftar, kode reset telah dikirim."}
+    email = body.email.lower()
+    user = await db.profiles.find_one({"email": email}, {"_id": 0, "id": 1, "name": 1})
+    if not user:
+        return generic_msg
+    code = f"{secrets.randbelow(1_000_000):06d}"
+    await db.password_resets.insert_one({
+        "id": new_id(), "email": email, "code": code, "used": False,
+        "expires_at": (now_utc() + timedelta(minutes=15)).isoformat(),
+        "created_at": now_utc().isoformat(),
+    })
+    await send_email(
+        email, "Kode Reset Password PangkasKAKA",
+        f"<p>Halo {user.get('name', '')},</p>"
+        f"<p>Kode reset password kamu: <strong style='font-size:20px'>{code}</strong></p>"
+        f"<p>Kode berlaku 15 menit. Abaikan email ini jika kamu tidak meminta reset password.</p>",
+    )
+    return generic_msg
+
+
+@api.post("/auth/reset-password")
+async def reset_password(body: ResetPasswordIn, request: Request):
+    rate_limit(f"reset_password:{request.client.host}", max_requests=10, window_seconds=900)
+    if len(body.new_password) < 8:
+        raise HTTPException(400, "Password minimal 8 karakter")
+    email = body.email.lower()
+    reset = await db.password_resets.find_one(
+        {"email": email, "code": body.code, "used": False}, {"_id": 0}
+    )
+    if not reset or datetime.fromisoformat(reset["expires_at"]) < now_utc():
+        raise HTTPException(400, "Kode tidak valid atau sudah kadaluarsa")
+    user = await db.profiles.find_one({"email": email}, {"_id": 0, "id": 1})
+    if not user:
+        raise HTTPException(400, "Kode tidak valid atau sudah kadaluarsa")
+    await db.profiles.update_one({"id": user["id"]}, {"$set": {"password": hash_pw(body.new_password)}})
+    await db.password_resets.update_one({"id": reset["id"]}, {"$set": {"used": True}})
+    return {"ok": True}
+
+
 @api.get("/auth/me")
 async def me(user=Depends(get_current_user)):
     return {"user": user}
@@ -493,6 +579,35 @@ async def list_shops(lat: Optional[float] = None, lng: Optional[float] = None, s
     elif sort == "harga":
         shops.sort(key=lambda x: x.get("price_range", ""))
     return {"shops": shops}
+
+
+@api.get("/barbers/nearby")
+async def nearby_barbers(lat: float, lng: float):
+    fresh_cutoff = (now_utc() - timedelta(minutes=2)).isoformat()
+    locations = await db.karyawan_locations.find(
+        {"is_online": True, "updated_at": {"$gte": fresh_cutoff}}, {"_id": 0}
+    ).to_list(500)
+    if not locations:
+        return {"barbers": []}
+    loc_by_karyawan = {l["karyawan_id"]: l for l in locations}
+    barbers = await db.barbers.find(
+        {"karyawan_id": {"$in": list(loc_by_karyawan.keys())}, "status": "active"}, {"_id": 0}
+    ).to_list(500)
+    result = []
+    for b in barbers:
+        loc = loc_by_karyawan.get(b["karyawan_id"])
+        if not loc:
+            continue
+        shop = await db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0, "name": 1, "address": 1})
+        result.append({
+            **b,
+            "lat": loc["lat"], "lng": loc["lng"], "updated_at": loc["updated_at"],
+            "distance_km": haversine_km(lat, lng, loc["lat"], loc["lng"]),
+            "shop_name": shop["name"] if shop else "",
+            "shop_address": shop["address"] if shop else "",
+        })
+    result.sort(key=lambda x: x["distance_km"])
+    return {"barbers": result}
 
 
 @api.get("/shops/{shop_id}")
@@ -615,6 +730,28 @@ async def get_booking(bid: str, user=Depends(get_current_user)):
     b["service"] = await db.services.find_one({"id": b["service_id"]}, {"_id": 0})
     b["barber"] = await db.barbers.find_one({"id": b["barber_id"]}, {"_id": 0})
     return b
+
+
+@api.get("/bookings/{bid}/karyawan-location")
+async def get_booking_karyawan_location(bid: str, user=Depends(get_current_user)):
+    b = await db.bookings.find_one({"id": bid, "user_id": user["id"]}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    if b["status"] != "confirmed":
+        raise HTTPException(400, "Lokasi barber hanya tersedia saat pesanan sedang berjalan")
+    barber = await db.barbers.find_one({"id": b["barber_id"]}, {"_id": 0, "karyawan_id": 1})
+    if not barber or not barber.get("karyawan_id"):
+        raise HTTPException(404, "Barber ini belum membagikan lokasi")
+    loc = await db.karyawan_locations.find_one({"karyawan_id": barber["karyawan_id"]}, {"_id": 0})
+    if not loc or not loc.get("is_online"):
+        raise HTTPException(404, "Barber sedang tidak membagikan lokasi")
+    updated_at = datetime.fromisoformat(loc["updated_at"])
+    if updated_at < now_utc() - timedelta(minutes=2):
+        raise HTTPException(404, "Lokasi barber sudah tidak diperbarui")
+    result = {"lat": loc["lat"], "lng": loc["lng"], "updated_at": loc["updated_at"]}
+    if b.get("customer_lat") is not None and b.get("customer_lng") is not None:
+        result["distance_km"] = haversine_km(b["customer_lat"], b["customer_lng"], loc["lat"], loc["lng"])
+    return result
 
 
 @api.get("/bookings")
@@ -1030,6 +1167,40 @@ async def karyawan_my(user=Depends(require_role("karyawan"))):
         s = await db.barbershops.find_one({"id": r["shop_id"]}, {"_id": 0, "name": 1, "image": 1})
         r["shop"] = s
     return {"applications": rows}
+
+
+@api.post("/karyawan/location")
+async def update_karyawan_location(body: KaryawanLocationIn, user=Depends(require_role("karyawan"))):
+    rate_limit(f"karyawan_location:{user['id']}", max_requests=20, window_seconds=60)
+    active = await db.karyawan.find_one({"profile_id": user["id"], "status": "active"}, {"_id": 0, "id": 1})
+    if not active:
+        raise HTTPException(400, "Anda belum menjadi barber aktif di toko manapun")
+    await db.karyawan_locations.update_one(
+        {"karyawan_id": active["id"]},
+        {"$set": {"karyawan_id": active["id"], "lat": body.lat, "lng": body.lng,
+                  "is_online": body.is_online, "updated_at": now_utc().isoformat()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.get("/karyawan/bookings")
+async def karyawan_bookings(user=Depends(require_role("karyawan"))):
+    apps = await db.karyawan.find({"profile_id": user["id"], "status": "active"}, {"_id": 0, "id": 1}).to_list(20)
+    if not apps:
+        return {"bookings": []}
+    barbers = await db.barbers.find({"karyawan_id": {"$in": [a["id"] for a in apps]}}, {"_id": 0, "id": 1}).to_list(20)
+    barber_ids = [b["id"] for b in barbers]
+    if not barber_ids:
+        return {"bookings": []}
+    bookings = await db.bookings.find(
+        {"barber_id": {"$in": barber_ids}, "status": {"$in": ["pending", "confirmed"]}}, {"_id": 0}
+    ).sort("created_at", -1).to_list(200)
+    for b in bookings:
+        b["shop"] = await db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0, "name": 1})
+        b["service"] = await db.services.find_one({"id": b["service_id"]}, {"_id": 0, "name": 1})
+        b["customer"] = await db.profiles.find_one({"id": b["user_id"]}, {"_id": 0, "name": 1, "phone": 1})
+    return {"bookings": bookings}
 
 
 # ============================================================
@@ -1517,6 +1688,77 @@ async def close_thread(shop_id: str, user=Depends(require_role("admin"))):
     await db.barbershops.update_one({"id": shop_id}, {"$set": {"chat_closed": True}})
     await send_notif(shop["owner_id"], "Percakapan ditutup", "Admin telah menutup percakapan verifikasi.", "system")
     return {"ok": True}
+
+
+# ============================================================
+# CHAT (Customer ↔ Karyawan, per-booking thread — owner can monitor)
+# ============================================================
+class ServiceChatSendIn(BaseModel):
+    text: Optional[str] = None
+    attachment: Optional[str] = None
+
+
+async def _resolve_barber_profile_id(barber_id: str) -> Optional[str]:
+    barber = await db.barbers.find_one({"id": barber_id}, {"_id": 0, "karyawan_id": 1})
+    if not barber or not barber.get("karyawan_id"):
+        return None
+    k = await db.karyawan.find_one({"id": barber["karyawan_id"]}, {"_id": 0, "profile_id": 1})
+    return k["profile_id"] if k else None
+
+
+async def _booking_chat_access(booking: dict, user: dict) -> str:
+    """Returns the caller's role in this thread ('customer'/'karyawan'/'owner'). Raises 403 otherwise."""
+    if user["role"] == "customer" and booking["user_id"] == user["id"]:
+        return "customer"
+    if user["role"] == "karyawan":
+        barber_profile_id = await _resolve_barber_profile_id(booking["barber_id"])
+        if barber_profile_id and barber_profile_id == user["id"]:
+            return "karyawan"
+    if user["role"] == "owner":
+        shop = await db.barbershops.find_one({"id": booking["shop_id"]}, {"_id": 0, "owner_id": 1})
+        if shop and shop["owner_id"] == user["id"]:
+            return "owner"
+    raise HTTPException(403, "Akses ditolak")
+
+
+@api.get("/bookings/{bid}/messages")
+async def get_booking_messages(bid: str, user=Depends(get_current_user)):
+    booking = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    if not booking:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    await _booking_chat_access(booking, user)
+    msgs = await db.service_messages.find({"booking_id": bid}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    for m in msgs:
+        p = await db.profiles.find_one({"id": m["sender_id"]}, {"_id": 0, "name": 1, "role": 1})
+        m["sender_name"] = p["name"] if p else "?"
+    barber = await db.barbers.find_one({"id": booking["barber_id"]}, {"_id": 0, "name": 1, "photo": 1})
+    return {"booking_id": bid, "barber": barber, "messages": msgs}
+
+
+@api.post("/bookings/{bid}/messages")
+async def send_booking_message(bid: str, body: ServiceChatSendIn, user=Depends(get_current_user)):
+    booking = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    if not booking:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    role_in_thread = await _booking_chat_access(booking, user)
+    if not body.text and not body.attachment:
+        raise HTTPException(400, "Pesan atau lampiran wajib diisi")
+    if body.attachment and len(body.attachment) > 2_800_000:
+        raise HTTPException(400, "Lampiran melebihi 2MB")
+    msg = {
+        "id": new_id(), "booking_id": bid, "sender_id": user["id"], "sender_role": user["role"],
+        "text": body.text or "", "attachment": body.attachment or "",
+        "is_read": False, "created_at": now_utc().isoformat(),
+    }
+    await db.service_messages.insert_one(msg)
+    if role_in_thread == "customer":
+        barber_profile_id = await _resolve_barber_profile_id(booking["barber_id"])
+        if barber_profile_id:
+            await send_notif(barber_profile_id, "Pesan baru dari pelanggan", body.text or "📎 Lampiran", "system")
+    elif role_in_thread == "karyawan":
+        await send_notif(booking["user_id"], "Pesan baru dari barber", body.text or "📎 Lampiran", "system")
+    m = dict(msg); m.pop("_id", None); m["sender_name"] = user["name"]
+    return {"message": m}
 
 
 @api.get("/")
@@ -2284,7 +2526,8 @@ class BerkasDecisionIn(BaseModel):
 
 
 class RecruitmentMessageIn(BaseModel):
-    text: str
+    text: Optional[str] = None
+    attachment: Optional[str] = None
 
 
 class UpdateCriteriaIn(BaseModel):
@@ -2411,17 +2654,21 @@ async def send_recruitment_message(kid: str, body: RecruitmentMessageIn, user=De
         if not shop or shop["owner_id"] != user["id"]:
             raise HTTPException(403, "Bukan toko Anda")
 
+    text = (body.text or "").strip()
+    if not text and not body.attachment:
+        raise HTTPException(400, "Pesan kosong")
+    if body.attachment and len(body.attachment) > 2_800_000:
+        raise HTTPException(400, "Lampiran melebihi 2MB")
     msg = {
         "id": new_id(),
         "karyawan_id": kid,
         "sender_id": user["id"],
         "sender_role": user["role"],
-        "text": body.text.strip(),
+        "text": text,
+        "attachment": body.attachment or "",
         "is_read": False,
         "created_at": now_utc().isoformat(),
     }
-    if not msg["text"]:
-        raise HTTPException(400, "Pesan kosong")
     await db.recruitment_messages.insert_one(msg)
 
     # Notifikasi lawan bicara
@@ -2496,8 +2743,33 @@ app.add_middleware(
 )
 
 
+async def ensure_indexes():
+    await db.profiles.create_index("email", unique=True)
+    await db.barbershops.create_index("owner_id")
+    await db.barbers.create_index("shop_id")
+    await db.barbers.create_index("karyawan_id")
+    await db.karyawan.create_index("profile_id")
+    await db.karyawan.create_index("shop_id")
+    await db.karyawan_locations.create_index("karyawan_id", unique=True)
+    await db.bookings.create_index("user_id")
+    await db.bookings.create_index("shop_id")
+    await db.bookings.create_index("barber_id")
+    await db.bookings.create_index("status")
+    await db.shop_schedules.create_index([("shop_id", 1), ("day_name", 1)])
+    await db.payments.create_index("booking_id")
+    await db.notifications.create_index("user_id")
+    await db.chat_messages.create_index("shop_id")
+    await db.recruitment_messages.create_index("karyawan_id")
+    await db.service_messages.create_index("booking_id")
+    await db.password_resets.create_index([("email", 1), ("code", 1)])
+
+
 @app.on_event("startup")
 async def startup_seed():
+    try:
+        await ensure_indexes()
+    except Exception as e:
+        log.exception("Index creation on startup failed: %s", e)
     if ENVIRONMENT == "production":
         log.info("ENVIRONMENT=production — auto-seed demo data dilewati.")
         return
