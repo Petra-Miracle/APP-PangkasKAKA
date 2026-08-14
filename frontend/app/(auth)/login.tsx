@@ -6,10 +6,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "@/src/lib/auth";
 import { COLORS, FONT } from "@/src/lib/api";
 import { AuthHero, GradientButton } from "@/src/components/AuthUI";
+import { useScrollToInput } from "@/src/lib/useScrollToInput";
 
 export default function Login() {
   const { login } = useAuth();
   const router = useRouter();
+  const { scrollRef, handleFocus } = useScrollToInput();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -31,7 +33,7 @@ export default function Login() {
   return (
     <SafeAreaView style={styles.safe} edges={[]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView ref={scrollRef} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <AuthHero />
 
           <View style={styles.card}>
@@ -41,14 +43,14 @@ export default function Login() {
             <Text style={styles.label}>Email</Text>
             <View style={styles.inputWrap}>
               <Ionicons name="mail-outline" size={18} color={COLORS.textDim} />
-              <TextInput testID="login-email" style={styles.input} value={email} onChangeText={setEmail}
+              <TextInput testID="login-email" style={styles.input} value={email} onChangeText={setEmail} onFocus={handleFocus}
                 placeholder="nama@contoh.com" placeholderTextColor={COLORS.textDim} autoCapitalize="none" keyboardType="email-address" />
             </View>
 
             <Text style={styles.label}>Password</Text>
             <View style={styles.inputWrap}>
               <Ionicons name="lock-closed-outline" size={18} color={COLORS.textDim} />
-              <TextInput testID="login-password" style={styles.input} value={password} onChangeText={setPassword}
+              <TextInput testID="login-password" style={styles.input} value={password} onChangeText={setPassword} onFocus={handleFocus}
                 placeholder="Password Anda" placeholderTextColor={COLORS.textDim} secureTextEntry={!showPw} />
               <Pressable onPress={() => setShowPw((v) => !v)} testID="toggle-pw">
                 <Ionicons name={showPw ? "eye-off-outline" : "eye-outline"} size={18} color={COLORS.textDim} />

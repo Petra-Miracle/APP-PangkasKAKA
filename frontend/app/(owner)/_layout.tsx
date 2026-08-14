@@ -12,7 +12,7 @@ export default function OwnerLayout() {
       <Tabs.Screen name="orders" options={{ title: "Pesanan", tabBarIcon: ({ color, size }) => <Ionicons name="receipt" color={color} size={size} /> }} />
       <Tabs.Screen name="manage" options={{ title: "Kelola", tabBarIcon: ({ color, size }) => <Ionicons name="construct" color={color} size={size} /> }} />
       <Tabs.Screen name="profile" options={{ title: "Profil", tabBarIcon: ({ color, size }) => <Ionicons name="person" color={color} size={size} /> }} />
-      <Tabs.Screen name="schedule" options={{ href: null }} />
+      <Tabs.Screen name="schedule" options={{ title: "Jadwal", tabBarIcon: ({ color, size }) => <Ionicons name="calendar" color={color} size={size} /> }} />
     </Tabs>
   );
 }

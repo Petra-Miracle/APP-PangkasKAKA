@@ -2127,10 +2127,14 @@ def _durianpay_basic_auth() -> str:
 
 
 def _expiry_rfc3339_wita(minutes: int = 15) -> str:
-    """Return RFC3339 timestamp WITA (UTC+8) N minutes from now."""
-    dt = datetime.now(WITA) + timedelta(minutes=minutes)
-    # Format: 2026-07-21T14:45:00+08:00
-    return dt.replace(microsecond=0).isoformat()
+    """
+    Return an RFC3339 UTC timestamp N minutes from now, matching Durianpay's
+    documented expiry_date format exactly: milliseconds + trailing 'Z'
+    (e.g. "2026-09-29T10:00:00.000Z"). A "+08:00"-offset ISO string (the
+    previous implementation) is valid RFC3339 but not what their API accepts.
+    """
+    dt = datetime.now(timezone.utc) + timedelta(minutes=minutes)
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
 
 
 def _verify_durianpay_webhook(raw_body: bytes, method: str, path: str,
@@ -2308,7 +2312,15 @@ async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
 
     if r.status_code >= 400:
         log.error("Durianpay API error %d: %s", r.status_code, r.text[:500])
-        raise HTTPException(502, DURIANPAY_ERR_GENERIC)
+        # Sandbox: surface the real Durianpay error so it can be diagnosed without
+        # Railway log access. Never do this in production (could leak provider detail).
+        detail = DURIANPAY_ERR_GENERIC
+        if PAYMENT_MODE == "sandbox":
+            try:
+                detail = f"{DURIANPAY_ERR_GENERIC} [sandbox debug: {r.status_code} {r.text[:300]}]"
+            except Exception:
+                pass
+        raise HTTPException(502, detail)
 
     try:
         data = r.json().get("data", {})

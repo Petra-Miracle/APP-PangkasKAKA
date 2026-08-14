@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { api, COLORS, FONT, tanggal } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
@@ -25,6 +26,11 @@ export default function KaryawanStatus() {
   const [showApply, setShowApply] = useState(false);
   const [selShop, setSelShop] = useState<any>(null);
   const [form, setForm] = useState({ portfolio_url: "", work_experience: "", certificates: "" });
+  const [ktpPhoto, setKtpPhoto] = useState("");
+  const [diplomaPhoto, setDiplomaPhoto] = useState("");
+  const [criteriaAgreed, setCriteriaAgreed] = useState(false);
+  const [applyErr, setApplyErr] = useState("");
+  const [applying, setApplying] = useState(false);
   const { scrollRef, handleFocus } = useScrollToInput();
   const [loading, setLoading] = useState(true);
   const [sharingLocation, setSharingLocation] = useState(false);
@@ -79,10 +85,33 @@ export default function KaryawanStatus() {
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  const pickPhoto = async (target: "ktp" | "diploma") => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (perm.status !== "granted") return;
+    const res = await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.5, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+    if (res.canceled) return;
+    const uri = `data:image/jpeg;base64,${res.assets[0].base64}`;
+    if (target === "ktp") setKtpPhoto(uri); else setDiplomaPhoto(uri);
+  };
+
+  const resetApplyForm = () => {
+    setForm({ portfolio_url: "", work_experience: "", certificates: "" });
+    setKtpPhoto(""); setDiplomaPhoto(""); setCriteriaAgreed(false); setApplyErr("");
+  };
+
   const apply = async () => {
     if (!selShop) return;
-    try { await api.post("/karyawan/apply", { shop_id: selShop.id, ...form }); setShowApply(false); setForm({ portfolio_url: "", work_experience: "", certificates: "" }); await load(); }
-    catch (e: any) { alert(e.message); }
+    setApplyErr("");
+    if (!ktpPhoto) return setApplyErr("Foto KTP wajib diunggah");
+    if (!diplomaPhoto) return setApplyErr("Foto/scan ijazah wajib diunggah");
+    if (form.work_experience.trim().length < 20) return setApplyErr("Pengalaman kerja wajib diisi minimal 20 karakter");
+    if (!criteriaAgreed) return setApplyErr("Anda harus menyetujui kriteria platform");
+    setApplying(true);
+    try {
+      await api.post("/karyawan/apply", { shop_id: selShop.id, ...form, ktp_photo: ktpPhoto, diploma_photo: diplomaPhoto, criteria_agreed: criteriaAgreed });
+      setShowApply(false); resetApplyForm(); await load();
+    } catch (e: any) { setApplyErr(e.message || "Gagal mengirim lamaran"); }
+    setApplying(false);
   };
   const doLogout = async () => { await logout(); router.replace("/(auth)/login"); };
 
@@ -202,16 +231,56 @@ export default function KaryawanStatus() {
             <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               <Text style={styles.modalTitle}>Lamar Kerja</Text>
               <Text style={styles.modalSub}>{selShop?.name}</Text>
-              <Text style={styles.label}>URL Portofolio</Text>
-              <TextInput style={styles.input} placeholder="https://..." placeholderTextColor={COLORS.textDim} value={form.portfolio_url} onChangeText={(t) => setForm({ ...form, portfolio_url: t })} onFocus={handleFocus} />
-              <Text style={styles.label}>Pengalaman Kerja</Text>
-              <TextInput style={styles.input} placeholder="2 tahun di Barber X" placeholderTextColor={COLORS.textDim} value={form.work_experience} onChangeText={(t) => setForm({ ...form, work_experience: t })} onFocus={handleFocus} />
-              <Text style={styles.label}>Sertifikat</Text>
-              <TextInput style={styles.input} placeholder="BNSP, kursus, dll" placeholderTextColor={COLORS.textDim} value={form.certificates} onChangeText={(t) => setForm({ ...form, certificates: t })} onFocus={handleFocus} />
-              <Pressable style={styles.btn} onPress={apply} testID="submit-apply">
-                <Text style={styles.btnText}>KIRIM LAMARAN</Text>
+
+              <Text style={styles.label}>Foto KTP *</Text>
+              <Pressable style={styles.photoPick} onPress={() => pickPhoto("ktp")} testID="pick-ktp">
+                {ktpPhoto ? (
+                  <Image source={{ uri: ktpPhoto }} style={styles.photoPreview} contentFit="cover" />
+                ) : (
+                  <>
+                    <Ionicons name="camera-outline" size={20} color={COLORS.textDim} />
+                    <Text style={styles.photoPickText}>Unggah foto KTP</Text>
+                  </>
+                )}
               </Pressable>
-              <Pressable onPress={() => setShowApply(false)} style={{ padding: 12, alignItems: "center" }}>
+
+              <Text style={styles.label}>Foto/Scan Ijazah *</Text>
+              <Pressable style={styles.photoPick} onPress={() => pickPhoto("diploma")} testID="pick-diploma">
+                {diplomaPhoto ? (
+                  <Image source={{ uri: diplomaPhoto }} style={styles.photoPreview} contentFit="cover" />
+                ) : (
+                  <>
+                    <Ionicons name="camera-outline" size={20} color={COLORS.textDim} />
+                    <Text style={styles.photoPickText}>Unggah foto ijazah</Text>
+                  </>
+                )}
+              </Pressable>
+
+              <Text style={styles.label}>Pengalaman Kerja * (min. 20 karakter)</Text>
+              <TextInput style={[styles.input, { minHeight: 70 }]} multiline placeholder="Ceritakan pengalaman kerjamu, mis. 2 tahun di Barber X sebagai..." placeholderTextColor={COLORS.textDim} value={form.work_experience} onChangeText={(t) => setForm({ ...form, work_experience: t })} onFocus={handleFocus} testID="apply-experience" />
+
+              <Text style={styles.label}>URL Portofolio (opsional)</Text>
+              <TextInput style={styles.input} placeholder="https://..." placeholderTextColor={COLORS.textDim} value={form.portfolio_url} onChangeText={(t) => setForm({ ...form, portfolio_url: t })} onFocus={handleFocus} autoCapitalize="none" />
+
+              <Text style={styles.label}>Sertifikat (opsional)</Text>
+              <TextInput style={styles.input} placeholder="BNSP, kursus, dll" placeholderTextColor={COLORS.textDim} value={form.certificates} onChangeText={(t) => setForm({ ...form, certificates: t })} onFocus={handleFocus} />
+
+              <Pressable style={styles.agreeRow} onPress={() => setCriteriaAgreed((v) => !v)} testID="criteria-agree">
+                <Ionicons name={criteriaAgreed ? "checkbox" : "square-outline"} size={20} color={criteriaAgreed ? COLORS.brand : COLORS.textDim} />
+                <Text style={styles.agreeText}>Saya menyetujui kriteria seleksi platform PangkasKAKA</Text>
+              </Pressable>
+
+              {!!applyErr && (
+                <View style={styles.applyErrBox}>
+                  <Ionicons name="alert-circle" size={16} color={COLORS.error} />
+                  <Text style={styles.applyErrText} testID="apply-error">{applyErr}</Text>
+                </View>
+              )}
+
+              <Pressable style={[styles.btn, applying && { opacity: 0.6 }]} onPress={apply} disabled={applying} testID="submit-apply">
+                {applying ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.btnText}>KIRIM LAMARAN</Text>}
+              </Pressable>
+              <Pressable onPress={() => { setShowApply(false); resetApplyForm(); }} style={{ padding: 12, alignItems: "center" }}>
                 <Text style={{ color: COLORS.textDim, fontFamily: FONT.medium }}>Batal</Text>
               </Pressable>
             </ScrollView>
@@ -260,4 +329,11 @@ const styles = StyleSheet.create({
   input: { backgroundColor: COLORS.surface2, color: COLORS.text, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, fontFamily: FONT.medium },
   btn: { backgroundColor: COLORS.brand, padding: 14, borderRadius: 12, alignItems: "center", marginTop: 20 },
   btnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 1 },
+  photoPick: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border, borderStyle: "dashed", borderRadius: 12, height: 90, overflow: "hidden" },
+  photoPickText: { color: COLORS.textDim, fontFamily: FONT.semibold, fontSize: 12 },
+  photoPreview: { width: "100%", height: "100%" },
+  agreeRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 16 },
+  agreeText: { flex: 1, color: COLORS.text, fontFamily: FONT.medium, fontSize: 12, lineHeight: 17 },
+  applyErrBox: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF2F2", padding: 12, borderRadius: 12, marginTop: 14 },
+  applyErrText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium, fontSize: 12 },
 });

@@ -5,9 +5,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import { AuthHero, GradientButton } from "@/src/components/AuthUI";
+import { useScrollToInput } from "@/src/lib/useScrollToInput";
 
 export default function ForgotPassword() {
   const router = useRouter();
+  const { scrollRef, handleFocus } = useScrollToInput();
   const [email, setEmail] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -25,14 +27,14 @@ export default function ForgotPassword() {
   return (
     <SafeAreaView style={styles.safe} edges={[]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView ref={scrollRef} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <AuthHero title="Lupa Password" subtitle="Masukkan email akunmu, kami kirim kode reset" />
 
           <View style={styles.card}>
             <Text style={styles.label}>Email</Text>
             <View style={styles.inputWrap}>
               <Ionicons name="mail-outline" size={18} color={COLORS.textDim} />
-              <TextInput testID="forgot-email" style={styles.input} value={email} onChangeText={setEmail}
+              <TextInput testID="forgot-email" style={styles.input} value={email} onChangeText={setEmail} onFocus={handleFocus}
                 placeholder="nama@contoh.com" placeholderTextColor={COLORS.textDim} autoCapitalize="none" keyboardType="email-address" />
             </View>
 
