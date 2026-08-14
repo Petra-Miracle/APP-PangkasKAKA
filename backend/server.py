@@ -2312,12 +2312,15 @@ async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
 
     if r.status_code >= 400:
         log.error("Durianpay API error %d: %s", r.status_code, r.text[:500])
-        # Sandbox: surface the real Durianpay error so it can be diagnosed without
-        # Railway log access. Never do this in production (could leak provider detail).
+        # Sandbox: surface the real Durianpay error (+ a masked fingerprint of the
+        # configured key) so credential mismatches can be diagnosed without Railway
+        # log/dashboard access. Never do this in production (could leak provider detail).
         detail = DURIANPAY_ERR_GENERIC
         if PAYMENT_MODE == "sandbox":
             try:
-                detail = f"{DURIANPAY_ERR_GENERIC} [sandbox debug: {r.status_code} {r.text[:300]}]"
+                key = DURIANPAY_API_KEY or ""
+                fingerprint = f"len={len(key)} starts={key[:8]!r} ends={key[-4:]!r}" if key else "EMPTY"
+                detail = f"{DURIANPAY_ERR_GENERIC} [sandbox debug: {r.status_code} {r.text[:300]} | configured key: {fingerprint}]"
             except Exception:
                 pass
         raise HTTPException(502, detail)
