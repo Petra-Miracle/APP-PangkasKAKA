@@ -80,7 +80,7 @@ export default function ChatScreen() {
         )}
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }} keyboardVerticalOffset={80}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }} keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}>
         <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 16, gap: 10 }}>
           {(thread?.messages || []).length === 0 && (
             <View style={styles.emptyBox}>

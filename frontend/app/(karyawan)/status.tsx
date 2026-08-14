@@ -225,7 +225,7 @@ export default function KaryawanStatus() {
       </ScrollView>
 
       <Modal visible={showApply} transparent animationType="slide" onRequestClose={() => setShowApply(false)}>
-        <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <View style={[styles.modal, { maxHeight: "85%" }]}>
             <View style={styles.grabber} />
             <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>

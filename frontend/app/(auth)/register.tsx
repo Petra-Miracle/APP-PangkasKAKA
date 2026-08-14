@@ -109,7 +109,7 @@ export default function Register() {
 
   return (
     <SafeAreaView style={styles.safe} edges={[]}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
         <ScrollView ref={scrollRef} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <AuthHero title={heroTitle} subtitle={heroSub} />
 
