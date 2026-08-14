@@ -206,15 +206,16 @@ export default function AIScan() {
                   <Text style={styles.instructionText}>
                     {progress > 0 ? "Tahan posisi wajahmu..." : "Posisikan wajah di dalam lingkaran"}
                   </Text>
-                  {/* TODO: remove once AI Scan detection is confirmed stable on-device */}
-                  {!!debugInfo && (
-                    <Text style={[styles.instructionText, { marginTop: 6, fontSize: 10, backgroundColor: "rgba(0,0,0,0.6)" }]}>
-                      {debugInfo}
-                    </Text>
-                  )}
                 </View>
               </>
             )}
+          </View>
+        )}
+
+        {/* TODO: remove once AI Scan detection is confirmed stable on-device */}
+        {!result && !analyzing && !!debugInfo && (
+          <View style={styles.debugBox}>
+            <Text style={styles.debugText} numberOfLines={4}>{debugInfo}</Text>
           </View>
         )}
 
@@ -290,6 +291,8 @@ const styles = StyleSheet.create({
   overlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   instructionBox: { position: "absolute", bottom: 20, left: 20, right: 20, alignItems: "center" },
   instructionText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 13, backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, overflow: "hidden" },
+  debugBox: { backgroundColor: "#0A2540", borderRadius: 10, padding: 10, marginTop: 10 },
+  debugText: { color: "#8FA5BF", fontSize: 10, fontFamily: FONT.medium },
   permBox: { alignItems: "center", padding: 24, gap: 10 },
   permText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13, textAlign: "center" },
   permBtn: { backgroundColor: COLORS.brand, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 999, marginTop: 4 },

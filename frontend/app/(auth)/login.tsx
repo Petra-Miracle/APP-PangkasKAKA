@@ -28,16 +28,6 @@ export default function Login() {
     setLoading(false);
   };
 
-  const fill = (r: string) => {
-    const m: Record<string, [string, string]> = {
-      customer: ["customer@pangkaskaka.id", "Customer123!"],
-      owner: ["owner@pangkaskaka.id", "Owner123!"],
-      admin: ["admin@pangkaskaka.id", "Admin123!"],
-      karyawan: ["karyawan@pangkaskaka.id", "Karyawan123!"],
-    };
-    setEmail(m[r][0]); setPassword(m[r][1]);
-  };
-
   return (
     <SafeAreaView style={styles.safe} edges={[]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
@@ -78,26 +68,6 @@ export default function Login() {
               <Text style={styles.forgotText}>Lupa password?</Text>
             </Pressable>
 
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>DEMO CEPAT</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <View style={styles.demoRow}>
-              {[
-                { key: "customer", label: "Pelanggan", icon: "person" },
-                { key: "owner", label: "Owner", icon: "storefront" },
-                { key: "admin", label: "Admin", icon: "shield-checkmark" },
-                { key: "karyawan", label: "Barber", icon: "cut" },
-              ].map((r) => (
-                <Pressable key={r.key} testID={`demo-${r.key}`} style={styles.demoBtn} onPress={() => fill(r.key)}>
-                  <Ionicons name={r.icon as any} size={16} color={COLORS.brand} />
-                  <Text style={styles.demoText}>{r.label}</Text>
-                </Pressable>
-              ))}
-            </View>
-
             <Link href="/(auth)/register" asChild>
               <Pressable testID="goto-register" style={styles.regLink}>
                 <Text style={styles.regLinkText}>Belum punya akun? </Text>
@@ -132,12 +102,6 @@ const styles = StyleSheet.create({
   errText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium, fontSize: 13 },
   forgotBtn: { alignSelf: "center", marginTop: 12 },
   forgotText: { color: COLORS.brand, fontFamily: FONT.semibold, fontSize: 13 },
-  divider: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 24, marginBottom: 12 },
-  dividerLine: { flex: 1, height: 1, backgroundColor: COLORS.border },
-  dividerText: { color: COLORS.textDim, fontSize: 10, fontFamily: FONT.bold, letterSpacing: 1 },
-  demoRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
-  demoBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 14, backgroundColor: COLORS.brandDim, borderRadius: 12, borderWidth: 1, borderColor: "transparent" },
-  demoText: { color: COLORS.brand, fontSize: 12, fontFamily: FONT.bold },
   regLink: { flexDirection: "row", justifyContent: "center", marginTop: 24, padding: 8 },
   regLinkText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13 },
 });

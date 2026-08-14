@@ -290,6 +290,18 @@ class SaveSchedulesIn(BaseModel):
     schedules: List[ScheduleRow]
 
 
+class ShopOpenStatusIn(BaseModel):
+    is_open: bool
+
+
+class ScheduleOverrideIn(BaseModel):
+    date: str  # YYYY-MM-DD
+    is_closed: bool = False
+    open_time: str = "09:00"
+    close_time: str = "21:00"
+    note: Optional[str] = None
+
+
 class BookingIn(BaseModel):
     shop_id: str
     barber_id: str
@@ -401,13 +413,23 @@ DAY_NAMES = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 
 
 async def compute_available_slots(shop_id: str, barber_id: str, date_str: str, service_duration: int):
-    d = datetime.strptime(date_str, "%Y-%m-%d").date()
-    wd = d.weekday()  # Mon=0..Sun=6
-    day_name = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][wd]
-    sched = await db.shop_schedules.find_one({"shop_id": shop_id, "day_name": day_name}, {"_id": 0})
-    if not sched or sched.get("is_closed"):
+    shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0, "is_open": 1})
+    if shop and shop.get("is_open") is False:
         return []
-    all_slots = gen_time_slots(sched["open_time"], sched["close_time"], 30)
+    override = await db.shop_schedule_overrides.find_one({"shop_id": shop_id, "date": date_str}, {"_id": 0})
+    if override:
+        if override.get("is_closed"):
+            return []
+        open_time, close_time = override["open_time"], override["close_time"]
+    else:
+        d = datetime.strptime(date_str, "%Y-%m-%d").date()
+        wd = d.weekday()  # Mon=0..Sun=6
+        day_name = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][wd]
+        sched = await db.shop_schedules.find_one({"shop_id": shop_id, "day_name": day_name}, {"_id": 0})
+        if not sched or sched.get("is_closed"):
+            return []
+        open_time, close_time = sched["open_time"], sched["close_time"]
+    all_slots = gen_time_slots(open_time, close_time, 30)
     # existing bookings
     bookings = await db.bookings.find(
         {"barber_id": barber_id, "booking_date": date_str, "status": {"$ne": "cancelled"}},
@@ -618,6 +640,10 @@ async def shop_detail(shop_id: str):
     services = await db.services.find({"shop_id": shop_id}, {"_id": 0}).to_list(100)
     barbers = await db.barbers.find({"shop_id": shop_id, "status": "active"}, {"_id": 0}).to_list(100)
     schedules = await db.shop_schedules.find({"shop_id": shop_id}, {"_id": 0}).to_list(20)
+    today_str = datetime.now(WITA).date().isoformat()
+    overrides = await db.shop_schedule_overrides.find(
+        {"shop_id": shop_id, "date": {"$gte": today_str}}, {"_id": 0}
+    ).sort("date", 1).to_list(60)
     reviews = await db.reviews.find({"shop_id": shop_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
     # enrich reviews with reviewer names
     for r in reviews:
@@ -626,6 +652,7 @@ async def shop_detail(shop_id: str):
     shop["services"] = services
     shop["barbers"] = barbers
     shop["schedules"] = schedules
+    shop["schedule_overrides"] = overrides
     shop["reviews"] = reviews
     return shop
 
@@ -843,6 +870,7 @@ async def register_shop(body: ShopRegisterIn, user=Depends(require_role("owner")
         "bank_name": body.bank_name or "",
         "account_number": body.account_number or "",
         "account_holder": body.account_holder or "",
+        "is_open": existing.get("is_open", True) if existing else True,
         # legacy flat fields kept for backwards compat
         "doc_ktp": body.doc_ktp or "",
         "doc_nib": body.doc_nib or "",
@@ -1055,6 +1083,15 @@ async def delete_service(sid: str, user=Depends(require_role("owner"))):
     return {"ok": True}
 
 
+@api.get("/owner/schedules")
+async def get_own_schedules(user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    schedules = await db.shop_schedules.find({"shop_id": shop["id"]}, {"_id": 0}).to_list(20)
+    return {"schedules": schedules}
+
+
 @api.post("/owner/schedules")
 async def save_schedules(body: SaveSchedulesIn, user=Depends(require_role("owner"))):
     shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
@@ -1067,6 +1104,59 @@ async def save_schedules(body: SaveSchedulesIn, user=Depends(require_role("owner
                       "shop_id": shop["id"], "day_name": row.day_name, "id": new_id()}},
             upsert=True,
         )
+    return {"ok": True}
+
+
+@api.put("/owner/shop/open-status")
+async def set_shop_open_status(body: ShopOpenStatusIn, user=Depends(require_role("owner"))):
+    """Manual real-time open/closed toggle — independent of the weekly schedule.
+    A shop marked closed here is treated as closed regardless of what the
+    weekly schedule or a date override says (checked first in
+    compute_available_slots)."""
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    await db.barbershops.update_one({"id": shop["id"]}, {"$set": {"is_open": body.is_open}})
+    return {"ok": True, "is_open": body.is_open}
+
+
+@api.get("/owner/schedule-overrides")
+async def list_schedule_overrides(user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    overrides = await db.shop_schedule_overrides.find({"shop_id": shop["id"]}, {"_id": 0}).sort("date", 1).to_list(200)
+    return {"overrides": overrides}
+
+
+@api.post("/owner/schedule-overrides")
+async def upsert_schedule_override(body: ScheduleOverrideIn, user=Depends(require_role("owner"))):
+    """Upsert a date-specific exception (holiday closure, special hours) that
+    overrides the recurring weekly schedule for that one date only."""
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    try:
+        datetime.strptime(body.date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Format tanggal harus YYYY-MM-DD")
+    await db.shop_schedule_overrides.update_one(
+        {"shop_id": shop["id"], "date": body.date},
+        {"$set": {
+            "shop_id": shop["id"], "date": body.date, "is_closed": body.is_closed,
+            "open_time": body.open_time, "close_time": body.close_time, "note": body.note or "",
+        }},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.delete("/owner/schedule-overrides/{date}")
+async def delete_schedule_override(date: str, user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    await db.shop_schedule_overrides.delete_one({"shop_id": shop["id"], "date": date})
     return {"ok": True}
 
 
@@ -1707,13 +1797,22 @@ async def _resolve_barber_profile_id(barber_id: str) -> Optional[str]:
 
 
 async def _booking_chat_access(booking: dict, user: dict) -> str:
-    """Returns the caller's role in this thread ('customer'/'karyawan'/'owner'). Raises 403 otherwise."""
+    """Returns the caller's role in the customer<->barber thread ('customer'/'karyawan').
+    Owner has their own separate thread (see _owner_chat_access) so they're not
+    included here — keeps the two conversations from bleeding into each other."""
     if user["role"] == "customer" and booking["user_id"] == user["id"]:
         return "customer"
     if user["role"] == "karyawan":
         barber_profile_id = await _resolve_barber_profile_id(booking["barber_id"])
         if barber_profile_id and barber_profile_id == user["id"]:
             return "karyawan"
+    raise HTTPException(403, "Akses ditolak")
+
+
+async def _owner_chat_access(booking: dict, user: dict) -> str:
+    """Returns the caller's role in the customer<->owner thread ('customer'/'owner'). Raises 403 otherwise."""
+    if user["role"] == "customer" and booking["user_id"] == user["id"]:
+        return "customer"
     if user["role"] == "owner":
         shop = await db.barbershops.find_one({"id": booking["shop_id"]}, {"_id": 0, "owner_id": 1})
         if shop and shop["owner_id"] == user["id"]:
@@ -1757,6 +1856,45 @@ async def send_booking_message(bid: str, body: ServiceChatSendIn, user=Depends(g
             await send_notif(barber_profile_id, "Pesan baru dari pelanggan", body.text or "📎 Lampiran", "system")
     elif role_in_thread == "karyawan":
         await send_notif(booking["user_id"], "Pesan baru dari barber", body.text or "📎 Lampiran", "system")
+    m = dict(msg); m.pop("_id", None); m["sender_name"] = user["name"]
+    return {"message": m}
+
+
+@api.get("/bookings/{bid}/owner-messages")
+async def get_owner_messages(bid: str, user=Depends(get_current_user)):
+    booking = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    if not booking:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    await _owner_chat_access(booking, user)
+    msgs = await db.owner_messages.find({"booking_id": bid}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    for m in msgs:
+        p = await db.profiles.find_one({"id": m["sender_id"]}, {"_id": 0, "name": 1, "role": 1})
+        m["sender_name"] = p["name"] if p else "?"
+    shop = await db.barbershops.find_one({"id": booking["shop_id"]}, {"_id": 0, "name": 1, "image": 1})
+    return {"booking_id": bid, "shop": shop, "messages": msgs}
+
+
+@api.post("/bookings/{bid}/owner-messages")
+async def send_owner_message(bid: str, body: ServiceChatSendIn, user=Depends(get_current_user)):
+    booking = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    if not booking:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    role_in_thread = await _owner_chat_access(booking, user)
+    if not body.text and not body.attachment:
+        raise HTTPException(400, "Pesan atau lampiran wajib diisi")
+    if body.attachment and len(body.attachment) > 2_800_000:
+        raise HTTPException(400, "Lampiran melebihi 2MB")
+    msg = {
+        "id": new_id(), "booking_id": bid, "sender_id": user["id"], "sender_role": user["role"],
+        "text": body.text or "", "attachment": body.attachment or "",
+        "is_read": False, "created_at": now_utc().isoformat(),
+    }
+    await db.owner_messages.insert_one(msg)
+    shop = await db.barbershops.find_one({"id": booking["shop_id"]}, {"_id": 0, "owner_id": 1})
+    if role_in_thread == "customer" and shop:
+        await send_notif(shop["owner_id"], "Pesan baru dari pelanggan", body.text or "📎 Lampiran", "system")
+    elif role_in_thread == "owner":
+        await send_notif(booking["user_id"], "Pesan baru dari toko", body.text or "📎 Lampiran", "system")
     m = dict(msg); m.pop("_id", None); m["sender_name"] = user["name"]
     return {"message": m}
 
@@ -2756,6 +2894,8 @@ async def ensure_indexes():
     await db.bookings.create_index("barber_id")
     await db.bookings.create_index("status")
     await db.shop_schedules.create_index([("shop_id", 1), ("day_name", 1)])
+    await db.shop_schedule_overrides.create_index([("shop_id", 1), ("date", 1)], unique=True)
+    await db.owner_messages.create_index("booking_id")
     await db.payments.create_index("booking_id")
     await db.notifications.create_index("user_id")
     await db.chat_messages.create_index("shop_id")

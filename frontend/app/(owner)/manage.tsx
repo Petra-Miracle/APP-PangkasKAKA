@@ -6,6 +6,7 @@ import { Image } from "expo-image";
 import { useFocusEffect, useRouter } from "expo-router";
 import Slider from "@react-native-community/slider";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
+import { useScrollToInput } from "@/src/lib/useScrollToInput";
 
 // 6 komponen evaluasi rekrutmen (masing-masing 0-20)
 const CRITERIA: { key: string; label: string; desc: string; icon: string; docKey: string; docLabel: string }[] = [
@@ -31,6 +32,7 @@ export default function Manage() {
   const [weights, setWeights] = useState(initWeights());
   const [saving, setSaving] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<{ title: string; uri: string } | null>(null);
+  const { scrollRef, handleFocus } = useScrollToInput();
 
   const total = useMemo(() => Object.values(weights).reduce((a, b) => a + Number(b || 0), 0), [weights]);
   const predictedStatus = total >= 60 ? "active" : "rejected";
@@ -96,7 +98,7 @@ export default function Manage() {
           </Pressable>
         ))}
       </ScrollView>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
+      <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
         {tab === "barbers" && (
           <View>
             {shop.barbers.map((br: any) => (
@@ -113,8 +115,8 @@ export default function Manage() {
             ))}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Tambah Barber Manual</Text>
-              <TextInput style={styles.input} value={b.name} onChangeText={(t) => setB({ ...b, name: t })} placeholder="Nama barber" placeholderTextColor={COLORS.textDim} testID="new-barber-name" />
-              <TextInput style={styles.input} value={b.specialization} onChangeText={(t) => setB({ ...b, specialization: t })} placeholder="Spesialisasi (mis. Fade & Undercut)" placeholderTextColor={COLORS.textDim} />
+              <TextInput style={styles.input} value={b.name} onChangeText={(t) => setB({ ...b, name: t })} placeholder="Nama barber" placeholderTextColor={COLORS.textDim} testID="new-barber-name" onFocus={handleFocus} />
+              <TextInput style={styles.input} value={b.specialization} onChangeText={(t) => setB({ ...b, specialization: t })} placeholder="Spesialisasi (mis. Fade & Undercut)" placeholderTextColor={COLORS.textDim} onFocus={handleFocus} />
               <Pressable style={styles.btn} onPress={addBarber} testID="add-barber"><Text style={styles.btnText}>TAMBAH BARBER</Text></Pressable>
             </View>
           </View>
@@ -133,9 +135,9 @@ export default function Manage() {
             ))}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Tambah Layanan</Text>
-              <TextInput style={styles.input} value={s.name} onChangeText={(t) => setS({ ...s, name: t })} placeholder="Nama layanan" placeholderTextColor={COLORS.textDim} testID="new-svc-name" />
-              <TextInput style={styles.input} value={s.duration} onChangeText={(t) => setS({ ...s, duration: t })} placeholder="Durasi (menit)" placeholderTextColor={COLORS.textDim} keyboardType="numeric" />
-              <TextInput style={styles.input} value={s.price} onChangeText={(t) => setS({ ...s, price: t })} placeholder="Harga (Rp)" placeholderTextColor={COLORS.textDim} keyboardType="numeric" />
+              <TextInput style={styles.input} value={s.name} onChangeText={(t) => setS({ ...s, name: t })} placeholder="Nama layanan" placeholderTextColor={COLORS.textDim} testID="new-svc-name" onFocus={handleFocus} />
+              <TextInput style={styles.input} value={s.duration} onChangeText={(t) => setS({ ...s, duration: t })} placeholder="Durasi (menit)" placeholderTextColor={COLORS.textDim} keyboardType="numeric" onFocus={handleFocus} />
+              <TextInput style={styles.input} value={s.price} onChangeText={(t) => setS({ ...s, price: t })} placeholder="Harga (Rp)" placeholderTextColor={COLORS.textDim} keyboardType="numeric" onFocus={handleFocus} />
               <Pressable style={styles.btn} onPress={addService} testID="add-service"><Text style={styles.btnText}>TAMBAH LAYANAN</Text></Pressable>
             </View>
           </View>

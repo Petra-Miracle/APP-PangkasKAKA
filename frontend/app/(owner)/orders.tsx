@@ -48,7 +48,7 @@ export default function OwnerOrders() {
 
   const chatCustomer = (order: any) => {
     setDetail(null);
-    router.push(`/chat/booking/${order.id}` as any);
+    router.push(`/chat/owner/${order.id}` as any);
   };
 
   if (loading) return <SafeAreaView style={styles.safe}><ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} /></SafeAreaView>;

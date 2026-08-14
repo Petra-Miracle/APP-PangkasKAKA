@@ -130,10 +130,16 @@ export default function Orders() {
                 </View>
                 {o.status === "confirmed" && <LiveLocationCard bookingId={o.id} />}
                 {(o.status === "pending" || o.status === "confirmed") && (
-                  <Pressable style={styles.chatBtn} onPress={() => router.push(`/chat/booking/${o.id}` as any)} testID={`chat-barber-${o.id}`}>
-                    <Ionicons name="chatbubbles-outline" size={16} color={COLORS.brand} />
-                    <Text style={styles.chatBtnText}>Chat dengan Barber</Text>
-                  </Pressable>
+                  <View style={styles.chatRow}>
+                    <Pressable style={[styles.chatBtn, { flex: 1 }]} onPress={() => router.push(`/chat/booking/${o.id}` as any)} testID={`chat-barber-${o.id}`}>
+                      <Ionicons name="chatbubbles-outline" size={16} color={COLORS.brand} />
+                      <Text style={styles.chatBtnText}>Chat Barber</Text>
+                    </Pressable>
+                    <Pressable style={[styles.chatBtn, { flex: 1 }]} onPress={() => router.push(`/chat/owner/${o.id}` as any)} testID={`chat-owner-${o.id}`}>
+                      <Ionicons name="storefront-outline" size={16} color={COLORS.brand} />
+                      <Text style={styles.chatBtnText}>Chat Toko</Text>
+                    </Pressable>
+                  </View>
                 )}
                 {o.status === "pending" && o.payment_status === "unpaid" && (
                   <Pressable testID={`pay-${o.id}`} style={styles.payBtn} onPress={() => pay(o.id)}>
@@ -205,7 +211,8 @@ const styles = StyleSheet.create({
   locCard: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.brandDim, padding: 10, borderRadius: 12, marginTop: 4, marginBottom: 8 },
   locTitle: { color: COLORS.text, fontFamily: FONT.semibold, fontSize: 12 },
   locSub: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 10, marginTop: 1 },
-  chatBtn: { flexDirection: "row", justifyContent: "center", gap: 6, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.brand, padding: 12, borderRadius: 12, alignItems: "center", marginTop: 4, marginBottom: 4 },
+  chatRow: { flexDirection: "row", gap: 8, marginTop: 4, marginBottom: 4 },
+  chatBtn: { flexDirection: "row", justifyContent: "center", gap: 6, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.brand, padding: 12, borderRadius: 12, alignItems: "center" },
   chatBtnText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 12 },
   rowBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   price: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 18 },

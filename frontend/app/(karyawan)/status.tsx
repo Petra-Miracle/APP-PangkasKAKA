@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, TextInput, Modal, Switch } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, TextInput, Modal, Switch, KeyboardAvoidingView, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -7,6 +7,7 @@ import { Image } from "expo-image";
 import * as Location from "expo-location";
 import { api, COLORS, FONT, tanggal } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
+import { useScrollToInput } from "@/src/lib/useScrollToInput";
 
 const LOCATION_PUSH_INTERVAL_MS = 8000;
 
@@ -24,6 +25,7 @@ export default function KaryawanStatus() {
   const [showApply, setShowApply] = useState(false);
   const [selShop, setSelShop] = useState<any>(null);
   const [form, setForm] = useState({ portfolio_url: "", work_experience: "", certificates: "" });
+  const { scrollRef, handleFocus } = useScrollToInput();
   const [loading, setLoading] = useState(true);
   const [sharingLocation, setSharingLocation] = useState(false);
   const [locError, setLocError] = useState("");
@@ -194,25 +196,27 @@ export default function KaryawanStatus() {
       </ScrollView>
 
       <Modal visible={showApply} transparent animationType="slide" onRequestClose={() => setShowApply(false)}>
-        <View style={styles.modalBg}>
-          <View style={styles.modal}>
+        <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+          <View style={[styles.modal, { maxHeight: "85%" }]}>
             <View style={styles.grabber} />
-            <Text style={styles.modalTitle}>Lamar Kerja</Text>
-            <Text style={styles.modalSub}>{selShop?.name}</Text>
-            <Text style={styles.label}>URL Portofolio</Text>
-            <TextInput style={styles.input} placeholder="https://..." placeholderTextColor={COLORS.textDim} value={form.portfolio_url} onChangeText={(t) => setForm({ ...form, portfolio_url: t })} />
-            <Text style={styles.label}>Pengalaman Kerja</Text>
-            <TextInput style={styles.input} placeholder="2 tahun di Barber X" placeholderTextColor={COLORS.textDim} value={form.work_experience} onChangeText={(t) => setForm({ ...form, work_experience: t })} />
-            <Text style={styles.label}>Sertifikat</Text>
-            <TextInput style={styles.input} placeholder="BNSP, kursus, dll" placeholderTextColor={COLORS.textDim} value={form.certificates} onChangeText={(t) => setForm({ ...form, certificates: t })} />
-            <Pressable style={styles.btn} onPress={apply} testID="submit-apply">
-              <Text style={styles.btnText}>KIRIM LAMARAN</Text>
-            </Pressable>
-            <Pressable onPress={() => setShowApply(false)} style={{ padding: 12, alignItems: "center" }}>
-              <Text style={{ color: COLORS.textDim, fontFamily: FONT.medium }}>Batal</Text>
-            </Pressable>
+            <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalTitle}>Lamar Kerja</Text>
+              <Text style={styles.modalSub}>{selShop?.name}</Text>
+              <Text style={styles.label}>URL Portofolio</Text>
+              <TextInput style={styles.input} placeholder="https://..." placeholderTextColor={COLORS.textDim} value={form.portfolio_url} onChangeText={(t) => setForm({ ...form, portfolio_url: t })} onFocus={handleFocus} />
+              <Text style={styles.label}>Pengalaman Kerja</Text>
+              <TextInput style={styles.input} placeholder="2 tahun di Barber X" placeholderTextColor={COLORS.textDim} value={form.work_experience} onChangeText={(t) => setForm({ ...form, work_experience: t })} onFocus={handleFocus} />
+              <Text style={styles.label}>Sertifikat</Text>
+              <TextInput style={styles.input} placeholder="BNSP, kursus, dll" placeholderTextColor={COLORS.textDim} value={form.certificates} onChangeText={(t) => setForm({ ...form, certificates: t })} onFocus={handleFocus} />
+              <Pressable style={styles.btn} onPress={apply} testID="submit-apply">
+                <Text style={styles.btnText}>KIRIM LAMARAN</Text>
+              </Pressable>
+              <Pressable onPress={() => setShowApply(false)} style={{ padding: 12, alignItems: "center" }}>
+                <Text style={{ color: COLORS.textDim, fontFamily: FONT.medium }}>Batal</Text>
+              </Pressable>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

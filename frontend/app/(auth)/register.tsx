@@ -7,6 +7,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useAuth } from "@/src/lib/auth";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import { AuthHero, GradientButton } from "@/src/components/AuthUI";
+import { useScrollToInput } from "@/src/lib/useScrollToInput";
 
 const ROLES = [
   { key: "customer", label: "Pelanggan", icon: "person", desc: "Cari & booking barbershop" },
@@ -33,6 +34,7 @@ export default function Register() {
     tools_photo: "", bnsp_cert: "", diploma_photo: "", shop_id: "",
   });
   const [shops, setShops] = useState<any[]>([]);
+  const { scrollRef, handleFocus } = useScrollToInput();
 
   useEffect(() => {
     if (role === "karyawan" && step === 2 && shops.length === 0) {
@@ -108,7 +110,7 @@ export default function Register() {
   return (
     <SafeAreaView style={styles.safe} edges={[]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView ref={scrollRef} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <AuthHero title={heroTitle} subtitle={heroSub} />
 
           <Pressable style={styles.backLink} onPress={() => step === 2 ? setStep(1) : router.back()} testID="reg-back">
@@ -146,13 +148,13 @@ export default function Register() {
                 </View>
 
                 <Text style={styles.label}>Nama Lengkap</Text>
-                <FormInput icon="person-outline" value={basic.name} onChangeText={(t: string) => setBasic({ ...basic, name: t })} placeholder="Nama Anda" testID="reg-name" />
+                <FormInput icon="person-outline" value={basic.name} onChangeText={(t: string) => setBasic({ ...basic, name: t })} placeholder="Nama Anda" testID="reg-name" onFocus={handleFocus} />
                 <Text style={styles.label}>Email</Text>
-                <FormInput icon="mail-outline" value={basic.email} onChangeText={(t: string) => setBasic({ ...basic, email: t })} placeholder="email@contoh.com" testID="reg-email" keyboardType="email-address" autoCapitalize="none" />
+                <FormInput icon="mail-outline" value={basic.email} onChangeText={(t: string) => setBasic({ ...basic, email: t })} placeholder="email@contoh.com" testID="reg-email" keyboardType="email-address" autoCapitalize="none" onFocus={handleFocus} />
                 <Text style={styles.label}>Nomor HP</Text>
-                <FormInput icon="call-outline" value={basic.phone} onChangeText={(t: string) => setBasic({ ...basic, phone: t })} placeholder="08xx-xxxx-xxxx" testID="reg-phone" keyboardType="phone-pad" />
+                <FormInput icon="call-outline" value={basic.phone} onChangeText={(t: string) => setBasic({ ...basic, phone: t })} placeholder="08xx-xxxx-xxxx" testID="reg-phone" keyboardType="phone-pad" onFocus={handleFocus} />
                 <Text style={styles.label}>Password</Text>
-                <FormInput icon="lock-closed-outline" value={basic.password} onChangeText={(t: string) => setBasic({ ...basic, password: t })} placeholder="Min. 8 karakter" testID="reg-password" secureTextEntry />
+                <FormInput icon="lock-closed-outline" value={basic.password} onChangeText={(t: string) => setBasic({ ...basic, password: t })} placeholder="Min. 8 karakter" testID="reg-password" secureTextEntry onFocus={handleFocus} />
 
                 {err && <ErrorMsg testID="reg-error" msg={err} />}
                 <GradientButton testID="reg-next" label={role === "customer" ? "DAFTAR SEKARANG" : "LANJUT"} icon="arrow-forward" onPress={nextFromBasic} loading={loading} />
@@ -170,20 +172,20 @@ export default function Register() {
               <View>
                 <Text style={styles.sectionLabel}>INFORMASI TOKO</Text>
                 <Text style={styles.label}>Nama Toko</Text>
-                <FormInput icon="storefront-outline" value={shopForm.name} onChangeText={(t: string) => setShopForm({ ...shopForm, name: t })} placeholder="Barber Kupang Modern" testID="shop-name" />
+                <FormInput icon="storefront-outline" value={shopForm.name} onChangeText={(t: string) => setShopForm({ ...shopForm, name: t })} placeholder="Barber Kupang Modern" testID="shop-name" onFocus={handleFocus} />
                 <Text style={styles.label}>Alamat Lengkap</Text>
-                <FormInput icon="location-outline" value={shopForm.address} onChangeText={(t: string) => setShopForm({ ...shopForm, address: t })} placeholder="Jl. Timor Raya No. 12, Kupang" testID="shop-address" />
+                <FormInput icon="location-outline" value={shopForm.address} onChangeText={(t: string) => setShopForm({ ...shopForm, address: t })} placeholder="Jl. Timor Raya No. 12, Kupang" testID="shop-address" onFocus={handleFocus} />
                 <Text style={styles.label}>Range Harga</Text>
-                <FormInput icon="pricetag-outline" value={shopForm.price_range} onChangeText={(t: string) => setShopForm({ ...shopForm, price_range: t })} placeholder="Rp 25.000 - Rp 75.000" />
+                <FormInput icon="pricetag-outline" value={shopForm.price_range} onChangeText={(t: string) => setShopForm({ ...shopForm, price_range: t })} placeholder="Rp 25.000 - Rp 75.000" onFocus={handleFocus} />
 
                 <View style={styles.divider} />
                 <Text style={styles.sectionLabel}>REKENING BANK</Text>
                 <Text style={styles.label}>Nama Bank</Text>
-                <FormInput icon="business-outline" value={shopForm.bank_name} onChangeText={(t: string) => setShopForm({ ...shopForm, bank_name: t })} placeholder="BNI / BCA / BRI / Mandiri" />
+                <FormInput icon="business-outline" value={shopForm.bank_name} onChangeText={(t: string) => setShopForm({ ...shopForm, bank_name: t })} placeholder="BNI / BCA / BRI / Mandiri" onFocus={handleFocus} />
                 <Text style={styles.label}>Nomor Rekening</Text>
-                <FormInput icon="card-outline" value={shopForm.account_number} onChangeText={(t: string) => setShopForm({ ...shopForm, account_number: t })} placeholder="123-456-7890" keyboardType="numeric" />
+                <FormInput icon="card-outline" value={shopForm.account_number} onChangeText={(t: string) => setShopForm({ ...shopForm, account_number: t })} placeholder="123-456-7890" keyboardType="numeric" onFocus={handleFocus} />
                 <Text style={styles.label}>Atas Nama</Text>
-                <FormInput icon="person-outline" value={shopForm.account_holder} onChangeText={(t: string) => setShopForm({ ...shopForm, account_holder: t })} placeholder="Nama pemegang rekening" />
+                <FormInput icon="person-outline" value={shopForm.account_holder} onChangeText={(t: string) => setShopForm({ ...shopForm, account_holder: t })} placeholder="Nama pemegang rekening" onFocus={handleFocus} />
 
                 <View style={styles.divider} />
                 <Text style={styles.sectionLabel}>DOKUMEN LEGAL (WAJIB)</Text>
@@ -221,11 +223,11 @@ export default function Register() {
                 <View style={styles.divider} />
                 <Text style={styles.sectionLabel}>PORTOFOLIO & PENGALAMAN</Text>
                 <Text style={styles.label}>URL Portofolio</Text>
-                <FormInput icon="link-outline" value={karyawanForm.portfolio_url} onChangeText={(t: string) => setKaryawanForm({ ...karyawanForm, portfolio_url: t })} placeholder="https://instagram.com/..." autoCapitalize="none" />
+                <FormInput icon="link-outline" value={karyawanForm.portfolio_url} onChangeText={(t: string) => setKaryawanForm({ ...karyawanForm, portfolio_url: t })} placeholder="https://instagram.com/..." autoCapitalize="none" onFocus={handleFocus} />
                 <Text style={styles.label}>Pengalaman Kerja</Text>
-                <TextInput style={styles.multi} value={karyawanForm.work_experience} onChangeText={(t: string) => setKaryawanForm({ ...karyawanForm, work_experience: t })} placeholder="Cth: 2 tahun di Barber Kupang, spesialis fade..." placeholderTextColor={COLORS.textDim} multiline />
+                <TextInput style={styles.multi} value={karyawanForm.work_experience} onChangeText={(t: string) => setKaryawanForm({ ...karyawanForm, work_experience: t })} placeholder="Cth: 2 tahun di Barber Kupang, spesialis fade..." placeholderTextColor={COLORS.textDim} multiline onFocus={handleFocus} />
                 <Text style={styles.label}>Sertifikat / Kursus</Text>
-                <TextInput style={styles.multi} value={karyawanForm.certificates} onChangeText={(t: string) => setKaryawanForm({ ...karyawanForm, certificates: t })} placeholder="Cth: Kursus Barber Master 2024" placeholderTextColor={COLORS.textDim} multiline />
+                <TextInput style={styles.multi} value={karyawanForm.certificates} onChangeText={(t: string) => setKaryawanForm({ ...karyawanForm, certificates: t })} placeholder="Cth: Kursus Barber Master 2024" placeholderTextColor={COLORS.textDim} multiline onFocus={handleFocus} />
 
                 <View style={styles.divider} />
                 <Text style={styles.sectionLabel}>UPLOAD BUKTI (OPSIONAL)</Text>

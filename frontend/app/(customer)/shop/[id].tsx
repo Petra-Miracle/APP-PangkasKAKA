@@ -108,7 +108,14 @@ export default function ShopDetail() {
           </Pressable>
         </View>
         <View style={styles.body}>
-          <Text style={styles.name}>{shop.name}</Text>
+          <View style={styles.nameRow}>
+            <Text style={styles.name}>{shop.name}</Text>
+            {shop.is_open === false && (
+              <View style={styles.closedBadge}>
+                <Text style={styles.closedBadgeText}>TUTUP SEMENTARA</Text>
+              </View>
+            )}
+          </View>
           <View style={styles.metaRow}>
             <View style={styles.metaItem}>
               <Ionicons name="star" size={14} color={COLORS.warning} />
@@ -272,7 +279,10 @@ const styles = StyleSheet.create({
   heroImg: { width: "100%", height: 240 },
   backBtn: { position: "absolute", top: 12, left: 12, width: 44, height: 44, borderRadius: 14, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 8, elevation: 4 },
   body: { padding: 20, marginTop: -20, backgroundColor: COLORS.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   name: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, letterSpacing: -0.3 },
+  closedBadge: { backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: COLORS.error, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  closedBadgeText: { color: COLORS.error, fontSize: 10, fontFamily: FONT.bold, letterSpacing: 0.4 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
   metaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   metaText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },

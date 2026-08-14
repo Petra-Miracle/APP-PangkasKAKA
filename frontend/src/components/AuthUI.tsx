@@ -1,5 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet, Pressable } from "react-native";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, FONT } from "@/src/lib/api";
@@ -9,7 +10,7 @@ export function AuthHero({ title, subtitle }: { title?: string; subtitle?: strin
   return (
     <LinearGradient colors={["#0059C9", COLORS.brand, "#3B8CFF"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
       <View style={styles.logoBadge}>
-        <Ionicons name="cut" size={26} color={COLORS.brand} />
+        <Image source={require("@/assets/images/logo-emblem.png")} style={styles.logoImg} contentFit="contain" />
       </View>
       <Text style={styles.brand}>PangkasKAKA</Text>
       {title && <Text style={styles.title}>{title}</Text>}
@@ -49,6 +50,7 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     shadowColor: "#0A2540", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 6,
   },
+  logoImg: { width: 44, height: 44 },
   brand: { color: "#FFFFFF", fontSize: 24, fontFamily: FONT.extrabold, marginTop: 14, letterSpacing: -0.5 },
   title: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.bold, marginTop: 24, textAlign: "center" },
   subtitle: { color: "rgba(255,255,255,0.85)", fontSize: 13, fontFamily: FONT.medium, marginTop: 6, textAlign: "center" },

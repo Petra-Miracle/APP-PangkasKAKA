@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl, Switch } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -13,18 +13,33 @@ export default function OwnerDashboard() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [unread, setUnread] = useState(0);
+  const [isOpen, setIsOpen] = useState(true);
+  const [togglingOpen, setTogglingOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const r = await api.get("/analytics/owner");
       setData(r);
+      if (r.shop) setIsOpen(r.shop.is_open !== false);
       const t = await api.get("/chat/threads").catch(() => ({ threads: [] }));
       setUnread((t.threads || []).reduce((a: number, x: any) => a + (x.unread || 0), 0));
     } catch {} finally { setLoading(false); }
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const toggleOpen = async (val: boolean) => {
+    setIsOpen(val); // optimistic
+    setTogglingOpen(true);
+    try {
+      await api.put("/owner/shop/open-status", { is_open: val });
+    } catch (e: any) {
+      setIsOpen(!val); // revert on failure
+      alert(e.message || "Gagal mengubah status toko");
+    }
+    setTogglingOpen(false);
+  };
 
   if (loading) return <SafeAreaView style={styles.safe}><ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} /></SafeAreaView>;
 
@@ -59,6 +74,30 @@ export default function OwnerDashboard() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }} refreshControl={<RefreshControl refreshing={false} onRefresh={load} />}>
+        {/* Open/closed toggle + schedule shortcut */}
+        <View style={styles.statusCard}>
+          <View style={{ flex: 1 }}>
+            <View style={styles.statusRow}>
+              <View style={[styles.statusDot, { backgroundColor: isOpen ? COLORS.success : COLORS.error }]} />
+              <Text style={styles.statusLabel}>{isOpen ? "Toko Sedang Buka" : "Toko Tutup Sementara"}</Text>
+            </View>
+            <Text style={styles.statusHint}>Nonaktifkan kalau tutup mendadak, di luar jadwal rutin</Text>
+          </View>
+          <Switch
+            value={isOpen}
+            onValueChange={toggleOpen}
+            disabled={togglingOpen}
+            trackColor={{ false: COLORS.border, true: COLORS.brandDim }}
+            thumbColor={isOpen ? COLORS.brand : COLORS.textDim}
+            testID="toggle-shop-open"
+          />
+        </View>
+        <Pressable style={styles.scheduleBtn} onPress={() => router.push("/(owner)/schedule" as any)} testID="goto-schedule">
+          <Ionicons name="calendar-outline" size={18} color={COLORS.brand} />
+          <Text style={styles.scheduleBtnText}>Atur Jadwal Buka Toko</Text>
+          <Ionicons name="chevron-forward" size={16} color={COLORS.textDim} />
+        </Pressable>
+
         {/* Total Booking */}
         <View style={styles.bigCard}>
           <View style={styles.bigIcon}><Ionicons name="receipt" size={22} color="#FFFFFF" /></View>
@@ -136,7 +175,14 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: "center", padding: 40, gap: 8 },
   emptyTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 18 },
   emptyText: { color: COLORS.textDim, fontFamily: FONT.medium, textAlign: "center" },
-  bigCard: { flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: COLORS.brand, padding: 18, borderRadius: 20, shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 16, elevation: 6, marginTop: 4 },
+  statusCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.surface, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border },
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  statusLabel: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 14 },
+  statusHint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 4 },
+  scheduleBtn: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, marginTop: 10 },
+  scheduleBtnText: { flex: 1, color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
+  bigCard: { flexDirection: "row", alignItems: "center", gap: 16, backgroundColor: COLORS.brand, padding: 18, borderRadius: 20, shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 16, elevation: 6, marginTop: 12 },
   bigIcon: { width: 52, height: 52, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
   bigLabel: { color: "rgba(255,255,255,0.85)", fontFamily: FONT.semibold, fontSize: 12 },
   bigValue: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 28, marginTop: 4 },

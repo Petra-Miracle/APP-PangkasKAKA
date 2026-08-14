@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import { AuthHero, GradientButton } from "@/src/components/AuthUI";
+import { useScrollToInput } from "@/src/lib/useScrollToInput";
 
 export default function ResetPassword() {
   const router = useRouter();
@@ -17,6 +18,7 @@ export default function ResetPassword() {
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
   const [loading, setLoading] = useState(false);
+  const { scrollRef, handleFocus } = useScrollToInput();
 
   const onSubmit = async () => {
     setErr(null);
@@ -35,7 +37,7 @@ export default function ResetPassword() {
   return (
     <SafeAreaView style={styles.safe} edges={[]}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView ref={scrollRef} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           <AuthHero title="Reset Password" subtitle="Masukkan kode dari email & password baru" />
 
           <View style={styles.card}>
@@ -50,21 +52,21 @@ export default function ResetPassword() {
                 <View style={styles.inputWrap}>
                   <Ionicons name="mail-outline" size={18} color={COLORS.textDim} />
                   <TextInput testID="reset-email" style={styles.input} value={email} onChangeText={setEmail}
-                    placeholder="nama@contoh.com" placeholderTextColor={COLORS.textDim} autoCapitalize="none" keyboardType="email-address" />
+                    placeholder="nama@contoh.com" placeholderTextColor={COLORS.textDim} autoCapitalize="none" keyboardType="email-address" onFocus={handleFocus} />
                 </View>
 
                 <Text style={styles.label}>Kode Reset (6 digit)</Text>
                 <View style={styles.inputWrap}>
                   <Ionicons name="key-outline" size={18} color={COLORS.textDim} />
                   <TextInput testID="reset-code" style={styles.input} value={code} onChangeText={setCode}
-                    placeholder="123456" placeholderTextColor={COLORS.textDim} keyboardType="number-pad" maxLength={6} />
+                    placeholder="123456" placeholderTextColor={COLORS.textDim} keyboardType="number-pad" maxLength={6} onFocus={handleFocus} />
                 </View>
 
                 <Text style={styles.label}>Password Baru</Text>
                 <View style={styles.inputWrap}>
                   <Ionicons name="lock-closed-outline" size={18} color={COLORS.textDim} />
                   <TextInput testID="reset-new-password" style={styles.input} value={newPassword} onChangeText={setNewPassword}
-                    placeholder="Minimal 8 karakter" placeholderTextColor={COLORS.textDim} secureTextEntry={!showPw} />
+                    placeholder="Minimal 8 karakter" placeholderTextColor={COLORS.textDim} secureTextEntry={!showPw} onFocus={handleFocus} />
                   <Pressable onPress={() => setShowPw((v) => !v)}>
                     <Ionicons name={showPw ? "eye-off-outline" : "eye-outline"} size={18} color={COLORS.textDim} />
                   </Pressable>
@@ -74,7 +76,7 @@ export default function ResetPassword() {
                 <View style={styles.inputWrap}>
                   <Ionicons name="lock-closed-outline" size={18} color={COLORS.textDim} />
                   <TextInput testID="reset-confirm-password" style={styles.input} value={confirmPassword} onChangeText={setConfirmPassword}
-                    placeholder="Ulangi password baru" placeholderTextColor={COLORS.textDim} secureTextEntry={!showPw} />
+                    placeholder="Ulangi password baru" placeholderTextColor={COLORS.textDim} secureTextEntry={!showPw} onFocus={handleFocus} />
                 </View>
 
                 {err && (
