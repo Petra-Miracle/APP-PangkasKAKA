@@ -36,6 +36,14 @@
           "backgroundColor": "#FFFFFF"
         }
       ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "PangkasKAKA butuh akses galeri untuk menyimpan gambar QRIS pembayaran.",
+          "savePhotosPermission": "PangkasKAKA butuh akses galeri untuk menyimpan gambar QRIS pembayaran.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ],
       "./plugins/withRawPropsJsiValueFlag.js"
     ],
     "experiments": {

@@ -63,18 +63,21 @@ export default function Orders() {
   const [reviewFor, setReviewFor] = useState<any>(null);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState("");
+  const [paymentMode, setPaymentMode] = useState("simulation");
 
   const load = useCallback(async () => {
     setLoading(true);
     try { const r = await api.get("/bookings"); setOrders(r.bookings); } catch {} finally { setLoading(false); }
   }, []);
 
+  useEffect(() => { api.get("/payments/mode").then((m) => setPaymentMode(m.mode || "simulation")).catch(() => {}); }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const cancel = async (id: string) => {
     try { await api.post(`/bookings/${id}/cancel`); await load(); } catch (e: any) { alert(e.message); }
   };
   const pay = async (id: string) => {
+    if (paymentMode !== "simulation") { router.push(`/payment/status/${id}` as any); return; }
     try { await api.post(`/bookings/${id}/pay`); await load(); } catch (e: any) { alert(e.message); }
   };
   const submitReview = async () => {
@@ -144,7 +147,7 @@ export default function Orders() {
                 {o.status === "pending" && o.payment_status === "unpaid" && (
                   <Pressable testID={`pay-${o.id}`} style={styles.payBtn} onPress={() => pay(o.id)}>
                     <Ionicons name="wallet" size={16} color="#FFFFFF" />
-                    <Text style={styles.payBtnText}>BAYAR SIMULASI QRIS</Text>
+                    <Text style={styles.payBtnText}>{paymentMode === "simulation" ? "BAYAR SIMULASI QRIS" : "LIHAT QRIS & BAYAR"}</Text>
                   </Pressable>
                 )}
                 {(o.status === "pending" || o.status === "confirmed") && (

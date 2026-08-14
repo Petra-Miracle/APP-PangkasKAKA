@@ -2184,6 +2184,32 @@ def _verify_durianpay_webhook(raw_body: bytes, method: str, path: str,
     return False
 
 
+async def _durianpay_charge_qris(order_id: str, name: str, amount: str) -> Optional[dict]:
+    """
+    Charge a QRIS payment for an already-created order (POST /v1/payments/charge).
+    Returns the response's "qr_string" (base64 PNG data URI) / "qr_code" (raw EMV
+    string) / "expiration_time" so the QR can be rendered natively in-app instead
+    of only linking out to Durianpay's hosted checkout page. Returns None on any
+    failure - callers should fall back to the payment_link_url flow.
+    """
+    headers = {"Authorization": _durianpay_basic_auth(), "Content-Type": "application/json"}
+    payload = {"type": "QRIS", "request": {"order_id": order_id, "name": name, "amount": amount}}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            r = await http.post(f"{DURIANPAY_API_BASE}/payments/charge", json=payload, headers=headers)
+    except (httpx.TimeoutException, httpx.RequestError) as e:
+        log.error("Durianpay QRIS charge request failed: %s", e)
+        return None
+    if r.status_code >= 400:
+        log.error("Durianpay QRIS charge error %d: %s", r.status_code, r.text[:500])
+        return None
+    try:
+        body = r.json()
+        return body.get("data", body)
+    except Exception:
+        return None
+
+
 async def _load_booking_for_payment(booking_id: str, user: dict) -> dict:
     """Validate ownership + status. Raises HTTPException on invalid state."""
     b = await db.bookings.find_one({"id": booking_id, "user_id": user["id"]}, {"_id": 0})
@@ -2273,6 +2299,8 @@ async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
     if existing_pay and existing_pay.get("payment_link_url") and existing_pay.get("status") == "pending":
         return {
             "payment_link_url": existing_pay["payment_link_url"],
+            "qr_string": existing_pay.get("qr_string") or "",
+            "qr_code": existing_pay.get("qr_code") or "",
             "transaction_id": existing_pay.get("transaction_id"),
             "reused": True,
         }
@@ -2334,6 +2362,16 @@ async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
     dp_order_id = data.get("id") or ""  # format: ord_xxxxx
     full_url = code if code.startswith("http") else f"{DURIANPAY_PAYMENT_LINK_BASE}/{code}"
 
+    # Charge QRIS on top of the order so the QR can be rendered natively in-app
+    # instead of only linking out to Durianpay's hosted page. Best-effort: the
+    # payment link stays the fallback if this fails for any reason.
+    qr_string, qr_code_raw = "", ""
+    if dp_order_id:
+        qr_data = await _durianpay_charge_qris(dp_order_id, "PangkasKAKA", payload["amount"])
+        if qr_data:
+            qr_string = qr_data.get("qr_string") or ""
+            qr_code_raw = qr_data.get("qr_code") or ""
+
     # Simpan ke payments — transaction_id = Durianpay order id
     await db.payments.update_one(
         {"booking_id": booking_id},
@@ -2341,6 +2379,8 @@ async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
             "transaction_id": dp_order_id,
             "payment_link_code": code,
             "payment_link_url": full_url,
+            "qr_string": qr_string,
+            "qr_code": qr_code_raw,
             "method": "durianpay",
             "status": "pending",
             "amount": int(b["total_price"]),
@@ -2356,6 +2396,8 @@ async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
 
     return {
         "payment_link_url": full_url,
+        "qr_string": qr_string,
+        "qr_code": qr_code_raw,
         "transaction_id": dp_order_id,
         "expires_at": payload["expiry_date"],
     }

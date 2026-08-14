@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Linking, Platform } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Linking, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import { File, Paths } from "expo-file-system";
+import * as MediaLibrary from "expo-media-library";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
 
@@ -27,6 +29,7 @@ export default function PaymentStatusScreen() {
   const [data, setData] = useState<StatusResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
+  const [savingQr, setSavingQr] = useState(false);
   const pollRef = useRef<any>(null);
   const stoppedRef = useRef(false);
   const startedAtRef = useRef<number>(Date.now());
@@ -65,6 +68,30 @@ export default function PaymentStatusScreen() {
     const link = (initialUrl && String(initialUrl)) || data?.payment_link_url;
     if (!link) return;
     try { await Linking.openURL(link); } catch {}
+  };
+
+  const downloadQr = async () => {
+    const qr = data?.payment?.qr_string as string | undefined;
+    if (!qr) return;
+    setSavingQr(true);
+    try {
+      const perm = await MediaLibrary.requestPermissionsAsync();
+      if (perm.status !== "granted") {
+        Alert.alert("Izin ditolak", "Izin galeri dibutuhkan untuk menyimpan QRIS");
+        return;
+      }
+      const base64 = qr.includes(",") ? qr.split(",")[1] : qr;
+      const file = new File(Paths.cache, `qris-${bookingId}.png`);
+      file.create({ overwrite: true });
+      file.write(base64, { encoding: "base64" });
+      const asset = await MediaLibrary.createAssetAsync(file.uri);
+      await MediaLibrary.createAlbumAsync("PangkasKAKA", asset, false);
+      Alert.alert("Berhasil", "QRIS tersimpan di galeri. Kamu bisa scan langsung dari galeri di aplikasi pembayaranmu.");
+    } catch (e: any) {
+      Alert.alert("Gagal", e.message || "Gagal menyimpan QRIS");
+    } finally {
+      setSavingQr(false);
+    }
   };
 
   const doFallbackCheck = async () => {
@@ -133,12 +160,25 @@ export default function PaymentStatusScreen() {
           </View>
         </View>
 
+        {isPending && !!data.payment?.qr_string && (
+          <View style={[styles.card, { alignItems: "center", marginTop: 16 }]}>
+            <Text style={styles.sec}>SCAN QRIS UNTUK BAYAR</Text>
+            <Image source={{ uri: data.payment.qr_string }} style={styles.qrImg} contentFit="contain" />
+            <Pressable style={styles.btnSec} onPress={downloadQr} disabled={savingQr}>
+              <Ionicons name="download-outline" size={18} color={COLORS.brand} />
+              <Text style={styles.btnSecText}>{savingQr ? "MENYIMPAN..." : "SIMPAN QRIS KE GALERI"}</Text>
+            </Pressable>
+          </View>
+        )}
+
         {isPending && (
           <View style={{ gap: 12, marginTop: 16 }}>
             {(initialUrl || data.payment_link_url) && (
-              <Pressable style={styles.btnPri} onPress={openPaymentLink}>
-                <Ionicons name="open-outline" size={18} color="#FFFFFF" />
-                <Text style={styles.btnPriText}>BUKA LINK PEMBAYARAN LAGI</Text>
+              <Pressable style={data.payment?.qr_string ? styles.btnSec : styles.btnPri} onPress={openPaymentLink}>
+                <Ionicons name="open-outline" size={18} color={data.payment?.qr_string ? COLORS.brand : "#FFFFFF"} />
+                <Text style={data.payment?.qr_string ? styles.btnSecText : styles.btnPriText}>
+                  {data.payment?.qr_string ? "METODE PEMBAYARAN LAIN" : "BUKA LINK PEMBAYARAN"}
+                </Text>
               </Pressable>
             )}
             <Pressable style={styles.btnSec} onPress={doFallbackCheck} disabled={checking}>
@@ -234,6 +274,7 @@ const styles = StyleSheet.create({
   timer: { color: COLORS.warning, fontFamily: FONT.extrabold, fontSize: 42, letterSpacing: 2, marginVertical: 6 },
 
   card: { backgroundColor: COLORS.surface, padding: 18, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border },
+  qrImg: { width: 220, height: 220, marginVertical: 14, backgroundColor: "#FFFFFF", borderRadius: 12 },
   sec: { color: COLORS.textDim, letterSpacing: 0.8, fontSize: 11, fontFamily: FONT.bold, marginBottom: 12 },
   shopRow: { flexDirection: "row", gap: 12, marginBottom: 12 },
   shopImg: { width: 60, height: 60, borderRadius: 14 },

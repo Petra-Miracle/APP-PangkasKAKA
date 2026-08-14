@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal, Linking, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -61,13 +61,13 @@ export default function ShopDetail() {
         // Tampilkan modal QRIS mock (demo mode)
         setPayModal({ ...r.booking, mode });
       } else {
-        // Sandbox / production: buat payment link Durianpay
+        // Sandbox / production: buat payment link + QRIS Durianpay
         try {
           const p = await api.post(`/payments/create/${bookingId}`);
-          if (p?.payment_link_url) {
-            // Redirect ke status screen, dan buka payment link di browser eksternal
-            router.replace(`/payment/status/${bookingId}?url=${encodeURIComponent(p.payment_link_url)}`);
-            try { await Linking.openURL(p.payment_link_url); } catch {}
+          if (p?.payment_link_url || p?.qr_string) {
+            // Tampilkan QRIS/status di dalam app; link pembayaran tetap tersedia
+            // di layar status sebagai alternatif (metode selain QRIS).
+            router.replace(`/payment/status/${bookingId}?url=${encodeURIComponent(p.payment_link_url || "")}`);
           } else {
             Alert.alert("Pembayaran", "Gagal membuat link pembayaran, silakan coba lagi");
           }
