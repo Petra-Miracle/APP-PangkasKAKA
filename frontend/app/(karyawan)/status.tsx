@@ -137,6 +137,16 @@ export default function KaryawanStatus() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
+        {apps.length > 0 && !apps.some((a) => a.status === "active") && (
+          <View style={styles.pendingBanner}>
+            <Ionicons name="time-outline" size={20} color={COLORS.warning} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.pendingTitle}>Akun Belum Aktif Sebagai Barber</Text>
+              <Text style={styles.pendingSub}>Menunggu persetujuan pemilik toko. Fitur pesanan &amp; bagikan lokasi akan otomatis aktif begitu lamaran kamu diterima.</Text>
+            </View>
+          </View>
+        )}
+
         {apps.some((a) => a.status === "active") && (
           <View style={styles.locCard}>
             <View style={{ flex: 1 }}>
@@ -303,6 +313,9 @@ const styles = StyleSheet.create({
   locTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 14 },
   locSub: { color: COLORS.textDim, fontSize: 12, marginTop: 2, fontFamily: FONT.medium },
   locErrorText: { color: COLORS.error, fontSize: 11, marginTop: 4, fontFamily: FONT.semibold },
+  pendingBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#FFF7ED", padding: 14, borderRadius: 14, borderWidth: 1, borderColor: "#FDE4C4", marginBottom: 16 },
+  pendingTitle: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
+  pendingSub: { color: COLORS.textDim, fontSize: 12, marginTop: 3, fontFamily: FONT.medium, lineHeight: 17 },
   emptyCard: { alignItems: "center", padding: 24, backgroundColor: COLORS.surface, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, gap: 8 },
   empty: { color: COLORS.textDim, textAlign: "center", fontFamily: FONT.medium, fontSize: 13 },
   appCard: { backgroundColor: COLORS.surface, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 8 },
