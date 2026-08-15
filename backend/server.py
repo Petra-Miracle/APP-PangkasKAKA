@@ -79,7 +79,15 @@ CORS_ORIGINS = os.environ.get("CORS_ORIGINS", "*")
 #   - "production"  → panggil Durianpay production API (dp_live_ key) → GANTI SAAT GO-LIVE
 PAYMENT_MODE = os.environ.get("PAYMENT_MODE", "simulation").lower()
 DURIANPAY_API_KEY = os.environ.get("DURIANPAY_API_KEY", "")
-DURIANPAY_API_BASE = os.environ.get("DURIANPAY_API_BASE", "https://api.durianpay.id/v1")
+# Sandbox and production are separate hosts (confirmed with Durianpay support after
+# api.durianpay.id kept rejecting an otherwise-valid sandbox key with 401
+# DPAY_UNAUTHORIZED_ACCESS) — derive from PAYMENT_MODE so this can't be misconfigured
+# again, but still allow an explicit override via DURIANPAY_API_BASE if ever needed.
+_DURIANPAY_API_BASE_DEFAULT = (
+    "https://api-sandbox.durianpay.id/v1" if PAYMENT_MODE == "sandbox"
+    else "https://api.durianpay.id/v1"
+)
+DURIANPAY_API_BASE = os.environ.get("DURIANPAY_API_BASE", _DURIANPAY_API_BASE_DEFAULT)
 DURIANPAY_PAYMENT_LINK_BASE = os.environ.get("DURIANPAY_PAYMENT_LINK_BASE", "https://links.durianpay.id/payment")
 # Public key PEM dari Durianpay Dashboard → Settings → Webhook (RSA-2048)
 DURIANPAY_PUBLIC_KEY_PEM = os.environ.get("DURIANPAY_PUBLIC_KEY_PEM", "").replace("\\n", "\n")
