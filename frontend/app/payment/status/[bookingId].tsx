@@ -65,7 +65,10 @@ export default function PaymentStatusScreen() {
   }, [fetchStatus, stopPolling]);
 
   const openPaymentLink = async () => {
-    const link = (initialUrl && String(initialUrl)) || data?.payment_link_url;
+    // Prefer the freshly-polled link over the one captured at navigation time -
+    // the stored link can change server-side (host/config fixes, regeneration)
+    // after this screen was first opened.
+    const link = data?.payment_link_url || (initialUrl && String(initialUrl));
     if (!link) return;
     try { await Linking.openURL(link); } catch {}
   };
