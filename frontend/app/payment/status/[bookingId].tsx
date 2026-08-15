@@ -174,6 +174,13 @@ export default function PaymentStatusScreen() {
           </View>
         )}
 
+        {isPending && !data.payment?.qr_string && !!data.payment?.qr_debug && (
+          <View style={[styles.card, { marginTop: 16, backgroundColor: "#0A2540" }]}>
+            <Text style={[styles.sec, { color: "#8FA5BF" }]}>QRIS SANDBOX DEBUG</Text>
+            <Text style={{ color: "#8FA5BF", fontSize: 11, fontFamily: FONT.medium }} numberOfLines={6}>{data.payment.qr_debug}</Text>
+          </View>
+        )}
+
         {isPending && (
           <View style={{ gap: 12, marginTop: 16 }}>
             {(initialUrl || data.payment_link_url) && (
