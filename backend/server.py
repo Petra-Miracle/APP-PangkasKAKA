@@ -2379,6 +2379,11 @@ async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
     code = data.get("payment_link_url") or ""
     dp_order_id = data.get("id") or ""  # format: ord_xxxxx
     full_url = code if code.startswith("http") else f"{DURIANPAY_PAYMENT_LINK_BASE}/{code}"
+    # Durianpay's sandbox API returns payment_link_url as an already-full URL, but
+    # hardcoded to the production links.durianpay.id host regardless of which API
+    # host was called - rewrite it to the sandbox link host so it doesn't 404.
+    if PAYMENT_MODE == "sandbox" and full_url.startswith("https://links.durianpay.id/"):
+        full_url = full_url.replace("https://links.durianpay.id/", "https://links-sandbox.durianpay.id/", 1)
 
     # Charge QRIS on top of the order so the QR can be rendered natively in-app
     # instead of only linking out to Durianpay's hosted page. Best-effort: the
