@@ -2308,9 +2308,13 @@ async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
     email = (profile or {}).get("email") or "noreply@pangkaskaka.id"
     mobile = (profile or {}).get("phone") or "0800000000"
 
-    # Reuse payment link jika masih valid (idempotent bila user klik ulang)
+    # Reuse payment link jika masih valid (idempotent bila user klik ulang). Skip reuse
+    # if it was generated against a different DURIANPAY_PAYMENT_LINK_BASE (e.g. host
+    # config changed since) - a stale cached link would otherwise be served forever.
     existing_pay = await db.payments.find_one({"booking_id": booking_id}, {"_id": 0})
-    if existing_pay and existing_pay.get("payment_link_url") and existing_pay.get("status") == "pending":
+    if (existing_pay and existing_pay.get("payment_link_url")
+            and existing_pay.get("status") == "pending"
+            and existing_pay["payment_link_url"].startswith(DURIANPAY_PAYMENT_LINK_BASE)):
         return {
             "payment_link_url": existing_pay["payment_link_url"],
             "qr_string": existing_pay.get("qr_string") or "",
