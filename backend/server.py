@@ -88,7 +88,13 @@ _DURIANPAY_API_BASE_DEFAULT = (
     else "https://api.durianpay.id/v1"
 )
 DURIANPAY_API_BASE = os.environ.get("DURIANPAY_API_BASE", _DURIANPAY_API_BASE_DEFAULT)
-DURIANPAY_PAYMENT_LINK_BASE = os.environ.get("DURIANPAY_PAYMENT_LINK_BASE", "https://links.durianpay.id/payment")
+# Same sandbox/production host split as the API base above — the hosted payment
+# link page also lives on a separate sandbox domain.
+_DURIANPAY_PAYMENT_LINK_BASE_DEFAULT = (
+    "https://links-sandbox.durianpay.id/payment" if PAYMENT_MODE == "sandbox"
+    else "https://links.durianpay.id/payment"
+)
+DURIANPAY_PAYMENT_LINK_BASE = os.environ.get("DURIANPAY_PAYMENT_LINK_BASE", _DURIANPAY_PAYMENT_LINK_BASE_DEFAULT)
 # Public key PEM dari Durianpay Dashboard → Settings → Webhook (RSA-2048)
 DURIANPAY_PUBLIC_KEY_PEM = os.environ.get("DURIANPAY_PUBLIC_KEY_PEM", "").replace("\\n", "\n")
 # Opsional: HMAC secret untuk verifikasi tambahan (legacy webhook / signature payment fallback)
