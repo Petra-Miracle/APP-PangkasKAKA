@@ -31,8 +31,9 @@ export default function Register() {
   });
   const [karyawanForm, setKaryawanForm] = useState({
     portfolio_url: "", work_experience: "", certificates: "",
-    tools_photo: "", bnsp_cert: "", diploma_photo: "", shop_id: "",
+    tools_photo: "", bnsp_cert: "", diploma_photo: "", ktp_photo: "", shop_id: "",
   });
+  const [karyawanCriteriaAgreed, setKaryawanCriteriaAgreed] = useState(false);
   const [shops, setShops] = useState<any[]>([]);
   const { scrollRef, handleFocus } = useScrollToInput();
 
@@ -64,7 +65,10 @@ export default function Register() {
   };
   const validKaryawan = () => {
     if (!karyawanForm.shop_id) return "Pilih toko tujuan lamaran";
-    if (!karyawanForm.portfolio_url && !karyawanForm.work_experience) return "Isi portofolio atau pengalaman kerja";
+    if (!karyawanForm.ktp_photo) return "Foto KTP wajib diunggah";
+    if (!karyawanForm.diploma_photo) return "Foto/scan ijazah wajib diunggah";
+    if (karyawanForm.work_experience.trim().length < 20) return "Pengalaman kerja wajib diisi minimal 20 karakter";
+    if (!karyawanCriteriaAgreed) return "Anda harus menyetujui kriteria platform";
     return null;
   };
 
@@ -92,7 +96,9 @@ export default function Register() {
         });
         router.replace("/(owner)/dashboard");
       } else if (u.role === "karyawan") {
-        await api.post("/karyawan/apply", karyawanForm);
+        const v = validKaryawan();
+        if (v) { setErr(v); setLoading(false); return; }
+        await api.post("/karyawan/apply", { ...karyawanForm, criteria_agreed: karyawanCriteriaAgreed });
         router.replace("/(karyawan)/status");
       } else {
         router.replace("/(customer)/home");
@@ -230,11 +236,21 @@ export default function Register() {
                 <TextInput style={styles.multi} value={karyawanForm.certificates} onChangeText={(t: string) => setKaryawanForm({ ...karyawanForm, certificates: t })} placeholder="Cth: Kursus Barber Master 2024" placeholderTextColor={COLORS.textDim} multiline onFocus={handleFocus} />
 
                 <View style={styles.divider} />
+                <Text style={styles.sectionLabel}>DOKUMEN WAJIB</Text>
+                <Text style={styles.hint}>KTP dan ijazah/scan diploma wajib diunggah untuk verifikasi lamaran.</Text>
+                <DocPicker label="Foto KTP" testID="ktp-photo" value={karyawanForm.ktp_photo} onPick={() => pickDoc((v) => setKaryawanForm({ ...karyawanForm, ktp_photo: v }))} />
+                <DocPicker label="Ijazah / Diploma" testID="diploma-photo" value={karyawanForm.diploma_photo} onPick={() => pickDoc((v) => setKaryawanForm({ ...karyawanForm, diploma_photo: v }))} />
+
+                <View style={styles.divider} />
                 <Text style={styles.sectionLabel}>UPLOAD BUKTI (OPSIONAL)</Text>
                 <Text style={styles.hint}>Owner akan menilai skor lamaran (portofolio, sertifikat, bukti alat kerja).</Text>
                 <DocPicker label="Foto Alat Kerja" testID="tools-photo" value={karyawanForm.tools_photo} onPick={() => pickDoc((v) => setKaryawanForm({ ...karyawanForm, tools_photo: v }))} />
                 <DocPicker label="Sertifikat BNSP" testID="bnsp-cert" value={karyawanForm.bnsp_cert} onPick={() => pickDoc((v) => setKaryawanForm({ ...karyawanForm, bnsp_cert: v }))} />
-                <DocPicker label="Ijazah / Diploma" testID="diploma-photo" value={karyawanForm.diploma_photo} onPick={() => pickDoc((v) => setKaryawanForm({ ...karyawanForm, diploma_photo: v }))} />
+
+                <Pressable style={styles.agreeRow} onPress={() => setKaryawanCriteriaAgreed((v) => !v)} testID="k-criteria-agree">
+                  <Ionicons name={karyawanCriteriaAgreed ? "checkbox" : "square-outline"} size={20} color={karyawanCriteriaAgreed ? COLORS.brand : COLORS.textDim} />
+                  <Text style={styles.agreeText}>Saya menyetujui kriteria seleksi platform PangkasKAKA</Text>
+                </Pressable>
 
                 {err && <ErrorMsg msg={err} />}
                 <GradientButton testID="reg-submit-karyawan" label="KIRIM LAMARAN" icon="paper-plane" onPress={submitKaryawan} loading={loading} />
@@ -299,6 +315,8 @@ const styles = StyleSheet.create({
   input: { flex: 1, color: COLORS.text, paddingVertical: 12, fontFamily: FONT.medium, fontSize: 14 },
   multi: { backgroundColor: COLORS.surface2, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 14, minHeight: 68, textAlignVertical: "top", color: COLORS.text, fontFamily: FONT.medium, paddingVertical: 12 },
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 20 },
+  agreeRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 16 },
+  agreeText: { flex: 1, color: COLORS.text, fontFamily: FONT.medium, fontSize: 12, lineHeight: 17 },
   roleRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface2 },
   roleRowActive: { backgroundColor: COLORS.brandDim, borderColor: COLORS.brand },
   roleIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
