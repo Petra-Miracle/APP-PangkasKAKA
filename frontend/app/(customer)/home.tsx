@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { View, Text, StyleSheet, FlatList, Pressable, ActivityIndicator, ScrollView, RefreshControl, TextInput } from "react-native";
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -9,31 +9,26 @@ import { api, COLORS, FONT, formatJarak, rupiah, tanggal } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 
 type Shop = { id: string; name: string; image: string; address: string; rating: number; reviews_count: number; price_range: string; distance_km: number | null; is_verified: boolean };
-
-const FILTERS = [
-  { key: "terdekat", label: "Terdekat", icon: "location" },
-  { key: "rating", label: "Rating Tertinggi", icon: "star" },
-  { key: "harga", label: "Harga", icon: "pricetag" },
-];
+type Hairstyle = { id: string; name: string; image_url: string; description: string };
 
 export default function Home() {
   const router = useRouter();
   const { user } = useAuth();
-  const [shops, setShops] = useState<Shop[]>([]);
+  const [popularShops, setPopularShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [sort, setSort] = useState("terdekat");
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [search, setSearch] = useState("");
   const [analytics, setAnalytics] = useState<any>(null);
   const [nearbyBarbers, setNearbyBarbers] = useState<any[]>([]);
+  const [hairstyles, setHairstyles] = useState<Hairstyle[]>([]);
 
-  const loadShops = useCallback(async (s: string, c: { lat: number; lng: number } | null) => {
-    let url = `/shops?sort=${s}`;
+  const loadShops = useCallback(async (c: { lat: number; lng: number } | null) => {
+    let url = `/shops?sort=terpopuler`;
     if (c) url += `&lat=${c.lat}&lng=${c.lng}`;
     const res = await api.get(url);
-    setShops(res.shops);
+    setPopularShops((res.shops || []).slice(0, 8));
     try { const a = await api.get("/analytics/customer"); setAnalytics(a); } catch {}
+    try { const h = await api.get("/hairstyles"); setHairstyles((h.hairstyles || []).slice(0, 8)); } catch {}
   }, []);
 
   const loadNearbyBarbers = useCallback(async (c: { lat: number; lng: number } | null) => {
@@ -58,17 +53,20 @@ export default function Home() {
         c = { lat: -10.1789, lng: 123.607 };
       }
       setCoords(c);
-      await loadShops(sort, c);
+      await loadShops(c);
       await loadNearbyBarbers(c);
     } catch {} finally { setLoading(false); }
-  }, [loadShops, loadNearbyBarbers, sort]);
+  }, [loadShops, loadNearbyBarbers]);
 
   useEffect(() => { init(); }, [init]);
 
-  const onRefresh = async () => { setRefreshing(true); await loadShops(sort, coords); await loadNearbyBarbers(coords); setRefreshing(false); };
-  const onSort = async (s: string) => { setSort(s); await loadShops(s, coords); };
+  const onRefresh = async () => { setRefreshing(true); await loadShops(coords); await loadNearbyBarbers(coords); setRefreshing(false); };
 
-  const filtered = shops.filter((s) => !search || s.name.toLowerCase().includes(search.toLowerCase()));
+  const rebook = () => {
+    const lb = analytics?.last_booking;
+    if (!lb) return;
+    router.push({ pathname: `/(customer)/shop/${lb.shop_id}`, params: { rebookServiceId: lb.service_id, rebookBarberId: lb.barber_id || "" } } as any);
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -85,124 +83,143 @@ export default function Home() {
         </Pressable>
       </View>
 
-      <FlatList
-        data={filtered}
-        keyExtractor={(x) => x.id}
-        contentContainerStyle={{ padding: 16, paddingTop: 4, paddingBottom: 100, gap: 12 }}
+      <ScrollView
+        contentContainerStyle={{ padding: 16, paddingTop: 4, paddingBottom: 100 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.brand} />}
-        ListHeaderComponent={
+      >
+        <Pressable testID="search-shortcut" style={styles.searchWrap} onPress={() => router.push("/(customer)/explore" as any)}>
+          <Ionicons name="search" size={18} color={COLORS.textDim} />
+          <Text style={styles.searchPlaceholder}>Cari barbershop di sekitarmu...</Text>
+        </Pressable>
+
+        <Pressable testID="ai-banner" style={styles.aiBanner} onPress={() => router.push("/(customer)/ai-scan")}>
+          <View style={styles.aiIconBox}>
+            <Ionicons name="sparkles" size={22} color="#FFFFFF" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.aiTitle}>AI Face Scan ✨</Text>
+            <Text style={styles.aiSub}>Temukan gaya rambut yang cocok dengan wajahmu</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
+        </Pressable>
+
+        {nearbyBarbers.length > 0 && (
           <View>
-            <View style={styles.searchWrap}>
-              <Ionicons name="search" size={18} color={COLORS.textDim} />
-              <TextInput testID="search-shops" style={styles.searchInput} placeholder="Cari barbershop di sekitarmu..." placeholderTextColor={COLORS.textDim} value={search} onChangeText={setSearch} />
+            <View style={styles.nearbyHeaderRow}>
+              <View style={styles.liveDot} />
+              <Text style={styles.sectionTitle}>Barber Online Terdekat</Text>
             </View>
-
-            <Pressable testID="ai-banner" style={styles.aiBanner} onPress={() => router.push("/(customer)/ai-scan")}>
-              <View style={styles.aiIconBox}>
-                <Ionicons name="sparkles" size={22} color="#FFFFFF" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.aiTitle}>AI Face Scan ✨</Text>
-                <Text style={styles.aiSub}>Temukan gaya rambut yang cocok dengan wajahmu</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={22} color="#FFFFFF" />
-            </Pressable>
-
-            {nearbyBarbers.length > 0 && (
-              <View>
-                <View style={styles.nearbyHeaderRow}>
-                  <View style={styles.liveDot} />
-                  <Text style={styles.sectionTitle}>Barber Online Terdekat</Text>
-                </View>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-                  {nearbyBarbers.map((b: any) => (
-                    <Pressable key={b.id} testID={`nearby-barber-${b.id}`} style={styles.barberCard} onPress={() => router.push(`/(customer)/shop/${b.shop_id}` as any)}>
-                      <Image source={{ uri: b.photo }} style={styles.barberImg} contentFit="cover" />
-                      <Text style={styles.barberName} numberOfLines={1}>{b.name}</Text>
-                      <Text style={styles.barberShop} numberOfLines={1}>{b.shop_name}</Text>
-                      <View style={styles.barberDistRow}>
-                        <Ionicons name="navigate" size={11} color={COLORS.brand} />
-                        <Text style={styles.barberDist}>{formatJarak(b.distance_km)}</Text>
-                      </View>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {analytics?.active_booking ? (
-              <Pressable style={styles.activeCard} onPress={() => router.push("/(customer)/orders")} testID="active-booking-card">
-                <View style={styles.activeHead}>
-                  <Text style={styles.activeLabel}>BOOKING AKTIF</Text>
-                  <View style={styles.countdownPill}>
-                    <Ionicons name="time" size={12} color="#FFFFFF" />
-                    <Text style={styles.countdownText}>
-                      {analytics.active_booking.days_until > 0 ? `${analytics.active_booking.days_until} hari lagi` :
-                       analytics.active_booking.hours_until > 0 ? `${analytics.active_booking.hours_until} jam lagi` : "Segera"}
-                    </Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+              {nearbyBarbers.map((b: any) => (
+                <Pressable key={b.id} testID={`nearby-barber-${b.id}`} style={styles.barberCard} onPress={() => router.push(`/(customer)/shop/${b.shop_id}` as any)}>
+                  <Image source={{ uri: b.photo }} style={styles.barberImg} contentFit="cover" />
+                  <Text style={styles.barberName} numberOfLines={1}>{b.name}</Text>
+                  <Text style={styles.barberShop} numberOfLines={1}>{b.shop_name}</Text>
+                  <View style={styles.barberDistRow}>
+                    <Ionicons name="navigate" size={11} color={COLORS.brand} />
+                    <Text style={styles.barberDist}>{formatJarak(b.distance_km)}</Text>
                   </View>
-                </View>
-                <Text style={styles.activeShop} numberOfLines={1}>{analytics.active_booking.shop?.name}</Text>
-                <Text style={styles.activeMeta}>{analytics.active_booking.service?.name} · {analytics.active_booking.booking_time} WITA</Text>
-                <View style={styles.trackerRow}>
-                  {["Menunggu Bayar", "Terkonfirmasi", "Selesai"].map((step, i) => {
-                    const st = analytics.active_booking.status;
-                    const activeIdx = st === "pending" ? 0 : st === "confirmed" ? 1 : st === "completed" ? 2 : 0;
-                    const done = i <= activeIdx;
-                    return (
-                      <View key={step} style={styles.trackerStep}>
-                        <View style={[styles.trackerDot, done && { backgroundColor: "#FFFFFF" }]}>
-                          {done && <Ionicons name="checkmark" size={10} color={COLORS.brand} />}
-                        </View>
-                        <Text style={[styles.trackerLabel, done && { color: "#FFFFFF", fontFamily: FONT.bold }]}>{step}</Text>
-                      </View>
-                    );
-                  })}
-                </View>
-              </Pressable>
-            ) : null}
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ maxHeight: 56, marginTop: 16 }}>
-              {FILTERS.map((f) => (
-                <Pressable key={f.key} testID={`filter-${f.key}`} onPress={() => onSort(f.key)}
-                  style={[styles.chip, sort === f.key && styles.chipActive]}>
-                  <Ionicons name={f.icon as any} size={14} color={sort === f.key ? "#FFFFFF" : COLORS.textDim} />
-                  <Text style={[styles.chipText, sort === f.key && styles.chipTextActive]}>{f.label}</Text>
                 </Pressable>
               ))}
             </ScrollView>
-
-            <Text style={styles.sectionTitle}>Barbershop Terdekat</Text>
           </View>
-        }
-        ListEmptyComponent={loading ? <ActivityIndicator color={COLORS.brand} style={{ marginTop: 40 }} /> : <Text style={styles.empty}>Tidak ada barbershop ditemukan.</Text>}
-        renderItem={({ item }) => (
-          <Pressable testID={`shop-card-${item.id}`} style={styles.card} onPress={() => router.push(`/(customer)/shop/${item.id}` as any)}>
-            <Image source={{ uri: item.image }} style={styles.cardImg} contentFit="cover" />
-            {item.distance_km !== null && (
-              <View style={styles.distBadge}>
-                <Ionicons name="navigate" size={11} color={COLORS.brand} />
-                <Text style={styles.distText}>{formatJarak(item.distance_km)}</Text>
-              </View>
-            )}
-            <View style={styles.cardBody}>
-              <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
-              <View style={styles.addrRow}>
-                <Ionicons name="location-outline" size={12} color={COLORS.textDim} />
-                <Text style={styles.cardAddr} numberOfLines={1}>{item.address}</Text>
-              </View>
-              <View style={styles.cardRow}>
-                <View style={styles.rateBox}>
-                  <Ionicons name="star" size={13} color={COLORS.warning} />
-                  <Text style={styles.rateText}>{item.rating?.toFixed(1) || "0.0"}</Text>
-                  <Text style={styles.rateCount}>({item.reviews_count})</Text>
-                </View>
-                <Text style={styles.price}>{item.price_range}</Text>
+        )}
+
+        {analytics?.active_booking ? (
+          <Pressable style={styles.activeCard} onPress={() => router.push("/(customer)/orders")} testID="active-booking-card">
+            <View style={styles.activeHead}>
+              <Text style={styles.activeLabel}>BOOKING AKTIF</Text>
+              <View style={styles.countdownPill}>
+                <Ionicons name="time" size={12} color="#FFFFFF" />
+                <Text style={styles.countdownText}>
+                  {analytics.active_booking.days_until > 0 ? `${analytics.active_booking.days_until} hari lagi` :
+                   analytics.active_booking.hours_until > 0 ? `${analytics.active_booking.hours_until} jam lagi` : "Segera"}
+                </Text>
               </View>
             </View>
+            <Text style={styles.activeShop} numberOfLines={1}>{analytics.active_booking.shop?.name}</Text>
+            <Text style={styles.activeMeta}>{analytics.active_booking.service?.name} · {analytics.active_booking.booking_time} WITA</Text>
+            <View style={styles.trackerRow}>
+              {["Menunggu Bayar", "Terkonfirmasi", "Selesai"].map((step, i) => {
+                const st = analytics.active_booking.status;
+                const activeIdx = st === "pending" ? 0 : st === "confirmed" ? 1 : st === "completed" ? 2 : 0;
+                const done = i <= activeIdx;
+                return (
+                  <View key={step} style={styles.trackerStep}>
+                    <View style={[styles.trackerDot, done && { backgroundColor: "#FFFFFF" }]}>
+                      {done && <Ionicons name="checkmark" size={10} color={COLORS.brand} />}
+                    </View>
+                    <Text style={[styles.trackerLabel, done && { color: "#FFFFFF", fontFamily: FONT.bold }]}>{step}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </Pressable>
+        ) : null}
+
+        {analytics?.last_booking && (
+          <Pressable testID="rebook-card" style={styles.rebookCard} onPress={rebook}>
+            <Image source={{ uri: analytics.last_booking.shop_image }} style={styles.rebookImg} contentFit="cover" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rebookLabel}>PESAN ULANG</Text>
+              <Text style={styles.rebookTitle} numberOfLines={1}>{analytics.last_booking.service_name}</Text>
+              <Text style={styles.rebookSub} numberOfLines={1}>di {analytics.last_booking.shop_name}</Text>
+            </View>
+            <Ionicons name="repeat" size={20} color={COLORS.brand} />
           </Pressable>
         )}
-      />
+
+        {hairstyles.length > 0 && (
+          <View>
+            <Text style={styles.sectionTitle}>Inspirasi Gaya Rambut</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+              {hairstyles.map((h) => (
+                <Pressable key={h.id} testID={`hairstyle-${h.id}`} style={styles.styleCard} onPress={() => router.push("/(customer)/ai-scan")}>
+                  <Image source={{ uri: h.image_url }} style={styles.styleImg} contentFit="cover" />
+                  <Text style={styles.styleName} numberOfLines={1}>{h.name}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        <View style={styles.popularHeaderRow}>
+          <Text style={styles.sectionTitle}>Barber Populer di Kupang</Text>
+          <Pressable testID="see-all-explore" onPress={() => router.push("/(customer)/explore" as any)}>
+            <Text style={styles.seeAllText}>Lihat Semua</Text>
+          </Pressable>
+        </View>
+        {loading ? <ActivityIndicator color={COLORS.brand} style={{ marginTop: 20 }} /> : popularShops.length === 0 ? (
+          <Text style={styles.empty}>Belum ada barbershop.</Text>
+        ) : (
+          popularShops.map((item) => (
+            <Pressable key={item.id} testID={`shop-card-${item.id}`} style={[styles.card, { marginBottom: 12 }]} onPress={() => router.push(`/(customer)/shop/${item.id}` as any)}>
+              <Image source={{ uri: item.image }} style={styles.cardImg} contentFit="cover" />
+              {item.distance_km !== null && (
+                <View style={styles.distBadge}>
+                  <Ionicons name="navigate" size={11} color={COLORS.brand} />
+                  <Text style={styles.distText}>{formatJarak(item.distance_km)}</Text>
+                </View>
+              )}
+              <View style={styles.cardBody}>
+                <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
+                <View style={styles.addrRow}>
+                  <Ionicons name="location-outline" size={12} color={COLORS.textDim} />
+                  <Text style={styles.cardAddr} numberOfLines={1}>{item.address}</Text>
+                </View>
+                <View style={styles.cardRow}>
+                  <View style={styles.rateBox}>
+                    <Ionicons name="star" size={13} color={COLORS.warning} />
+                    <Text style={styles.rateText}>{item.rating?.toFixed(1) || "0.0"}</Text>
+                    <Text style={styles.rateCount}>({item.reviews_count})</Text>
+                  </View>
+                  <Text style={styles.price}>{item.price_range}</Text>
+                </View>
+              </View>
+            </Pressable>
+          ))
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -216,6 +233,17 @@ const styles = StyleSheet.create({
   iconBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.border },
   searchWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, marginTop: 12 },
   searchInput: { flex: 1, color: COLORS.text, paddingVertical: 14, fontFamily: FONT.medium, fontSize: 14 },
+  searchPlaceholder: { flex: 1, color: COLORS.textDim, paddingVertical: 14, fontFamily: FONT.medium, fontSize: 14 },
+  rebookCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderRadius: 16, padding: 12, marginTop: 16 },
+  rebookImg: { width: 48, height: 48, borderRadius: 12 },
+  rebookLabel: { color: COLORS.brand, fontSize: 10, fontFamily: FONT.bold, letterSpacing: 0.6 },
+  rebookTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 14, marginTop: 2 },
+  rebookSub: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 1 },
+  styleCard: { width: 100, alignItems: "center" },
+  styleImg: { width: 100, height: 100, borderRadius: 14, backgroundColor: COLORS.surface2 },
+  styleName: { color: COLORS.text, fontFamily: FONT.semibold, fontSize: 11, marginTop: 6, textAlign: "center" },
+  popularHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 20 },
+  seeAllText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 12 },
   aiBanner: {
     flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.brand, marginTop: 16, padding: 16, borderRadius: 16,
     shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 16, elevation: 6,

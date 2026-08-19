@@ -598,22 +598,60 @@ async def update_profile(body: UpdateProfileIn, user=Depends(get_current_user)):
 # BARBERSHOPS (CUSTOMER)
 # ============================================================
 @api.get("/shops")
-async def list_shops(lat: Optional[float] = None, lng: Optional[float] = None, sort: str = "terdekat"):
+async def list_shops(
+    lat: Optional[float] = None, lng: Optional[float] = None, sort: str = "terdekat",
+    min_rating: Optional[float] = None, max_price: Optional[float] = None,
+    max_distance_km: Optional[float] = None, q: Optional[str] = None,
+):
     await expire_stale_bookings()
     shops = await db.barbershops.find(
         {"is_verified": True, "verification_status": "approved"}, {"_id": 0}
     ).to_list(500)
+    shop_ids = [s["id"] for s in shops]
+
+    # Cheapest service price per shop (for numeric price sort/filter - price_range is
+    # a free-text label like "Rp 25.000 - Rp 75.000" and can't be sorted/filtered on).
+    min_price_by_shop: dict = {}
+    if shop_ids:
+        cursor = db.services.find({"shop_id": {"$in": shop_ids}}, {"_id": 0, "shop_id": 1, "price": 1})
+        async for svc in cursor:
+            cur = min_price_by_shop.get(svc["shop_id"])
+            if cur is None or svc["price"] < cur:
+                min_price_by_shop[svc["shop_id"]] = svc["price"]
+
+    # Booking count per shop (for "terpopuler" sort).
+    booking_count_by_shop: dict = {}
+    if shop_ids:
+        cursor = db.bookings.find(
+            {"shop_id": {"$in": shop_ids}, "status": {"$in": ["confirmed", "completed"]}},
+            {"_id": 0, "shop_id": 1},
+        )
+        async for bk in cursor:
+            booking_count_by_shop[bk["shop_id"]] = booking_count_by_shop.get(bk["shop_id"], 0) + 1
+
     for s in shops:
-        if lat is not None and lng is not None:
-            s["distance_km"] = haversine_km(lat, lng, s["latitude"], s["longitude"])
-        else:
-            s["distance_km"] = None
+        s["distance_km"] = haversine_km(lat, lng, s["latitude"], s["longitude"]) if (lat is not None and lng is not None) else None
+        s["min_price"] = min_price_by_shop.get(s["id"])
+        s["booking_count"] = booking_count_by_shop.get(s["id"], 0)
+
+    if min_rating is not None:
+        shops = [s for s in shops if s.get("rating", 0) >= min_rating]
+    if max_price is not None:
+        shops = [s for s in shops if s["min_price"] is None or s["min_price"] <= max_price]
+    if max_distance_km is not None and lat is not None:
+        shops = [s for s in shops if s["distance_km"] is not None and s["distance_km"] <= max_distance_km]
+    if q:
+        ql = q.lower()
+        shops = [s for s in shops if ql in s["name"].lower() or ql in s.get("address", "").lower()]
+
     if sort == "terdekat" and lat is not None:
         shops.sort(key=lambda x: (x["distance_km"] if x["distance_km"] is not None else 9999))
     elif sort == "rating":
         shops.sort(key=lambda x: x.get("rating", 0), reverse=True)
     elif sort == "harga":
-        shops.sort(key=lambda x: x.get("price_range", ""))
+        shops.sort(key=lambda x: (x["min_price"] if x["min_price"] is not None else 9_999_999))
+    elif sort == "terpopuler":
+        shops.sort(key=lambda x: x["booking_count"], reverse=True)
     return {"shops": shops}
 
 
@@ -1271,6 +1309,24 @@ async def karyawan_my(user=Depends(require_role("karyawan"))):
         s = await db.barbershops.find_one({"id": r["shop_id"]}, {"_id": 0, "name": 1, "image": 1})
         r["shop"] = s
     return {"applications": rows}
+
+
+@api.get("/karyawan/earnings")
+async def karyawan_earnings(user=Depends(require_role("karyawan"))):
+    """Pendapatan bulan ini dari booking yang sudah dibayar, untuk barber yang statusnya active."""
+    apps = await db.karyawan.find({"profile_id": user["id"], "status": "active"}, {"_id": 0, "id": 1}).to_list(20)
+    if not apps:
+        return {"monthly_revenue": 0, "completed_count": 0}
+    barbers = await db.barbers.find({"karyawan_id": {"$in": [a["id"] for a in apps]}}, {"_id": 0, "id": 1}).to_list(20)
+    barber_ids = [b["id"] for b in barbers]
+    if not barber_ids:
+        return {"monthly_revenue": 0, "completed_count": 0}
+    month_start = datetime.now(WITA).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    paid = await db.bookings.find(
+        {"barber_id": {"$in": barber_ids}, "payment_status": "paid", "created_at": {"$gte": month_start}},
+        {"_id": 0, "total_price": 1},
+    ).to_list(2000)
+    return {"monthly_revenue": sum(b["total_price"] for b in paid), "completed_count": len(paid)}
 
 
 @api.post("/karyawan/location")
@@ -1942,6 +1998,11 @@ async def analytics_owner(user=Depends(require_role("owner"))):
     # total bookings this month + growth (7d vs prev 7d)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
     total_month = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": month_start}})
+    paid_this_month = await db.bookings.find(
+        {"shop_id": sid, "payment_status": "paid", "created_at": {"$gte": month_start}},
+        {"_id": 0, "total_price": 1},
+    ).to_list(5000)
+    monthly_revenue = sum(b["total_price"] for b in paid_this_month)
     last_7 = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": week_ago}})
     prev_7 = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": prev_week, "$lt": week_ago}})
     growth = 0.0
@@ -1993,6 +2054,7 @@ async def analytics_owner(user=Depends(require_role("owner"))):
     return {
         "shop": shop,
         "total_bookings_month": total_month,
+        "monthly_revenue": monthly_revenue,
         "growth_pct": growth,
         "today_appointments": today_bookings,
         "today_total_slots": total_slots,
@@ -2116,11 +2178,25 @@ async def analytics_customer(user=Depends(require_role("customer"))):
         fav_barber = await db.barbers.find_one({"id": top}, {"_id": 0, "name": 1, "photo": 1, "skill_level": 1})
         if fav_barber: fav_barber["visits"] = barber_counts[top]
 
+    # most recent completed booking, for a one-tap "pesan ulang" shortcut
+    last_booking = None
+    if completed:
+        lb = sorted(completed, key=lambda x: x["created_at"], reverse=True)[0]
+        shop = await db.barbershops.find_one({"id": lb["shop_id"]}, {"_id": 0, "name": 1, "image": 1})
+        service = await db.services.find_one({"id": lb["service_id"]}, {"_id": 0, "name": 1})
+        if shop and service:
+            last_booking = {
+                "shop_id": lb["shop_id"], "shop_name": shop["name"], "shop_image": shop["image"],
+                "service_id": lb["service_id"], "service_name": service["name"],
+                "barber_id": lb["barber_id"],
+            }
+
     return {
         "active_booking": active,
         "total_cuts_year": total_cuts_year,
         "fav_shop": fav_shop,
         "fav_barber": fav_barber,
+        "last_booking": last_booking,
     }
 
 

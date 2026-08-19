@@ -98,6 +98,16 @@ export default function OwnerDashboard() {
           <Ionicons name="chevron-forward" size={16} color={COLORS.textDim} />
         </Pressable>
 
+        {/* Pendapatan */}
+        <View style={[styles.bigCard, { backgroundColor: COLORS.sidebar }]}>
+          <View style={styles.bigIcon}><Ionicons name="cash" size={22} color="#FFFFFF" /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.bigLabel}>Pendapatan Bulan Ini</Text>
+            <Text style={styles.bigValue}>{rupiah(data.monthly_revenue || 0)}</Text>
+            <Text style={[styles.trendText, { color: "rgba(255,255,255,0.7)", marginTop: 4 }]}>Dari booking yang sudah dibayar</Text>
+          </View>
+        </View>
+
         {/* Total Booking */}
         <View style={styles.bigCard}>
           <View style={styles.bigIcon}><Ionicons name="receipt" size={22} color="#FFFFFF" /></View>

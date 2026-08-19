@@ -7,7 +7,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
 
 export default function ShopDetail() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, rebookServiceId, rebookBarberId } = useLocalSearchParams<{ id: string; rebookServiceId?: string; rebookBarberId?: string }>();
   const router = useRouter();
   const [shop, setShop] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -23,9 +23,22 @@ export default function ShopDetail() {
 
   useEffect(() => {
     (async () => {
-      try { const r = await api.get(`/shops/${id}`); setShop(r); } catch {} finally { setLoading(false); }
+      try {
+        const r = await api.get(`/shops/${id}`);
+        setShop(r);
+        // "Pesan ulang" datang dari Beranda dengan layanan+barber terakhir - langsung
+        // pilihkan kalau masih tersedia di toko ini, biar user tinggal pilih jadwal.
+        if (rebookServiceId) {
+          const svc = (r.services || []).find((s: any) => s.id === rebookServiceId);
+          const brb = (r.barbers || []).find((b: any) => b.id === rebookBarberId);
+          if (svc) {
+            setService(svc);
+            if (brb) { setBarber(brb); setStep(3); } else { setStep(2); }
+          }
+        }
+      } catch {} finally { setLoading(false); }
     })();
-  }, [id]);
+  }, [id, rebookServiceId, rebookBarberId]);
 
   useEffect(() => {
     if (step === 3 && service && barber) {
@@ -110,9 +123,14 @@ export default function ShopDetail() {
         <View style={styles.body}>
           <View style={styles.nameRow}>
             <Text style={styles.name}>{shop.name}</Text>
-            {shop.is_open === false && (
+            {shop.is_open === false ? (
               <View style={styles.closedBadge}>
                 <Text style={styles.closedBadgeText}>TUTUP SEMENTARA</Text>
+              </View>
+            ) : (
+              <View style={styles.openBadge} testID="open-now-badge">
+                <View style={styles.openDot} />
+                <Text style={styles.openBadgeText}>BUKA SEKARANG</Text>
               </View>
             )}
           </View>
@@ -283,6 +301,9 @@ const styles = StyleSheet.create({
   name: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, letterSpacing: -0.3 },
   closedBadge: { backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: COLORS.error, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
   closedBadgeText: { color: COLORS.error, fontSize: 10, fontFamily: FONT.bold, letterSpacing: 0.4 },
+  openBadge: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#ECFDF5", borderWidth: 1, borderColor: COLORS.success, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  openDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.success },
+  openBadgeText: { color: COLORS.success, fontSize: 10, fontFamily: FONT.bold, letterSpacing: 0.4 },
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
   metaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   metaText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },

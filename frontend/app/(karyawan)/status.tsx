@@ -6,7 +6,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
-import { api, COLORS, FONT, tanggal } from "@/src/lib/api";
+import { api, COLORS, FONT, tanggal, rupiah } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import { useScrollToInput } from "@/src/lib/useScrollToInput";
 
@@ -73,6 +73,7 @@ export default function KaryawanStatus() {
   useEffect(() => () => { watchRef.current?.remove(); }, []);
 
   const [myBookings, setMyBookings] = useState<any[]>([]);
+  const [earnings, setEarnings] = useState<{ monthly_revenue: number; completed_count: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,6 +82,7 @@ export default function KaryawanStatus() {
       const sh = await api.get("/shops?sort=rating");
       setApps(my.applications); setShops(sh.shops);
       try { const bk = await api.get("/karyawan/bookings"); setMyBookings(bk.bookings); } catch { setMyBookings([]); }
+      try { setEarnings(await api.get("/karyawan/earnings")); } catch { setEarnings(null); }
     } catch {} finally { setLoading(false); }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -143,6 +145,17 @@ export default function KaryawanStatus() {
             <View style={{ flex: 1 }}>
               <Text style={styles.pendingTitle}>Akun Belum Aktif Sebagai Barber</Text>
               <Text style={styles.pendingSub}>Menunggu persetujuan pemilik toko. Fitur pesanan &amp; bagikan lokasi akan otomatis aktif begitu lamaran kamu diterima.</Text>
+            </View>
+          </View>
+        )}
+
+        {apps.some((a) => a.status === "active") && earnings && (
+          <View style={styles.earningsCard}>
+            <View style={styles.earningsIcon}><Ionicons name="cash" size={20} color="#FFFFFF" /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.earningsLabel}>Pendapatan Bulan Ini</Text>
+              <Text style={styles.earningsValue}>{rupiah(earnings.monthly_revenue)}</Text>
+              <Text style={styles.earningsHint}>{earnings.completed_count} booking terbayar</Text>
             </View>
           </View>
         )}
@@ -309,6 +322,11 @@ const styles = StyleSheet.create({
   headerSub: { color: COLORS.sidebarTextDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 2 },
   logoutBtn: { width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
   sec: { color: COLORS.textDim, letterSpacing: 0.8, fontSize: 11, fontFamily: FONT.bold, marginTop: 20, marginBottom: 12 },
+  earningsCard: { flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: COLORS.sidebar, padding: 16, borderRadius: 16, marginBottom: 12 },
+  earningsIcon: { width: 44, height: 44, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
+  earningsLabel: { color: "rgba(255,255,255,0.7)", fontSize: 11, fontFamily: FONT.semibold },
+  earningsValue: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.extrabold, marginTop: 2 },
+  earningsHint: { color: "rgba(255,255,255,0.6)", fontSize: 11, fontFamily: FONT.medium, marginTop: 2 },
   locCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.surface, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border },
   locTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 14 },
   locSub: { color: COLORS.textDim, fontSize: 12, marginTop: 2, fontFamily: FONT.medium },
