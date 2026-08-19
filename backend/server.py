@@ -14,7 +14,7 @@ import asyncio
 import secrets
 from pathlib import Path
 from datetime import datetime, timedelta, timezone, date, time as dtime
-from typing import List, Optional, Any, Literal
+from typing import List, Optional, Any, Literal, Dict
 
 import bcrypt
 import httpx
@@ -24,7 +24,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Body, Re
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 
 # Cryptography (Durianpay webhook RSA-2048 verification)
 try:
@@ -293,6 +293,28 @@ class ServiceIn(BaseModel):
     price: int
 
 
+FACE_SHAPES = ("oval", "round", "square", "oblong", "heart")
+
+
+class HairstyleIn(BaseModel):
+    name: str
+    image_url: str
+    description: str
+    match_score_map: Dict[str, int]  # e.g. {"oval": 90, "square": 78} — keys must be valid face shapes, values 0-100
+
+    @field_validator("match_score_map")
+    @classmethod
+    def validate_scores(cls, v):
+        if not v:
+            raise ValueError("match_score_map tidak boleh kosong")
+        for shape, score in v.items():
+            if shape not in FACE_SHAPES:
+                raise ValueError(f"bentuk wajah tidak valid: {shape} (harus salah satu dari {FACE_SHAPES})")
+            if not (0 <= score <= 100):
+                raise ValueError(f"skor untuk {shape} harus 0-100")
+        return v
+
+
 class ScheduleRow(BaseModel):
     day_name: Literal["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
     open_time: str = "09:00"
@@ -306,6 +328,10 @@ class SaveSchedulesIn(BaseModel):
 
 class ShopOpenStatusIn(BaseModel):
     is_open: bool
+
+
+class HomeServiceFeeIn(BaseModel):
+    fee: int = Field(ge=0)
 
 
 class ScheduleOverrideIn(BaseModel):
@@ -324,6 +350,8 @@ class BookingIn(BaseModel):
     booking_time: str  # HH:MM
     customer_lat: Optional[float] = None
     customer_lng: Optional[float] = None
+    delivery_mode: Literal["toko", "rumah"] = "toko"
+    customer_address: Optional[str] = None
 
 
 class ReviewIn(BaseModel):
@@ -728,12 +756,19 @@ async def create_booking(body: BookingIn, user=Depends(get_current_user)):
     svc = await db.services.find_one({"id": body.service_id}, {"_id": 0})
     if not svc:
         raise HTTPException(404, "Layanan tidak ditemukan")
+    if body.delivery_mode == "rumah" and (body.customer_lat is None or body.customer_lng is None):
+        raise HTTPException(400, "Lokasi rumah wajib diisi untuk booking ke rumah")
     # re-validate slot
     slots = await compute_available_slots(body.shop_id, body.barber_id, body.booking_date, svc["duration"])
     match = next((s for s in slots if s["time"] == body.booking_time), None)
     if not match or not match["available"]:
         raise HTTPException(409, "Slot baru saja dipesan orang lain, silakan pilih waktu lain")
     price = svc["price"]  # trust DB
+    home_service_fee = 0
+    if body.delivery_mode == "rumah":
+        shop = await db.barbershops.find_one({"id": body.shop_id}, {"_id": 0, "home_service_fee": 1})
+        home_service_fee = (shop or {}).get("home_service_fee", 0)
+        price += home_service_fee
     bid = new_id()
     booking = {
         "id": bid,
@@ -749,6 +784,9 @@ async def create_booking(body: BookingIn, user=Depends(get_current_user)):
         "total_price": price,
         "qris_code": f"QRIS-{new_id()[:12].upper()}",
         "payment_method": "qris",
+        "delivery_mode": body.delivery_mode,
+        "customer_address": body.customer_address,
+        "home_service_fee": home_service_fee,
         "customer_lat": body.customer_lat,
         "customer_lng": body.customer_lng,
         "arrival_status": "unknown",
@@ -923,6 +961,7 @@ async def register_shop(body: ShopRegisterIn, user=Depends(require_role("owner")
         "account_number": body.account_number or "",
         "account_holder": body.account_holder or "",
         "is_open": existing.get("is_open", True) if existing else True,
+        "home_service_fee": existing.get("home_service_fee", 0) if existing else 0,
         # legacy flat fields kept for backwards compat
         "doc_ktp": body.doc_ktp or "",
         "doc_nib": body.doc_nib or "",
@@ -1198,6 +1237,17 @@ async def set_shop_open_status(body: ShopOpenStatusIn, user=Depends(require_role
         raise HTTPException(400, "Daftarkan toko terlebih dulu")
     await db.barbershops.update_one({"id": shop["id"]}, {"$set": {"is_open": body.is_open}})
     return {"ok": True, "is_open": body.is_open}
+
+
+@api.put("/owner/shop/home-service-fee")
+async def set_home_service_fee(body: HomeServiceFeeIn, user=Depends(require_role("owner"))):
+    """Biaya tambahan flat untuk booking mode 'barber ke rumah' — ditambahkan
+    ke total_price saat booking dibuat dengan delivery_mode='rumah'."""
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    await db.barbershops.update_one({"id": shop["id"]}, {"$set": {"home_service_fee": body.fee}})
+    return {"ok": True, "home_service_fee": body.fee}
 
 
 @api.get("/owner/schedule-overrides")
@@ -1504,6 +1554,45 @@ async def list_hairstyles(shape: Optional[str] = None):
     if shape:
         rows.sort(key=lambda x: x.get("match_score_map", {}).get(shape, 0), reverse=True)
     return {"hairstyles": rows}
+
+
+# ---- Admin CRUD for the hairstyle catalog (used by the superadmin dashboard
+# to expand AI Face Scan's recommendation data without redeploying a seed script) ----
+@api.get("/admin/hairstyles")
+async def admin_list_hairstyles(user=Depends(require_role("admin"))):
+    rows = await db.hairstyles.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    return {"hairstyles": rows}
+
+
+@api.post("/admin/hairstyles")
+async def admin_add_hairstyle(body: HairstyleIn, user=Depends(require_role("admin"))):
+    doc = {
+        "id": new_id(), "name": body.name, "image_url": body.image_url, "description": body.description,
+        "suitable_shapes": list(body.match_score_map.keys()), "match_score_map": body.match_score_map,
+        "created_at": now_utc().isoformat(),
+    }
+    await db.hairstyles.insert_one(doc)
+    return {"hairstyle": clean(doc)}
+
+
+@api.put("/admin/hairstyles/{hid}")
+async def admin_update_hairstyle(hid: str, body: HairstyleIn, user=Depends(require_role("admin"))):
+    r = await db.hairstyles.update_one(
+        {"id": hid},
+        {"$set": {
+            "name": body.name, "image_url": body.image_url, "description": body.description,
+            "suitable_shapes": list(body.match_score_map.keys()), "match_score_map": body.match_score_map,
+        }},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "Gaya rambut tidak ditemukan")
+    return {"ok": True}
+
+
+@api.delete("/admin/hairstyles/{hid}")
+async def admin_delete_hairstyle(hid: str, user=Depends(require_role("admin"))):
+    await db.hairstyles.delete_one({"id": hid})
+    return {"ok": True}
 
 
 # Face shape itself is computed on-device (see frontend/src/lib/faceShape.ts) from

@@ -110,6 +110,9 @@ export default function OwnerOrders() {
               <View style={styles.det}>
                 <View style={styles.detRow}><Ionicons name="cut" size={13} color={COLORS.textDim} /><Text style={styles.detText}>{o.service_name} · {o.barber_name}</Text></View>
                 <View style={styles.detRow}><Ionicons name="calendar" size={13} color={COLORS.textDim} /><Text style={styles.detText}>{tanggal(o.booking_date)} · {o.booking_time} WITA</Text></View>
+                {o.delivery_mode === "rumah" && (
+                  <View style={styles.detRow}><Ionicons name="home" size={13} color={COLORS.brand} /><Text style={[styles.detText, { color: COLORS.brand, fontFamily: FONT.bold }]}>Barber ke Rumah</Text></View>
+                )}
               </View>
               <View style={styles.rowBottom}>
                 <Text style={styles.price}>{rupiah(o.total_price)}</Text>
@@ -152,7 +155,11 @@ export default function OwnerOrders() {
                 <MRow icon="calendar" label="Tanggal" value={tanggal(detail?.booking_date || "")} />
                 <MRow icon="alarm" label="Jam" value={`${detail?.booking_time} WITA`} />
                 <MRow icon="call-outline" label="Telepon" value={detail?.customer?.phone || "-"} />
-                {detail?.customer?.address ? <MRow icon="location" label="Alamat" value={detail.customer.address} /> : null}
+                <MRow icon={detail?.delivery_mode === "rumah" ? "home" : "storefront"} label="Metode" value={detail?.delivery_mode === "rumah" ? "Barber ke Rumah" : "Datang ke Toko"} />
+                {detail?.delivery_mode === "rumah" && detail?.customer_address ? (
+                  <MRow icon="location" label="Alamat Tujuan" value={detail.customer_address} />
+                ) : null}
+                {detail?.customer?.address ? <MRow icon="home-outline" label="Alamat Profil" value={detail.customer.address} /> : null}
               </View>
 
               <LinearGradient

@@ -15,34 +15,27 @@ function TabItem({ route, descriptor, focused, navigation, light }: any) {
   const dotScale = useSharedValue(0);
   const dotY = useSharedValue(0);
   const iconScale = useSharedValue(1);
-  const labelOpacity = useSharedValue(1);
-  const labelY = useSharedValue(0);
 
   useEffect(() => {
     if (focused) {
       dotScale.value = withSpring(1, { damping: 14, stiffness: 240 });
       dotY.value = withSpring(-10, { damping: 16, stiffness: 220 });
       iconScale.value = withSpring(1.08, { damping: 14, stiffness: 260 });
-      labelOpacity.value = withSpring(0, { damping: 16, stiffness: 260 });
-      labelY.value = withSpring(4, { damping: 16, stiffness: 260 });
     } else {
       dotScale.value = withSpring(0, { damping: 16, stiffness: 260 });
       dotY.value = withSpring(0, { damping: 16, stiffness: 260 });
       iconScale.value = withSpring(1, { damping: 16, stiffness: 260 });
-      labelOpacity.value = withSpring(1, { damping: 16, stiffness: 260 });
-      labelY.value = withSpring(0, { damping: 16, stiffness: 260 });
     }
-  }, [focused, dotScale, dotY, iconScale, labelOpacity, labelY]);
+  }, [focused, dotScale, dotY, iconScale]);
 
   const dotStyle = useAnimatedStyle(() => ({
     transform: [{ scale: dotScale.value }, { translateY: dotY.value }],
   }));
+  // Ikon dianimasikan terpisah dari lingkaran latar (dot) — dot boleh
+  // mengecil ke 0 saat tidak fokus, tapi ikonnya sendiri harus selalu
+  // terlihat penuh (hanya scale 1 <-> 1.08 + ikut naik saat aktif).
   const iconAnimStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: iconScale.value }],
-  }));
-  const labelStyle = useAnimatedStyle(() => ({
-    opacity: labelOpacity.value,
-    transform: [{ translateY: labelY.value }],
+    transform: [{ scale: iconScale.value }, { translateY: dotY.value }],
   }));
 
   const onPress = () => {
@@ -54,7 +47,7 @@ function TabItem({ route, descriptor, focused, navigation, light }: any) {
   };
 
   const Icon: any = options.tabBarIcon;
-  const inactiveColor = light ? COLORS.textDim : COLORS.sidebarTextDim;
+  const inactiveColor = light ? COLORS.textMuted : COLORS.sidebarText;
 
   return (
     <Pressable
@@ -65,15 +58,16 @@ function TabItem({ route, descriptor, focused, navigation, light }: any) {
       android_ripple={{ color: light ? "rgba(10,37,64,0.08)" : "rgba(255,255,255,0.12)", borderless: true }}
     >
       <View style={styles.iconZone}>
-        <Animated.View style={[styles.dot, dotStyle]}>
-          <Animated.View style={iconAnimStyle}>
-            {Icon ? Icon({ focused, color: focused ? COLORS.textInverse : inactiveColor, size: 22 }) : null}
-          </Animated.View>
+        <Animated.View style={[styles.dot, dotStyle]} />
+        <Animated.View style={[styles.iconWrap, iconAnimStyle]}>
+          {Icon ? Icon({ focused, color: focused ? COLORS.textInverse : inactiveColor, size: 22 }) : null}
         </Animated.View>
       </View>
-      <Animated.Text style={[styles.label, { color: inactiveColor }, labelStyle]} numberOfLines={1}>
-        {options.title || route.name}
-      </Animated.Text>
+      {!focused && (
+        <Text style={[styles.label, { color: inactiveColor }]} numberOfLines={1}>
+          {options.title || route.name}
+        </Text>
+      )}
     </Pressable>
   );
 }
@@ -118,32 +112,31 @@ const styles = StyleSheet.create({
   wrap: {
     position: "absolute",
     bottom: 0, left: 0, right: 0,
-    alignItems: "center",
-    paddingHorizontal: 24,
+    alignItems: "stretch",
   },
   bar: {
     flexDirection: "row",
     alignSelf: "stretch",
-    borderRadius: 999,
+    borderRadius: 0,
     paddingTop: 14,
     paddingHorizontal: 8,
-    shadowOffset: { width: 0, height: 12 },
-    shadowRadius: 28,
+    shadowOffset: { width: 0, height: -4 },
+    shadowRadius: 16,
     elevation: 16,
   },
   barLight: {
     backgroundColor: COLORS.surface,
-    borderWidth: 1,
+    borderTopWidth: 1,
     borderColor: COLORS.border,
     shadowColor: "#000",
-    shadowOpacity: 0.14,
+    shadowOpacity: 0.1,
   },
   barDark: {
     backgroundColor: COLORS.sidebar,
-    borderWidth: 1,
+    borderTopWidth: 1,
     borderColor: "rgba(255,255,255,0.08)",
     shadowColor: "#000",
-    shadowOpacity: 0.28,
+    shadowOpacity: 0.24,
   },
   item: { flex: 1, alignItems: "center", justifyContent: "center" },
   iconZone: { height: 44, width: 56, alignItems: "center", justifyContent: "center" },
@@ -153,13 +146,18 @@ const styles = StyleSheet.create({
     height: 46,
     borderRadius: 23,
     backgroundColor: COLORS.brand,
-    alignItems: "center",
-    justifyContent: "center",
     shadowColor: COLORS.brand,
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.45,
     shadowRadius: 12,
     elevation: 6,
+  },
+  iconWrap: {
+    position: "absolute",
+    width: 46,
+    height: 46,
+    alignItems: "center",
+    justifyContent: "center",
   },
   label: {
     fontFamily: FONT.semibold,

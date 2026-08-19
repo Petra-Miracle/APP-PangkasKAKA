@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { api, COLORS, FONT, formatJarak } from "@/src/lib/api";
 import PressableScale from "@/src/components/PressableScale";
 import EmptyState from "@/src/components/EmptyState";
@@ -45,10 +45,13 @@ const PRICE_OPTIONS = [
 
 export default function Explore() {
   const router = useRouter();
+  // "q" bisa datang dari luar (mis. tombol "Cari Barber Terdekat" di hasil AI Face Scan)
+  // untuk pre-fill pencarian — ini murni prefill kotak cari, bukan jaminan toko tersedia.
+  const params = useLocalSearchParams<{ q?: string }>();
   const [shops, setShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(true);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(params.q ? String(params.q) : "");
   const [sort, setSort] = useState("terdekat");
   const [maxDistance, setMaxDistance] = useState<number | null>(null);
   const [minRating, setMinRating] = useState<number | null>(null);

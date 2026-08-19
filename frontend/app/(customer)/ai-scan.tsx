@@ -293,21 +293,39 @@ export default function AIScan() {
               <Text style={styles.resultReason}>{result.reasoning}</Text>
             </LinearGradient>
 
-            <Text style={styles.recsTitle}>REKOMENDASI GAYA</Text>
+            <Text style={styles.recsTitle}>INSPIRASI GAYA UNTUKMU</Text>
+            <View style={styles.tipBox}>
+              <Ionicons name="bulb" size={16} color={COLORS.warning} />
+              <Text style={styles.tipText}>
+                Ini referensi gaya, bukan daftar layanan pasti tersedia di semua toko. Tunjukkan foto & nama gaya ini ke barber saat booking — sebagian besar barber bisa menyesuaikan dari referensi.
+              </Text>
+            </View>
             {result.recommendations.map((h: any) => (
-              <PressableScale key={h.id} style={styles.recCard} testID={`rec-${h.id}`} onPress={() => router.push("/(customer)/home")} scaleTo={0.98}>
+              <PressableScale
+                key={h.id}
+                style={styles.recCard}
+                testID={`rec-${h.id}`}
+                onPress={() => router.push({ pathname: "/(customer)/explore", params: { q: h.name } } as any)}
+                scaleTo={0.98}
+              >
                 <Image source={{ uri: h.image_url }} style={styles.recImg} contentFit="cover" />
                 <View style={{ flex: 1, padding: 14 }}>
                   <Text style={styles.recName}>{h.name}</Text>
                   <Text style={styles.recDesc} numberOfLines={2}>{h.description}</Text>
-                  <PressableScale style={styles.bookBtn} onPress={() => router.push("/(customer)/home")} testID={`book-${h.id}`} scaleTo={0.94} haptic>
+                  <PressableScale
+                    style={styles.bookBtn}
+                    onPress={() => router.push({ pathname: "/(customer)/explore", params: { q: h.name } } as any)}
+                    testID={`book-${h.id}`}
+                    scaleTo={0.94}
+                    haptic
+                  >
                     <LinearGradient
                       colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       style={styles.bookBtnGrad}
                     >
-                      <Text style={styles.bookBtnText}>PESAN GAYA INI</Text>
+                      <Text style={styles.bookBtnText}>CARI BARBER TERDEKAT</Text>
                       <Ionicons name="arrow-forward" size={12} color="#FFFFFF" />
                     </LinearGradient>
                   </PressableScale>
@@ -378,6 +396,8 @@ const styles = StyleSheet.create({
   confText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 13 },
   resultReason: { color: "rgba(255,255,255,0.9)", marginTop: 12, fontSize: 13, lineHeight: 20, fontFamily: FONT.medium },
   recsTitle: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.bold, marginTop: 28, marginBottom: 12, letterSpacing: 0.8 },
+  tipBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#FFF7ED", padding: 12, borderRadius: 14, marginBottom: 14 },
+  tipText: { color: COLORS.textMuted, fontFamily: FONT.medium, fontSize: 12, flex: 1, lineHeight: 17 },
   recCard: {
     backgroundColor: COLORS.surface, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, flexDirection: "row", marginBottom: 12, overflow: "hidden",
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 12, elevation: 3,

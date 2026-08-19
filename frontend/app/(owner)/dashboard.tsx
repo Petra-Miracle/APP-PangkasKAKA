@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Switch, RefreshControl } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Switch, RefreshControl, TextInput, Keyboard } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -19,13 +19,18 @@ export default function OwnerDashboard() {
   const [unread, setUnread] = useState(0);
   const [isOpen, setIsOpen] = useState(true);
   const [togglingOpen, setTogglingOpen] = useState(false);
+  const [homeFee, setHomeFee] = useState("0");
+  const [savingFee, setSavingFee] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const r = await api.get("/analytics/owner");
       setData(r);
-      if (r.shop) setIsOpen(r.shop.is_open !== false);
+      if (r.shop) {
+        setIsOpen(r.shop.is_open !== false);
+        setHomeFee(String(r.shop.home_service_fee ?? 0));
+      }
       const t = await api.get("/chat/threads").catch(() => ({ threads: [] }));
       setUnread((t.threads || []).reduce((a: number, x: any) => a + (x.unread || 0), 0));
     } catch {} finally { setLoading(false); }
@@ -43,6 +48,17 @@ export default function OwnerDashboard() {
       alert(e.message || "Gagal mengubah status toko");
     }
     setTogglingOpen(false);
+  };
+
+  const saveHomeFee = async () => {
+    Keyboard.dismiss();
+    setSavingFee(true);
+    try {
+      await api.put("/owner/shop/home-service-fee", { fee: parseInt(homeFee || "0", 10) });
+    } catch (e: any) {
+      alert(e.message || "Gagal menyimpan biaya");
+    }
+    setSavingFee(false);
   };
 
   if (loading) return (
@@ -126,6 +142,34 @@ export default function OwnerDashboard() {
           <Text style={styles.scheduleBtnText}>Atur Jadwal Buka Toko</Text>
           <Ionicons name="chevron-forward" size={16} color={COLORS.textDim} />
         </PressableScale>
+
+        {/* Biaya layanan ke rumah */}
+        <View style={styles.feeCard}>
+          <View style={styles.feeHead}>
+            <View style={styles.scheduleIcon}>
+              <Ionicons name="home-outline" size={18} color={COLORS.brand} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.statusLabel}>Biaya Layanan ke Rumah</Text>
+              <Text style={styles.statusHint}>Ditambahkan ke total booking saat customer pilih "Barber ke Rumah"</Text>
+            </View>
+          </View>
+          <View style={styles.feeRow}>
+            <Text style={styles.feePrefix}>Rp</Text>
+            <TextInput
+              style={styles.feeInput}
+              value={homeFee}
+              onChangeText={(t) => setHomeFee(t.replace(/[^0-9]/g, ""))}
+              keyboardType="numeric"
+              placeholder="0"
+              placeholderTextColor={COLORS.textDim}
+              testID="home-service-fee-input"
+            />
+            <PressableScale style={styles.feeSaveBtn} onPress={saveHomeFee} disabled={savingFee} testID="save-home-service-fee" haptic>
+              <Text style={styles.feeSaveText}>{savingFee ? "..." : "SIMPAN"}</Text>
+            </PressableScale>
+          </View>
+        </View>
 
         {/* Pendapatan */}
         <LinearGradient
@@ -242,6 +286,16 @@ const styles = StyleSheet.create({
   },
   scheduleIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
   scheduleBtnText: { flex: 1, color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
+  feeCard: {
+    backgroundColor: COLORS.surface, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginTop: 10,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2,
+  },
+  feeHead: { flexDirection: "row", alignItems: "center", gap: 10 },
+  feeRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 },
+  feePrefix: { color: COLORS.textDim, fontFamily: FONT.bold, fontSize: 14 },
+  feeInput: { flex: 1, backgroundColor: COLORS.surface2, color: COLORS.text, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, fontFamily: FONT.bold, fontSize: 14 },
+  feeSaveBtn: { backgroundColor: COLORS.brand, paddingHorizontal: 16, paddingVertical: 13, borderRadius: 12 },
+  feeSaveText: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 12, letterSpacing: 0.5 },
   bigCard: {
     flexDirection: "row", alignItems: "center", gap: 16, padding: 18, borderRadius: 22, marginTop: 12, overflow: "hidden",
     shadowColor: COLORS.sidebar, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.3, shadowRadius: 22, elevation: 8,

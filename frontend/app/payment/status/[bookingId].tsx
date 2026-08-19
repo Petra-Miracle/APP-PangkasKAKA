@@ -224,17 +224,37 @@ export default function PaymentStatusScreen() {
         )}
 
         {isPaid && (
-          <View style={{ marginTop: 16 }}>
-            <PressableScale style={styles.btnPriWrap} onPress={() => router.replace("/(customer)/orders")} scaleTo={0.98}>
-              <LinearGradient
-                colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.btnPri}
-              >
-                <Ionicons name="list" size={18} color="#FFFFFF" />
-                <Text style={styles.btnPriText}>LIHAT PESANAN SAYA</Text>
-              </LinearGradient>
+          <View style={{ marginTop: 16, gap: 12 }}>
+            {data.booking?.delivery_mode === "rumah" && (
+              <PressableScale style={styles.btnPriWrap} onPress={() => router.push(`/booking/track/${bookingId}` as any)} testID="track-barber" scaleTo={0.98}>
+                <LinearGradient
+                  colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.btnPri}
+                >
+                  <Ionicons name="navigate" size={18} color="#FFFFFF" />
+                  <Text style={styles.btnPriText}>LACAK LOKASI BARBER</Text>
+                </LinearGradient>
+              </PressableScale>
+            )}
+            <PressableScale style={data.booking?.delivery_mode === "rumah" ? styles.btnSec : styles.btnPriWrap} onPress={() => router.replace("/(customer)/orders")} scaleTo={0.98}>
+              {data.booking?.delivery_mode === "rumah" ? (
+                <View style={styles.btnSecInner}>
+                  <Ionicons name="list" size={18} color={COLORS.brand} />
+                  <Text style={styles.btnSecText}>LIHAT PESANAN SAYA</Text>
+                </View>
+              ) : (
+                <LinearGradient
+                  colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.btnPri}
+                >
+                  <Ionicons name="list" size={18} color="#FFFFFF" />
+                  <Text style={styles.btnPriText}>LIHAT PESANAN SAYA</Text>
+                </LinearGradient>
+              )}
             </PressableScale>
           </View>
         )}

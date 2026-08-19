@@ -19,7 +19,7 @@ export function AuthHero({ title, subtitle }: { title?: string; subtitle?: strin
       <View pointerEvents="none" style={styles.decoCircleR} />
       <View pointerEvents="none" style={styles.decoRing} />
       <View style={styles.logoBadge}>
-        <Image source={require("@/assets/images/logo-emblem.png")} style={styles.logoImg} contentFit="contain" />
+        <Image source={require("@/assets/images/Logo-Terbaru-PangkasKAKA.jpg")} style={styles.logoImg} contentFit="contain" />
       </View>
       <Text style={styles.brand}>PangkasKAKA</Text>
       {title && <Text style={styles.title}>{title}</Text>}

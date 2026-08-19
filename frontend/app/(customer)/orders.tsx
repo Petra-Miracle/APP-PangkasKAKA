@@ -12,7 +12,7 @@ import Skeleton, { SkeletonRow } from "@/src/components/Skeleton";
 
 const LOC_POLL_INTERVAL = 7000;
 
-function LiveLocationCard({ bookingId }: { bookingId: string }) {
+function LiveLocationCard({ bookingId, onPress }: { bookingId: string; onPress?: () => void }) {
   const [loc, setLoc] = useState<{ distance_km?: number; updated_at: string } | null>(null);
   const [sharing, setSharing] = useState(true);
   const pollRef = useRef<any>(null);
@@ -34,23 +34,25 @@ function LiveLocationCard({ bookingId }: { bookingId: string }) {
   const secondsAgo = loc ? Math.max(0, Math.round((Date.now() - new Date(loc.updated_at).getTime()) / 1000)) : null;
 
   return (
-    <LinearGradient
-      colors={[COLORS.brandGradStart, COLORS.brandGradMid]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.locCard}
-      testID={`live-location-${bookingId}`}
-    >
-      <View style={styles.locPulse}>
-        <Ionicons name="navigate" size={16} color={COLORS.brand} />
-      </View>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.locTitle}>
-          Barber sedang menuju lokasimu{loc?.distance_km != null ? ` · ${formatJarak(loc.distance_km)}` : ""}
-        </Text>
-        {secondsAgo !== null && <Text style={styles.locSub}>Diperbarui {secondsAgo}s lalu</Text>}
-      </View>
-    </LinearGradient>
+    <PressableScale onPress={onPress} disabled={!onPress} scaleTo={0.98} testID={`live-location-${bookingId}`}>
+      <LinearGradient
+        colors={[COLORS.brandGradStart, COLORS.brandGradMid]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.locCard}
+      >
+        <View style={styles.locPulse}>
+          <Ionicons name="navigate" size={16} color={COLORS.brand} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.locTitle}>
+            Barber sedang menuju lokasimu{loc?.distance_km != null ? ` · ${formatJarak(loc.distance_km)}` : ""}
+          </Text>
+          {secondsAgo !== null && <Text style={styles.locSub}>Diperbarui {secondsAgo}s lalu</Text>}
+        </View>
+        {onPress && <Ionicons name="chevron-forward" size={18} color={COLORS.brand} />}
+      </LinearGradient>
+    </PressableScale>
   );
 }
 
@@ -141,6 +143,12 @@ export default function Orders() {
                       <Ionicons name="calendar-outline" size={12} color={COLORS.textDim} />
                       <Text style={styles.date}>{tanggal(o.booking_date)} · {o.booking_time} WITA</Text>
                     </View>
+                    {o.delivery_mode === "rumah" && (
+                      <View style={styles.homeModeRow}>
+                        <Ionicons name="home" size={12} color={COLORS.brand} />
+                        <Text style={styles.homeModeText}>Barber ke Rumah</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
                 <View style={styles.divider} />
@@ -150,7 +158,9 @@ export default function Orders() {
                     <Text style={[styles.badgeText, { color: meta.color }]}>{meta.label}</Text>
                   </View>
                 </View>
-                {o.status === "confirmed" && <LiveLocationCard bookingId={o.id} />}
+                {o.status === "confirmed" && o.delivery_mode === "rumah" && (
+                  <LiveLocationCard bookingId={o.id} onPress={() => router.push(`/booking/track/${o.id}` as any)} />
+                )}
                 {(o.status === "pending" || o.status === "confirmed") && (
                   <View style={styles.chatRow}>
                     <PressableScale style={[styles.chatBtn, { flex: 1 }]} onPress={() => router.push(`/chat/booking/${o.id}` as any)} testID={`chat-barber-${o.id}`} scaleTo={0.96}>
@@ -257,6 +267,8 @@ const styles = StyleSheet.create({
   svcName: { color: COLORS.textMuted, fontSize: 12, marginTop: 2, fontFamily: FONT.medium },
   dateRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
   date: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium },
+  homeModeRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+  homeModeText: { color: COLORS.brand, fontSize: 11, fontFamily: FONT.bold },
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 12 },
   locCard: {
     flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 14, marginTop: 4, marginBottom: 8,

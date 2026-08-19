@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal, Alert, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
 import PressableScale from "@/src/components/PressableScale";
@@ -23,6 +24,20 @@ export default function ShopDetail() {
   const [creating, setCreating] = useState(false);
   const [payModal, setPayModal] = useState<any>(null);
   const [countdown, setCountdown] = useState(15 * 60);
+  const [deliveryMode, setDeliveryMode] = useState<"toko" | "rumah">("toko");
+  const [customerAddress, setCustomerAddress] = useState("");
+  const [customerCoords, setCustomerCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+
+  const useCurrentLocation = async () => {
+    setGpsLoading(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") { alert("Izin lokasi dibutuhkan untuk booking ke rumah"); return; }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setCustomerCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+    } catch { alert("Gagal mengambil lokasi, coba lagi"); } finally { setGpsLoading(false); }
+  };
 
   useEffect(() => {
     (async () => {
@@ -67,7 +82,11 @@ export default function ShopDetail() {
   const createBooking = async () => {
     setCreating(true);
     try {
-      const r = await api.post("/bookings", { shop_id: id, barber_id: barber.id, service_id: service.id, booking_date: date, booking_time: slotTime });
+      const r = await api.post("/bookings", {
+        shop_id: id, barber_id: barber.id, service_id: service.id, booking_date: date, booking_time: slotTime,
+        delivery_mode: deliveryMode,
+        ...(deliveryMode === "rumah" ? { customer_address: customerAddress, customer_lat: customerCoords?.lat, customer_lng: customerCoords?.lng } : {}),
+      });
       const bookingId = r.booking.id;
       // Cek mode pembayaran
       let mode = "simulation";
@@ -249,16 +268,56 @@ export default function ShopDetail() {
             </View>
           )}
           {step === 4 && (
-            <View style={styles.summaryCard}>
-              <Text style={styles.sec}>RINGKASAN PESANAN</Text>
-              <SummaryRow label="Layanan" value={service?.name} />
-              <SummaryRow label="Barber" value={barber?.name} />
-              <SummaryRow label="Tanggal" value={date} />
-              <SummaryRow label="Jam" value={`${slotTime} WITA`} />
-              <View style={styles.divider} />
-              <View style={styles.totalRow}>
-                <Text style={styles.totalLabel}>Total Pembayaran</Text>
-                <Text style={styles.totalValue}>{rupiah(service?.price || 0)}</Text>
+            <View>
+              <Text style={styles.sec}>METODE LAYANAN</Text>
+              <View style={styles.modeRow}>
+                <PressableScale testID="mode-toko" style={[styles.modeChip, deliveryMode === "toko" && styles.modeChipActive]} onPress={() => setDeliveryMode("toko")} scaleTo={0.97}>
+                  <Ionicons name="storefront" size={18} color={deliveryMode === "toko" ? "#FFFFFF" : COLORS.brand} />
+                  <Text style={[styles.modeChipText, deliveryMode === "toko" && { color: "#FFFFFF" }]}>Datang ke Toko</Text>
+                </PressableScale>
+                <PressableScale testID="mode-rumah" style={[styles.modeChip, deliveryMode === "rumah" && styles.modeChipActive]} onPress={() => setDeliveryMode("rumah")} scaleTo={0.97}>
+                  <Ionicons name="home" size={18} color={deliveryMode === "rumah" ? "#FFFFFF" : COLORS.brand} />
+                  <Text style={[styles.modeChipText, deliveryMode === "rumah" && { color: "#FFFFFF" }]}>Barber ke Rumah</Text>
+                </PressableScale>
+              </View>
+
+              {deliveryMode === "rumah" && (
+                <View style={styles.homeBox}>
+                  <Text style={styles.homeFeeNote}>
+                    + {rupiah(shop.home_service_fee || 0)} biaya layanan ke rumah
+                  </Text>
+                  <TextInput
+                    style={styles.addrInput}
+                    placeholder="Alamat rumah (patokan, nama jalan, dsb)"
+                    placeholderTextColor={COLORS.textDim}
+                    value={customerAddress}
+                    onChangeText={setCustomerAddress}
+                    testID="home-address-input"
+                    multiline
+                  />
+                  <PressableScale style={styles.gpsBtn} onPress={useCurrentLocation} disabled={gpsLoading} testID="use-current-location" scaleTo={0.97}>
+                    <Ionicons name={customerCoords ? "checkmark-circle" : "locate"} size={16} color={customerCoords ? COLORS.success : COLORS.brand} />
+                    <Text style={[styles.gpsBtnText, customerCoords && { color: COLORS.success }]}>
+                      {gpsLoading ? "Mengambil lokasi..." : customerCoords ? "Lokasi tersimpan" : "Pakai Lokasi Saat Ini"}
+                    </Text>
+                  </PressableScale>
+                </View>
+              )}
+
+              <View style={styles.summaryCard}>
+                <Text style={styles.sec}>RINGKASAN PESANAN</Text>
+                <SummaryRow label="Layanan" value={service?.name} />
+                <SummaryRow label="Barber" value={barber?.name} />
+                <SummaryRow label="Tanggal" value={date} />
+                <SummaryRow label="Jam" value={`${slotTime} WITA`} />
+                <SummaryRow label="Metode" value={deliveryMode === "rumah" ? "Barber ke Rumah" : "Datang ke Toko"} />
+                <View style={styles.divider} />
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>Total Pembayaran</Text>
+                  <Text style={styles.totalValue}>
+                    {rupiah((service?.price || 0) + (deliveryMode === "rumah" ? (shop.home_service_fee || 0) : 0))}
+                  </Text>
+                </View>
               </View>
             </View>
           )}
@@ -284,7 +343,12 @@ export default function ShopDetail() {
               </PressableScale>
             )}
             {step === 4 && (
-              <PressableScale testID="confirm-booking" style={styles.navPri} onPress={createBooking} disabled={creating}>
+              <PressableScale
+                testID="confirm-booking"
+                style={[styles.navPri, (creating || (deliveryMode === "rumah" && !customerCoords)) && { opacity: 0.4 }]}
+                onPress={createBooking}
+                disabled={creating || (deliveryMode === "rumah" && !customerCoords)}
+              >
                 <LinearGradient
                   colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
                   start={{ x: 0, y: 0 }}
@@ -422,6 +486,18 @@ const styles = StyleSheet.create({
   slotText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
   empty: { color: COLORS.textDim, marginVertical: 20, textAlign: "center", width: "100%", fontFamily: FONT.medium },
 
+  modeRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
+  modeChip: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 14,
+    backgroundColor: COLORS.surface, borderWidth: 1.5, borderColor: COLORS.border,
+  },
+  modeChipActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+  modeChipText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
+  homeBox: { backgroundColor: COLORS.brandDim, padding: 14, borderRadius: 16, marginBottom: 14, gap: 10 },
+  homeFeeNote: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 12 },
+  addrInput: { backgroundColor: COLORS.surface, color: COLORS.text, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, fontFamily: FONT.medium, fontSize: 13, minHeight: 60, textAlignVertical: "top" },
+  gpsBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.surface, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
+  gpsBtnText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 13 },
   summaryCard: { backgroundColor: COLORS.surface, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3 },
   sumRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 8 },
   sumLabel: { color: COLORS.textDim, fontFamily: FONT.medium },
