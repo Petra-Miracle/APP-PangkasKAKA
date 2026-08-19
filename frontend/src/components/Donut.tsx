@@ -3,7 +3,7 @@ import { View, Text, StyleSheet } from "react-native";
 import Svg, { Circle, G } from "react-native-svg";
 import { COLORS, FONT } from "@/src/lib/api";
 
-const PALETTE = [COLORS.brand, "#00B27A", "#F5A524", "#8B5CF6", "#EC4899", "#0EA5E9"];
+const PALETTE = [COLORS.brand, COLORS.success, COLORS.warning, "#7C6CF6", "#EC4899", COLORS.info];
 
 export default function Donut({ data, size = 140, centerLabel, centerValue }: any) {
   const items = (data || []).filter((d: any) => d.pct > 0);
@@ -28,7 +28,7 @@ export default function Donut({ data, size = 140, centerLabel, centerValue }: an
                   strokeDasharray={`${len} ${c - len}`}
                   strokeDashoffset={-offset}
                   fill="none"
-                  strokeLinecap="butt"
+                  strokeLinecap="round"
                 />
               );
               offset += len;

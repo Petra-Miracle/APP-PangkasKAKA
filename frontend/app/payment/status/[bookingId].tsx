@@ -3,10 +3,12 @@ import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Linki
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
+import PressableScale from "@/src/components/PressableScale";
 
 type StatusResp = {
   booking: any;
@@ -132,9 +134,12 @@ export default function PaymentStatusScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top", "bottom"]}>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
-        <Pressable onPress={() => router.replace("/(customer)/orders")} style={styles.back}>
-          <Ionicons name="arrow-back" size={20} color={COLORS.text} />
-        </Pressable>
+        <View style={styles.backRow}>
+          <PressableScale onPress={() => router.replace("/(customer)/orders")} style={styles.back} scaleTo={0.9}>
+            <Ionicons name="arrow-back" size={20} color={COLORS.text} />
+          </PressableScale>
+          <Text style={styles.backTitle}>Status Pembayaran</Text>
+        </View>
 
         {isPaid && <SuccessCard />}
         {isPending && <PendingCard mm={mm} ss={ss} />}
@@ -145,7 +150,9 @@ export default function PaymentStatusScreen() {
           <View style={styles.shopRow}>
             {data.shop?.image ? (
               <Image source={{ uri: data.shop.image }} style={styles.shopImg} contentFit="cover" />
-            ) : <View style={[styles.shopImg, { backgroundColor: COLORS.brandDim }]} />}
+            ) : (
+              <View style={[styles.shopImg, styles.shopImgFallback]}><Ionicons name="storefront" size={24} color={COLORS.brand} /></View>
+            )}
             <View style={{ flex: 1 }}>
               <Text style={styles.shopName}>{data.shop?.name}</Text>
               <Text style={styles.shopAddr} numberOfLines={2}>{data.shop?.address}</Text>
@@ -157,20 +164,26 @@ export default function PaymentStatusScreen() {
           <Row label="Tanggal" value={data.booking?.booking_date} />
           <Row label="Jam" value={`${data.booking?.booking_time} WITA`} />
           <View style={styles.divider} />
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total</Text>
+          <LinearGradient
+            colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.totalCard}
+          >
+            <View pointerEvents="none" style={styles.totalDeco} />
+            <Text style={styles.totalLabel}>Total Pembayaran</Text>
             <Text style={styles.totalValue}>{rupiah(data.booking?.total_price || 0)}</Text>
-          </View>
+          </LinearGradient>
         </View>
 
         {isPending && !!data.payment?.qr_string && (
           <View style={[styles.card, { alignItems: "center", marginTop: 16 }]}>
             <Text style={styles.sec}>SCAN QRIS UNTUK BAYAR</Text>
             <Image source={{ uri: data.payment.qr_string }} style={styles.qrImg} contentFit="contain" />
-            <Pressable style={styles.btnSec} onPress={downloadQr} disabled={savingQr}>
+            <PressableScale style={styles.btnSec} onPress={downloadQr} disabled={savingQr} scaleTo={0.97}>
               <Ionicons name="download-outline" size={18} color={COLORS.brand} />
               <Text style={styles.btnSecText}>{savingQr ? "MENYIMPAN..." : "SIMPAN QRIS KE GALERI"}</Text>
-            </Pressable>
+            </PressableScale>
           </View>
         )}
 
@@ -184,38 +197,64 @@ export default function PaymentStatusScreen() {
         {isPending && (
           <View style={{ gap: 12, marginTop: 16 }}>
             {(initialUrl || data.payment_link_url) && (
-              <Pressable style={data.payment?.qr_string ? styles.btnSec : styles.btnPri} onPress={openPaymentLink}>
-                <Ionicons name="open-outline" size={18} color={data.payment?.qr_string ? COLORS.brand : "#FFFFFF"} />
-                <Text style={data.payment?.qr_string ? styles.btnSecText : styles.btnPriText}>
-                  {data.payment?.qr_string ? "METODE PEMBAYARAN LAIN" : "BUKA LINK PEMBAYARAN"}
-                </Text>
-              </Pressable>
+              <PressableScale style={data.payment?.qr_string ? styles.btnSec : styles.btnPriWrap} onPress={openPaymentLink} scaleTo={0.98}>
+                {data.payment?.qr_string ? (
+                  <View style={styles.btnSecInner}>
+                    <Ionicons name="open-outline" size={18} color={COLORS.brand} />
+                    <Text style={styles.btnSecText}>METODE PEMBAYARAN LAIN</Text>
+                  </View>
+                ) : (
+                  <LinearGradient
+                    colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.btnPri}
+                  >
+                    <Ionicons name="open-outline" size={18} color="#FFFFFF" />
+                    <Text style={styles.btnPriText}>BUKA LINK PEMBAYARAN</Text>
+                  </LinearGradient>
+                )}
+              </PressableScale>
             )}
-            <Pressable style={styles.btnSec} onPress={doFallbackCheck} disabled={checking}>
+            <PressableScale style={styles.btnSec} onPress={doFallbackCheck} disabled={checking} scaleTo={0.98}>
               <Ionicons name="refresh" size={18} color={COLORS.brand} />
               <Text style={styles.btnSecText}>{checking ? "MEMERIKSA..." : "PERIKSA STATUS SEKARANG"}</Text>
-            </Pressable>
+            </PressableScale>
           </View>
         )}
 
         {isPaid && (
           <View style={{ marginTop: 16 }}>
-            <Pressable style={styles.btnPri} onPress={() => router.replace("/(customer)/orders")}>
-              <Ionicons name="list" size={18} color="#FFFFFF" />
-              <Text style={styles.btnPriText}>LIHAT PESANAN SAYA</Text>
-            </Pressable>
+            <PressableScale style={styles.btnPriWrap} onPress={() => router.replace("/(customer)/orders")} scaleTo={0.98}>
+              <LinearGradient
+                colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.btnPri}
+              >
+                <Ionicons name="list" size={18} color="#FFFFFF" />
+                <Text style={styles.btnPriText}>LIHAT PESANAN SAYA</Text>
+              </LinearGradient>
+            </PressableScale>
           </View>
         )}
 
         {isForfeited && (
           <View style={{ marginTop: 16, gap: 12 }}>
-            <Pressable style={styles.btnPri} onPress={() => router.replace(`/(customer)/shop/${data.booking?.shop_id}`)}>
-              <Ionicons name="repeat" size={18} color="#FFFFFF" />
-              <Text style={styles.btnPriText}>BOOKING ULANG</Text>
-            </Pressable>
-            <Pressable style={styles.btnSec} onPress={() => router.replace("/(customer)/home")}>
+            <PressableScale style={styles.btnPriWrap} onPress={() => router.replace(`/(customer)/shop/${data.booking?.shop_id}`)} scaleTo={0.98}>
+              <LinearGradient
+                colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.btnPri}
+              >
+                <Ionicons name="repeat" size={18} color="#FFFFFF" />
+                <Text style={styles.btnPriText}>BOOKING ULANG</Text>
+              </LinearGradient>
+            </PressableScale>
+            <PressableScale style={styles.btnSec} onPress={() => router.replace("/(customer)/home")} scaleTo={0.98}>
               <Text style={styles.btnSecText}>KEMBALI KE BERANDA</Text>
-            </Pressable>
+            </PressableScale>
           </View>
         )}
 
@@ -236,38 +275,53 @@ function Row({ label, value }: any) {
 
 function SuccessCard() {
   return (
-    <View style={[styles.stateCard, { backgroundColor: "#E7F9F0", borderColor: "#B6E9CE" }]}>
+    <LinearGradient
+      colors={["#E7F9F0", "#D1F5E4"]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[styles.stateCard, { borderColor: "#B6E9CE" }]}
+    >
       <View style={[styles.stateIcon, { backgroundColor: COLORS.success }]}>
         <Ionicons name="checkmark" size={44} color="#FFFFFF" />
       </View>
       <Text style={[styles.stateTitle, { color: COLORS.success }]}>PEMBAYARAN BERHASIL</Text>
       <Text style={styles.stateSub}>Booking kamu telah terkonfirmasi. Sampai jumpa di lokasi!</Text>
-    </View>
+    </LinearGradient>
   );
 }
 
 function PendingCard({ mm, ss }: { mm: number; ss: number }) {
   return (
-    <View style={[styles.stateCard, { backgroundColor: "#FFF7ED", borderColor: "#FED7AA" }]}>
+    <LinearGradient
+      colors={["#FFF7ED", "#FFEFD6"]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[styles.stateCard, { borderColor: "#FED7AA" }]}
+    >
       <View style={[styles.stateIcon, { backgroundColor: COLORS.warning }]}>
         <Ionicons name="hourglass" size={40} color="#FFFFFF" />
       </View>
       <Text style={[styles.stateTitle, { color: "#B45309" }]}>MENUNGGU PEMBAYARAN</Text>
       <Text style={styles.timer}>{String(mm).padStart(2, "0")}:{String(ss).padStart(2, "0")}</Text>
       <Text style={styles.stateSub}>Selesaikan pembayaran sebelum waktu habis. Booking akan dibatalkan otomatis jika tidak dibayar dalam 15 menit.</Text>
-    </View>
+    </LinearGradient>
   );
 }
 
 function ExpiredCard() {
   return (
-    <View style={[styles.stateCard, { backgroundColor: "#FEE2E2", borderColor: "#FCA5A5" }]}>
+    <LinearGradient
+      colors={["#FEE2E2", "#FDD5D5"]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[styles.stateCard, { borderColor: "#FCA5A5" }]}
+    >
       <View style={[styles.stateIcon, { backgroundColor: COLORS.error }]}>
         <Ionicons name="close" size={44} color="#FFFFFF" />
       </View>
       <Text style={[styles.stateTitle, { color: COLORS.error }]}>PEMBAYARAN KADALUARSA</Text>
       <Text style={styles.stateSub}>Batas waktu pembayaran telah lewat. Silakan booking ulang untuk melanjutkan.</Text>
-    </View>
+    </LinearGradient>
   );
 }
 
@@ -275,19 +329,28 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20 },
   err: { color: COLORS.textDim, fontFamily: FONT.medium },
-  back: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.border, marginBottom: 12 },
+  backRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 },
+  back: {
+    width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.border,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 8, elevation: 2,
+  },
+  backTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 16 },
 
-  stateCard: { padding: 24, borderRadius: 20, borderWidth: 1, alignItems: "center", marginBottom: 16 },
-  stateIcon: { width: 84, height: 84, borderRadius: 42, alignItems: "center", justifyContent: "center", marginBottom: 12 },
+  stateCard: { padding: 24, borderRadius: 20, borderWidth: 1, alignItems: "center", marginBottom: 16, shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3 },
+  stateIcon: { width: 84, height: 84, borderRadius: 42, alignItems: "center", justifyContent: "center", marginBottom: 12, shadowColor: COLORS.cardShadowStrong, shadowOpacity: 0.4, shadowRadius: 10, elevation: 4 },
   stateTitle: { fontFamily: FONT.extrabold, fontSize: 16, letterSpacing: 0.8, marginBottom: 6 },
   stateSub: { color: COLORS.textMuted, fontFamily: FONT.medium, fontSize: 13, textAlign: "center", lineHeight: 20 },
   timer: { color: COLORS.warning, fontFamily: FONT.extrabold, fontSize: 42, letterSpacing: 2, marginVertical: 6 },
 
-  card: { backgroundColor: COLORS.surface, padding: 18, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border },
-  qrImg: { width: 220, height: 220, marginVertical: 14, backgroundColor: "#FFFFFF", borderRadius: 12 },
+  card: {
+    backgroundColor: COLORS.surface, padding: 18, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 5 }, shadowOpacity: 1, shadowRadius: 12, elevation: 2,
+  },
+  qrImg: { width: 220, height: 220, marginVertical: 14, backgroundColor: "#FFFFFF", borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
   sec: { color: COLORS.textDim, letterSpacing: 0.8, fontSize: 11, fontFamily: FONT.bold, marginBottom: 12 },
   shopRow: { flexDirection: "row", gap: 12, marginBottom: 12 },
   shopImg: { width: 60, height: 60, borderRadius: 14 },
+  shopImgFallback: { backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
   shopName: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 15 },
   shopAddr: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, marginTop: 4 },
 
@@ -295,13 +358,19 @@ const styles = StyleSheet.create({
   rowLabel: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13 },
   rowVal: { color: COLORS.text, fontFamily: FONT.semibold, fontSize: 13 },
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 10 },
-  totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  totalLabel: { color: COLORS.textMuted, fontFamily: FONT.semibold },
-  totalValue: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 22 },
+  totalCard: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 14, borderRadius: 14, overflow: "hidden" },
+  totalDeco: { position: "absolute", width: 90, height: 90, borderRadius: 45, backgroundColor: "rgba(255,255,255,0.08)", top: -35, right: -20 },
+  totalLabel: { color: "rgba(255,255,255,0.9)", fontFamily: FONT.semibold, fontSize: 13 },
+  totalValue: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 22 },
 
-  btnPri: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, backgroundColor: COLORS.brand, padding: 16, borderRadius: 14 },
+  btnPriWrap: { borderRadius: 14, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4 },
+  btnPri: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, padding: 16 },
   btnPriText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 13 },
-  btnSec: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: COLORS.brand, backgroundColor: COLORS.brandDim },
+  btnSec: {
+    flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: COLORS.brand, backgroundColor: COLORS.brandDim,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 8, elevation: 2,
+  },
+  btnSecInner: { flexDirection: "row", alignItems: "center", gap: 8 },
   btnSecText: { color: COLORS.brand, fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 13 },
   footNote: { textAlign: "center", color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 20 },
 });

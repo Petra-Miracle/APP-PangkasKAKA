@@ -63,6 +63,22 @@ export const COLORS = {
   sidebarText: "#FFFFFF",
   sidebarTextDim: "#8FA5BF",
   shadow: "rgba(10, 37, 64, 0.08)",
+  // Derived tokens — turunan brand, jangan dipakai untuk mengganti token dasar
+  gold: "#FFB84D",                  // rating / premium accent
+  brandGradStart: "#0059C9",
+  brandGradMid: "#006FEE",
+  brandGradEnd: "#4C9FFF",
+  navyGradStart: "#0A2540",
+  navyGradMid: "#0F2E4F",
+  navyGradEnd: "#1B4A7A",
+  cardShadow: "rgba(10, 37, 64, 0.06)",
+  cardShadowStrong: "rgba(10, 37, 64, 0.1)",
+  overlay: "rgba(10, 37, 64, 0.5)",
+  onBrand: "#FFFFFF",
+  radiusSm: 10,
+  radiusMd: 14,
+  radiusLg: 20,
+  radiusXl: 28,
 };
 
 // Plus Jakarta Sans font stack

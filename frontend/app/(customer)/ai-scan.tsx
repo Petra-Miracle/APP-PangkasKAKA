@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Linking } from "react-native";
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { Camera, useCameraDevice, useCameraPermission, type CameraRef } from "react-native-vision-camera";
 import { useImageFaceDetector, type Face } from "react-native-vision-camera-face-detector";
 import Svg, { Circle } from "react-native-svg";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import { classifyFaceShape, isFrontalPose, type FaceShapeResult } from "@/src/lib/faceShape";
+import PressableScale from "@/src/components/PressableScale";
 
 type ScanResult = { faceShape: string; confidence: number; reasoning: string; recommendations: any[] };
 
@@ -145,9 +147,14 @@ export default function AIScan() {
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
         <View style={styles.head}>
-          <View style={styles.iconWrap}>
-            <Ionicons name="sparkles" size={24} color={COLORS.brand} />
-          </View>
+          <LinearGradient
+            colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.iconWrap}
+          >
+            <Ionicons name="sparkles" size={24} color="#FFFFFF" />
+          </LinearGradient>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>AI Face Scan</Text>
             <Text style={styles.sub}>Deteksi bentuk wajah real-time, langsung di HP-mu</Text>
@@ -155,7 +162,9 @@ export default function AIScan() {
         </View>
 
         <View style={styles.privacy}>
-          <Ionicons name="shield-checkmark" size={16} color={COLORS.success} />
+          <View style={styles.privacyIcon}>
+            <Ionicons name="shield-checkmark" size={16} color={COLORS.success} />
+          </View>
           <Text style={styles.privacyText}>Foto tidak pernah dikirim ke server — analisis 100% di perangkatmu</Text>
         </View>
 
@@ -165,12 +174,20 @@ export default function AIScan() {
               <View style={styles.permBox}>
                 <Ionicons name="camera-outline" size={48} color={COLORS.textDim} />
                 <Text style={styles.permText}>Izin kamera dibutuhkan untuk AI Face Scan</Text>
-                <Pressable
+                <PressableScale
                   style={styles.permBtn}
                   onPress={() => (canRequestPermission ? requestPermission() : Linking.openSettings())}
+                  haptic
                 >
-                  <Text style={styles.permBtnText}>{canRequestPermission ? "Izinkan Kamera" : "Buka Pengaturan"}</Text>
-                </Pressable>
+                  <LinearGradient
+                    colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.permBtnGrad}
+                  >
+                    <Text style={styles.permBtnText}>{canRequestPermission ? "Izinkan Kamera" : "Buka Pengaturan"}</Text>
+                  </LinearGradient>
+                </PressableScale>
               </View>
             )}
             {hasPermission && !device && (
@@ -201,7 +218,16 @@ export default function AIScan() {
                       origin={`${RING_SIZE / 2}, ${RING_SIZE / 2}`}
                     />
                   </Svg>
+                  {progress > 0 && (
+                    <View style={styles.progressPill}>
+                      <Text style={styles.progressText}>{Math.round(progress * 100)}%</Text>
+                    </View>
+                  )}
                 </View>
+                <View style={styles.cornerTl} pointerEvents="none" />
+                <View style={styles.cornerTr} pointerEvents="none" />
+                <View style={styles.cornerBl} pointerEvents="none" />
+                <View style={styles.cornerBr} pointerEvents="none" />
                 <View style={styles.instructionBox} pointerEvents="none">
                   <Text style={styles.instructionText}>
                     {progress > 0 ? "Tahan posisi wajahmu..." : "Posisikan wajah di dalam lingkaran"}
@@ -220,9 +246,17 @@ export default function AIScan() {
         )}
 
         {analyzing && (
-          <View style={styles.cameraBox}>
+          <View style={[styles.cameraBox, { gap: 16 }]}>
+            <LinearGradient
+              colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.analyzingIcon}
+            >
+              <Ionicons name="scan" size={28} color="#FFFFFF" />
+            </LinearGradient>
             <ActivityIndicator color={COLORS.brand} size="large" />
-            <Text style={[styles.instructionText, { color: COLORS.text, marginTop: 16 }]}>Menganalisis...</Text>
+            <Text style={styles.analyzingText}>Menganalisis bentuk wajah...</Text>
           </View>
         )}
 
@@ -233,15 +267,21 @@ export default function AIScan() {
           </View>
         )}
         {err && (
-          <Pressable style={styles.retryBtn} onPress={retry}>
+          <PressableScale style={styles.retryBtn} onPress={retry} scaleTo={0.97}>
             <Ionicons name="refresh" size={16} color={COLORS.textMuted} />
             <Text style={styles.retryText}>Coba Lagi</Text>
-          </Pressable>
+          </PressableScale>
         )}
 
         {result && (
           <View style={styles.resultBox}>
-            <View style={styles.resultCard}>
+            <LinearGradient
+              colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.resultCard}
+            >
+              <View pointerEvents="none" style={styles.resultDeco} />
               <Text style={styles.resultLabel}>BENTUK WAJAH TERDETEKSI</Text>
               <Text style={styles.resultShape} testID="face-shape">{SHAPE_LABEL[result.faceShape] || result.faceShape}</Text>
               <View style={styles.confRow}>
@@ -251,26 +291,33 @@ export default function AIScan() {
                 <Text style={styles.confText}>{result.confidence}%</Text>
               </View>
               <Text style={styles.resultReason}>{result.reasoning}</Text>
-            </View>
+            </LinearGradient>
 
             <Text style={styles.recsTitle}>REKOMENDASI GAYA</Text>
             {result.recommendations.map((h: any) => (
-              <View key={h.id} style={styles.recCard} testID={`rec-${h.id}`}>
+              <PressableScale key={h.id} style={styles.recCard} testID={`rec-${h.id}`} onPress={() => router.push("/(customer)/home")} scaleTo={0.98}>
                 <Image source={{ uri: h.image_url }} style={styles.recImg} contentFit="cover" />
                 <View style={{ flex: 1, padding: 14 }}>
                   <Text style={styles.recName}>{h.name}</Text>
                   <Text style={styles.recDesc} numberOfLines={2}>{h.description}</Text>
-                  <Pressable style={styles.bookBtn} onPress={() => router.push("/(customer)/home")} testID={`book-${h.id}`}>
-                    <Text style={styles.bookBtnText}>PESAN GAYA INI</Text>
-                    <Ionicons name="arrow-forward" size={12} color="#FFFFFF" />
-                  </Pressable>
+                  <PressableScale style={styles.bookBtn} onPress={() => router.push("/(customer)/home")} testID={`book-${h.id}`} scaleTo={0.94} haptic>
+                    <LinearGradient
+                      colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.bookBtnGrad}
+                    >
+                      <Text style={styles.bookBtnText}>PESAN GAYA INI</Text>
+                      <Ionicons name="arrow-forward" size={12} color="#FFFFFF" />
+                    </LinearGradient>
+                  </PressableScale>
                 </View>
-              </View>
+              </PressableScale>
             ))}
-            <Pressable style={styles.retryBtn} onPress={retry}>
+            <PressableScale style={styles.retryBtn} onPress={retry} scaleTo={0.97}>
               <Ionicons name="refresh" size={16} color={COLORS.textMuted} />
               <Text style={styles.retryText}>Scan Ulang</Text>
-            </Pressable>
+            </PressableScale>
           </View>
         )}
       </ScrollView>
@@ -281,28 +328,48 @@ export default function AIScan() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   head: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 12 },
-  iconWrap: { width: 48, height: 48, borderRadius: 14, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
+  iconWrap: {
+    width: 48, height: 48, borderRadius: 14, alignItems: "center", justifyContent: "center",
+    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 4,
+  },
   title: { color: COLORS.text, fontSize: 22, fontFamily: FONT.extrabold },
   sub: { color: COLORS.textDim, marginTop: 2, fontSize: 12, fontFamily: FONT.medium },
-  privacy: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#ECFDF5", padding: 12, borderRadius: 12, marginBottom: 20 },
+  privacy: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: "#ECFDF5", padding: 12, borderRadius: 14, marginBottom: 20 },
+  privacyIcon: { width: 30, height: 30, borderRadius: 10, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
   privacyText: { color: COLORS.success, fontFamily: FONT.semibold, fontSize: 12, flex: 1 },
 
-  cameraBox: { backgroundColor: "#000", borderRadius: 20, height: 420, alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  overlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  cameraBox: { backgroundColor: "#000", borderRadius: 24, height: 420, alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 1, borderColor: "#1F2937" },
+  overlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 14 },
+  cornerTl: { position: "absolute", top: 16, left: 16, width: 26, height: 26, borderTopWidth: 3, borderLeftWidth: 3, borderColor: COLORS.brand, borderTopLeftRadius: 10 },
+  cornerTr: { position: "absolute", top: 16, right: 16, width: 26, height: 26, borderTopWidth: 3, borderRightWidth: 3, borderColor: COLORS.brand, borderTopRightRadius: 10 },
+  cornerBl: { position: "absolute", bottom: 16, left: 16, width: 26, height: 26, borderBottomWidth: 3, borderLeftWidth: 3, borderColor: COLORS.brand, borderBottomLeftRadius: 10 },
+  cornerBr: { position: "absolute", bottom: 16, right: 16, width: 26, height: 26, borderBottomWidth: 3, borderRightWidth: 3, borderColor: COLORS.brand, borderBottomRightRadius: 10 },
+  progressPill: {
+    backgroundColor: "rgba(10,37,64,0.75)", paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999,
+    borderWidth: 1, borderColor: "rgba(255,255,255,0.2)",
+  },
+  progressText: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 12 },
   instructionBox: { position: "absolute", bottom: 20, left: 20, right: 20, alignItems: "center" },
-  instructionText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 13, backgroundColor: "rgba(0,0,0,0.5)", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, overflow: "hidden" },
-  debugBox: { backgroundColor: "#0A2540", borderRadius: 10, padding: 10, marginTop: 10 },
+  instructionText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 13, backgroundColor: "rgba(0,0,0,0.55)", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, overflow: "hidden" },
+  analyzingIcon: {
+    width: 56, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center",
+    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4,
+  },
+  analyzingText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
+  debugBox: { backgroundColor: "#0A2540", borderRadius: 12, padding: 10, marginTop: 10 },
   debugText: { color: "#8FA5BF", fontSize: 10, fontFamily: FONT.medium },
   permBox: { alignItems: "center", padding: 24, gap: 10 },
   permText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13, textAlign: "center" },
-  permBtn: { backgroundColor: COLORS.brand, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 999, marginTop: 4 },
+  permBtn: { borderRadius: 999, overflow: "hidden", marginTop: 4, shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 10, elevation: 4 },
+  permBtnGrad: { paddingHorizontal: 22, paddingVertical: 12 },
   permBtnText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 13 },
 
-  errBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#FEF2F2", padding: 14, borderRadius: 12, marginTop: 12 },
+  errBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#FEF2F2", padding: 14, borderRadius: 14, marginTop: 12 },
   errText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium },
 
   resultBox: { marginTop: 20 },
-  resultCard: { backgroundColor: COLORS.brand, padding: 24, borderRadius: 20, shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 20, elevation: 6 },
+  resultCard: { padding: 24, borderRadius: 24, shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 20, elevation: 6, overflow: "hidden" },
+  resultDeco: { position: "absolute", width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(255,255,255,0.08)", top: -60, right: -40 },
   resultLabel: { color: "rgba(255,255,255,0.7)", fontSize: 10, letterSpacing: 1, fontFamily: FONT.bold },
   resultShape: { color: "#FFFFFF", fontSize: 42, fontFamily: FONT.extrabold, letterSpacing: -0.5 },
   confRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 },
@@ -311,12 +378,19 @@ const styles = StyleSheet.create({
   confText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 13 },
   resultReason: { color: "rgba(255,255,255,0.9)", marginTop: 12, fontSize: 13, lineHeight: 20, fontFamily: FONT.medium },
   recsTitle: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.bold, marginTop: 28, marginBottom: 12, letterSpacing: 0.8 },
-  recCard: { backgroundColor: COLORS.surface, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, flexDirection: "row", marginBottom: 12, overflow: "hidden" },
+  recCard: {
+    backgroundColor: COLORS.surface, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, flexDirection: "row", marginBottom: 12, overflow: "hidden",
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 12, elevation: 3,
+  },
   recImg: { width: 110, height: 140 },
   recName: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15 },
   recDesc: { color: COLORS.textDim, fontSize: 12, marginTop: 4, fontFamily: FONT.medium, lineHeight: 18 },
-  bookBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: COLORS.brand, paddingVertical: 8, paddingHorizontal: 12, borderRadius: 10, marginTop: 10, alignSelf: "flex-start" },
+  bookBtn: { borderRadius: 10, marginTop: 10, alignSelf: "flex-start", overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.25, shadowRadius: 8, elevation: 3 },
+  bookBtnGrad: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 9, paddingHorizontal: 12 },
   bookBtnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 10, letterSpacing: 0.5 },
-  retryBtn: { flexDirection: "row", justifyContent: "center", gap: 6, marginTop: 20, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, alignItems: "center", backgroundColor: COLORS.surface },
+  retryBtn: {
+    flexDirection: "row", justifyContent: "center", gap: 6, marginTop: 20, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, alignItems: "center", backgroundColor: COLORS.surface,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 8, elevation: 2,
+  },
   retryText: { color: COLORS.textMuted, fontFamily: FONT.bold },
 });

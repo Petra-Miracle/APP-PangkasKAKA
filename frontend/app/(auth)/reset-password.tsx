@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import { AuthHero, GradientButton } from "@/src/components/AuthUI";
 import { useScrollToInput } from "@/src/lib/useScrollToInput";
+import PressableScale from "@/src/components/PressableScale";
 
 export default function ResetPassword() {
   const router = useRouter();
@@ -43,7 +44,9 @@ export default function ResetPassword() {
           <View style={styles.card}>
             {ok ? (
               <View style={styles.okBox}>
-                <Ionicons name="checkmark-circle" size={40} color={COLORS.success} />
+                <View style={styles.okIcon}>
+                  <Ionicons name="checkmark" size={28} color="#FFFFFF" />
+                </View>
                 <Text style={styles.okText}>Password berhasil diubah. Mengalihkan ke login...</Text>
               </View>
             ) : (
@@ -67,9 +70,9 @@ export default function ResetPassword() {
                   <Ionicons name="lock-closed-outline" size={18} color={COLORS.textDim} />
                   <TextInput testID="reset-new-password" style={styles.input} value={newPassword} onChangeText={setNewPassword}
                     placeholder="Minimal 8 karakter" placeholderTextColor={COLORS.textDim} secureTextEntry={!showPw} onFocus={handleFocus} />
-                  <Pressable onPress={() => setShowPw((v) => !v)}>
-                    <Ionicons name={showPw ? "eye-off-outline" : "eye-outline"} size={18} color={COLORS.textDim} />
-                  </Pressable>
+<PressableScale onPress={() => setShowPw((v) => !v)} scaleTo={0.9}>
+                  <Ionicons name={showPw ? "eye-off-outline" : "eye-outline"} size={18} color={COLORS.textDim} />
+                </PressableScale>
                 </View>
 
                 <Text style={styles.label}>Konfirmasi Password</Text>
@@ -99,9 +102,9 @@ export default function ResetPassword() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   card: {
-    backgroundColor: "#FFFFFF", marginTop: -36, marginHorizontal: 20, padding: 24, borderRadius: 24,
+    backgroundColor: COLORS.surface, marginTop: -36, marginHorizontal: 20, padding: 24, borderRadius: 24,
     borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: "#0A2540", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.08, shadowRadius: 24, elevation: 6,
+    shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 1, shadowRadius: 24, elevation: 6,
   },
   label: { color: COLORS.textMuted, marginTop: 14, marginBottom: 8, fontSize: 12, fontFamily: FONT.semibold, letterSpacing: 0.3 },
   inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface2, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
@@ -109,5 +112,6 @@ const styles = StyleSheet.create({
   errBox: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF2F2", padding: 12, borderRadius: 12, marginTop: 14 },
   errText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium, fontSize: 13 },
   okBox: { alignItems: "center", padding: 20, gap: 12 },
+  okIcon: { width: 60, height: 60, borderRadius: 20, backgroundColor: COLORS.success, alignItems: "center", justifyContent: "center", shadowColor: COLORS.success, shadowOpacity: 0.3, shadowRadius: 12, elevation: 5 },
   okText: { color: COLORS.text, fontFamily: FONT.semibold, fontSize: 14, textAlign: "center" },
 });

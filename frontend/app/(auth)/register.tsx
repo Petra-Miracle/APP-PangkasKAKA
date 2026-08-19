@@ -8,6 +8,7 @@ import { useAuth } from "@/src/lib/auth";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import { AuthHero, GradientButton } from "@/src/components/AuthUI";
 import { useScrollToInput } from "@/src/lib/useScrollToInput";
+import PressableScale from "@/src/components/PressableScale";
 
 const ROLES = [
   { key: "customer", label: "Pelanggan", icon: "person", desc: "Cari & booking barbershop" },
@@ -139,8 +140,8 @@ export default function Register() {
                 <Text style={styles.sectionLabel}>PILIH PERAN ANDA</Text>
                 <View style={{ gap: 8, marginTop: 8 }}>
                   {ROLES.map((r) => (
-                    <Pressable key={r.key} testID={`role-${r.key}`} onPress={() => setRole(r.key as any)}
-                      style={[styles.roleRow, role === r.key && styles.roleRowActive]}>
+                    <PressableScale key={r.key} testID={`role-${r.key}`} onPress={() => setRole(r.key as any)}
+                      style={[styles.roleRow, role === r.key && styles.roleRowActive]} scaleTo={0.98}>
                       <View style={[styles.roleIcon, role === r.key && { backgroundColor: COLORS.brand }]}>
                         <Ionicons name={r.icon as any} size={20} color={role === r.key ? "#FFFFFF" : COLORS.brand} />
                       </View>
@@ -149,7 +150,7 @@ export default function Register() {
                         <Text style={styles.roleDesc}>{r.desc}</Text>
                       </View>
                       {role === r.key && <Ionicons name="checkmark-circle" size={22} color={COLORS.brand} />}
-                    </Pressable>
+                    </PressableScale>
                   ))}
                 </View>
 
@@ -213,15 +214,15 @@ export default function Register() {
                 {shops.length === 0 ? <ActivityIndicator color={COLORS.brand} style={{ marginVertical: 20 }} /> : (
                   <View style={{ gap: 8, marginTop: 8 }}>
                     {shops.map((s) => (
-                      <Pressable key={s.id} testID={`k-shop-${s.id}`} onPress={() => setKaryawanForm({ ...karyawanForm, shop_id: s.id })}
-                        style={[styles.roleRow, karyawanForm.shop_id === s.id && styles.roleRowActive]}>
+                      <PressableScale key={s.id} testID={`k-shop-${s.id}`} onPress={() => setKaryawanForm({ ...karyawanForm, shop_id: s.id })}
+                        style={[styles.roleRow, karyawanForm.shop_id === s.id && styles.roleRowActive]} scaleTo={0.98}>
                         <View style={styles.roleIcon}><Ionicons name="storefront" size={18} color={COLORS.brand} /></View>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.roleTitle}>{s.name}</Text>
                           <Text style={styles.roleDesc} numberOfLines={1}>{s.address}</Text>
                         </View>
                         {karyawanForm.shop_id === s.id && <Ionicons name="checkmark-circle" size={22} color={COLORS.brand} />}
-                      </Pressable>
+                      </PressableScale>
                     ))}
                   </View>
                 )}
@@ -247,10 +248,12 @@ export default function Register() {
                 <DocPicker label="Foto Alat Kerja" testID="tools-photo" value={karyawanForm.tools_photo} onPick={() => pickDoc((v) => setKaryawanForm({ ...karyawanForm, tools_photo: v }))} />
                 <DocPicker label="Sertifikat BNSP" testID="bnsp-cert" value={karyawanForm.bnsp_cert} onPick={() => pickDoc((v) => setKaryawanForm({ ...karyawanForm, bnsp_cert: v }))} />
 
-                <Pressable style={styles.agreeRow} onPress={() => setKaryawanCriteriaAgreed((v) => !v)} testID="k-criteria-agree">
-                  <Ionicons name={karyawanCriteriaAgreed ? "checkbox" : "square-outline"} size={20} color={karyawanCriteriaAgreed ? COLORS.brand : COLORS.textDim} />
+                <PressableScale style={styles.agreeRow} onPress={() => setKaryawanCriteriaAgreed((v) => !v)} testID="k-criteria-agree" scaleTo={0.99}>
+                  <View style={[styles.checkBox, karyawanCriteriaAgreed && { backgroundColor: COLORS.brand, borderColor: COLORS.brand }]}>
+                    {karyawanCriteriaAgreed && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                  </View>
                   <Text style={styles.agreeText}>Saya menyetujui kriteria seleksi platform PangkasKAKA</Text>
-                </Pressable>
+                </PressableScale>
 
                 {err && <ErrorMsg msg={err} />}
                 <GradientButton testID="reg-submit-karyawan" label="KIRIM LAMARAN" icon="paper-plane" onPress={submitKaryawan} loading={loading} />
@@ -281,7 +284,7 @@ function ErrorMsg({ msg, testID }: any) {
 }
 function DocPicker({ label, value, onPick, testID }: any) {
   return (
-    <Pressable testID={testID} style={[styles.docPicker, !!value && styles.docPickerDone]} onPress={onPick}>
+    <PressableScale testID={testID} style={[styles.docPicker, !!value && styles.docPickerDone]} onPress={onPick} scaleTo={0.98}>
       <View style={[styles.docIcon, !!value && { backgroundColor: COLORS.success }]}>
         <Ionicons name={value ? "checkmark" : "cloud-upload"} size={18} color="#FFFFFF" />
       </View>
@@ -290,7 +293,7 @@ function DocPicker({ label, value, onPick, testID }: any) {
         <Text style={styles.docStatus}>{value ? "Terupload ✓ Ketuk untuk ganti" : "Ketuk untuk pilih foto"}</Text>
       </View>
       <Ionicons name="chevron-forward" size={18} color={COLORS.textDim} />
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -299,8 +302,8 @@ const styles = StyleSheet.create({
   backLink: { position: "absolute", top: 52, left: 20, flexDirection: "row", alignItems: "center", gap: 4, zIndex: 10 },
   backText: { color: "#FFFFFF", fontFamily: FONT.semibold, fontSize: 13 },
   card: {
-    backgroundColor: "#FFFFFF", marginTop: -36, marginHorizontal: 20, padding: 24, borderRadius: 24, borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: "#0A2540", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.08, shadowRadius: 24, elevation: 6,
+    backgroundColor: COLORS.surface, marginTop: -36, marginHorizontal: 20, padding: 24, borderRadius: 24, borderWidth: 1, borderColor: COLORS.border,
+    shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 1, shadowRadius: 24, elevation: 6,
   },
   stepIndicator: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 20 },
   stepDot: { width: 28, height: 28, borderRadius: 14, backgroundColor: COLORS.surface2, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.border },
@@ -317,6 +320,7 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 20 },
   agreeRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 16 },
   agreeText: { flex: 1, color: COLORS.text, fontFamily: FONT.medium, fontSize: 12, lineHeight: 17 },
+  checkBox: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, borderColor: COLORS.borderStrong, alignItems: "center", justifyContent: "center" },
   roleRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface2 },
   roleRowActive: { backgroundColor: COLORS.brandDim, borderColor: COLORS.brand },
   roleIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },

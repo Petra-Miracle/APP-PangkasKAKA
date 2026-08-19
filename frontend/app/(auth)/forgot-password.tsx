@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import { AuthHero, GradientButton } from "@/src/components/AuthUI";
 import { useScrollToInput } from "@/src/lib/useScrollToInput";
+import PressableScale from "@/src/components/PressableScale";
 
 export default function ForgotPassword() {
   const router = useRouter();
@@ -47,9 +48,9 @@ export default function ForgotPassword() {
 
             <GradientButton testID="forgot-submit" label="KIRIM KODE RESET" icon="arrow-forward" onPress={onSubmit} loading={loading} />
 
-            <Pressable style={styles.backLink} onPress={() => router.back()}>
+            <PressableScale style={styles.backLink} onPress={() => router.back()} scaleTo={0.96}>
               <Text style={styles.backLinkText}>Kembali ke Login</Text>
-            </Pressable>
+            </PressableScale>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -60,9 +61,9 @@ export default function ForgotPassword() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   card: {
-    backgroundColor: "#FFFFFF", marginTop: -36, marginHorizontal: 20, padding: 24, borderRadius: 24,
+    backgroundColor: COLORS.surface, marginTop: -36, marginHorizontal: 20, padding: 24, borderRadius: 24,
     borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: "#0A2540", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.08, shadowRadius: 24, elevation: 6,
+    shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 1, shadowRadius: 24, elevation: 6,
   },
   label: { color: COLORS.textMuted, marginBottom: 8, fontSize: 12, fontFamily: FONT.semibold, letterSpacing: 0.3 },
   inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface2, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },

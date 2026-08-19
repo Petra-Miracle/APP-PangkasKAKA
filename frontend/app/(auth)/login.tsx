@@ -7,6 +7,7 @@ import { useAuth } from "@/src/lib/auth";
 import { COLORS, FONT } from "@/src/lib/api";
 import { AuthHero, GradientButton } from "@/src/components/AuthUI";
 import { useScrollToInput } from "@/src/lib/useScrollToInput";
+import PressableScale from "@/src/components/PressableScale";
 
 export default function Login() {
   const { login } = useAuth();
@@ -52,9 +53,9 @@ export default function Login() {
               <Ionicons name="lock-closed-outline" size={18} color={COLORS.textDim} />
               <TextInput testID="login-password" style={styles.input} value={password} onChangeText={setPassword} onFocus={handleFocus}
                 placeholder="Password Anda" placeholderTextColor={COLORS.textDim} secureTextEntry={!showPw} />
-              <Pressable onPress={() => setShowPw((v) => !v)} testID="toggle-pw">
+              <PressableScale onPress={() => setShowPw((v) => !v)} testID="toggle-pw" scaleTo={0.9}>
                 <Ionicons name={showPw ? "eye-off-outline" : "eye-outline"} size={18} color={COLORS.textDim} />
-              </Pressable>
+              </PressableScale>
             </View>
 
             {err && (
@@ -66,9 +67,9 @@ export default function Login() {
 
             <GradientButton testID="login-submit-button" label="MASUK" icon="arrow-forward" onPress={onSubmit} loading={loading} />
 
-            <Pressable style={styles.forgotBtn} onPress={() => router.push("/(auth)/forgot-password" as any)} testID="forgot-password-link">
+            <PressableScale style={styles.forgotBtn} onPress={() => router.push("/(auth)/forgot-password" as any)} testID="forgot-password-link" scaleTo={0.96}>
               <Text style={styles.forgotText}>Lupa password?</Text>
-            </Pressable>
+            </PressableScale>
 
             <Link href="/(auth)/register" asChild>
               <Pressable testID="goto-register" style={styles.regLink}>
@@ -86,14 +87,14 @@ export default function Login() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   card: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: COLORS.surface,
     marginTop: -36,
     marginHorizontal: 20,
     padding: 24,
     borderRadius: 24,
     borderWidth: 1,
     borderColor: COLORS.border,
-    shadowColor: "#0A2540", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.08, shadowRadius: 24, elevation: 6,
+    shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 1, shadowRadius: 24, elevation: 6,
   },
   heading: { color: COLORS.text, fontSize: 22, fontFamily: FONT.extrabold, letterSpacing: -0.3 },
   headingSub: { color: COLORS.textDim, fontFamily: FONT.medium, marginTop: 4, fontSize: 13, marginBottom: 8 },

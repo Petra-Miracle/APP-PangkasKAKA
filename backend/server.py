@@ -1109,6 +1109,20 @@ async def add_barber(body: BarberIn, user=Depends(require_role("owner"))):
     return {"barber": clean(doc)}
 
 
+@api.put("/owner/barbers/{bid}")
+async def update_barber(bid: str, body: BarberIn, user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    r = await db.barbers.update_one(
+        {"id": bid, "shop_id": shop["id"]},
+        {"$set": {"name": body.name, "photo": body.photo or "", "specialization": body.specialization or "", "skill_level": body.skill_level}},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "Barber tidak ditemukan")
+    return {"ok": True}
+
+
 @api.delete("/owner/barbers/{bid}")
 async def deactivate_barber(bid: str, user=Depends(require_role("owner"))):
     shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
@@ -1126,6 +1140,20 @@ async def add_service(body: ServiceIn, user=Depends(require_role("owner"))):
            "created_at": now_utc().isoformat()}
     await db.services.insert_one(doc)
     return {"service": clean(doc)}
+
+
+@api.put("/owner/services/{sid}")
+async def update_service(sid: str, body: ServiceIn, user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    r = await db.services.update_one(
+        {"id": sid, "shop_id": shop["id"]},
+        {"$set": {"name": body.name, "duration": body.duration, "price": body.price}},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "Layanan tidak ditemukan")
+    return {"ok": True}
 
 
 @api.delete("/owner/services/{sid}")

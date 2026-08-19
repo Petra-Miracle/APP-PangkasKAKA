@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TextInput, Pressable, ActivityIndic
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import { LinearGradient } from "expo-linear-gradient";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { api, COLORS, FONT } from "@/src/lib/api";
@@ -97,23 +98,31 @@ export default function ChatThread({
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <View style={styles.header}>
+      <LinearGradient
+        colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.header}
+      >
+        <View pointerEvents="none" style={styles.headerDeco} />
         <Pressable onPress={() => router.back()} style={styles.iconBtn}><Ionicons name="arrow-back" size={20} color="#FFFFFF" /></Pressable>
-        <View style={styles.hAvatar}>
-          {headerImage ? <Image source={{ uri: headerImage }} style={{ width: 40, height: 40 }} /> : <Ionicons name={headerIcon} size={18} color="#FFFFFF" />}
+        <View style={styles.hAvatarRing}>
+          <View style={styles.hAvatar}>
+            {headerImage ? <Image source={{ uri: headerImage }} style={{ width: 38, height: 38 }} /> : <Ionicons name={headerIcon} size={18} color="#FFFFFF" />}
+          </View>
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.hTitle} numberOfLines={1}>{title}</Text>
-          <Text style={styles.hSub}>{disabled ? disabledLabel : subtitle}</Text>
+          <Text style={styles.hSub} numberOfLines={1}>{disabled ? disabledLabel : subtitle}</Text>
         </View>
         {headerRight}
-      </View>
+      </LinearGradient>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }} keyboardVerticalOffset={Platform.OS === "ios" ? 80 : 0}>
         <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 16, gap: 10 }} onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: false })}>
           {messages.length === 0 && (
             <View style={styles.emptyBox}>
-              <Ionicons name="chatbubbles-outline" size={40} color={COLORS.textDim} />
+              <View style={styles.emptyIcon}><Ionicons name="chatbubbles-outline" size={40} color={COLORS.brand} /></View>
               <Text style={styles.empty}>Belum ada pesan. Mulai percakapan.</Text>
             </View>
           )}
@@ -144,9 +153,16 @@ export default function ChatThread({
             <View style={styles.composerRow}>
               <Pressable onPress={pickAttachment} style={styles.composerBtn}><Ionicons name="image" size={22} color={COLORS.brand} /></Pressable>
               <TextInput style={styles.composerInput} value={text} onChangeText={setText} placeholder="Tulis pesan..." placeholderTextColor={COLORS.textDim} multiline testID="chat-input" />
-              <Pressable style={[styles.sendBtn, (!text.trim() && !attachment) && { opacity: 0.4 }]} onPress={send} disabled={sending || (!text.trim() && !attachment)} testID="chat-send">
-                <Ionicons name="send" size={18} color="#FFFFFF" />
-              </Pressable>
+              <LinearGradient
+                colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[styles.sendBtn, (!text.trim() && !attachment) && { opacity: 0.4 }]}
+              >
+                <Pressable onPress={send} disabled={sending || (!text.trim() && !attachment)} testID="chat-send" style={styles.sendPress}>
+                  <Ionicons name="send" size={18} color="#FFFFFF" />
+                </Pressable>
+              </LinearGradient>
             </View>
           </View>
         )}
@@ -157,28 +173,41 @@ export default function ChatThread({
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  header: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.brand, paddingHorizontal: 12, paddingVertical: 12 },
-  iconBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
-  hAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  hTitle: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 14 },
+  header: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 12, paddingVertical: 12, borderBottomLeftRadius: 22, borderBottomRightRadius: 22, overflow: "hidden", shadowColor: COLORS.sidebar, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 6 },
+  headerDeco: { position: "absolute", width: 150, height: 150, borderRadius: 75, backgroundColor: "rgba(255,255,255,0.06)", top: -60, right: -30 },
+  iconBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  hAvatarRing: { width: 46, height: 46, borderRadius: 23, borderWidth: 2, borderColor: COLORS.gold, alignItems: "center", justifyContent: "center" },
+  hAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  hTitle: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 15 },
   hSub: { color: "rgba(255,255,255,0.8)", fontFamily: FONT.medium, fontSize: 11 },
-  emptyBox: { alignItems: "center", padding: 40, gap: 8 },
+  emptyBox: { alignItems: "center", padding: 40, gap: 12 },
+  emptyIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
   empty: { color: COLORS.textDim, fontFamily: FONT.medium, textAlign: "center" },
   msgRow: { flexDirection: "row" },
   rowRight: { justifyContent: "flex-end" },
   rowLeft: { justifyContent: "flex-start" },
-  bubble: { maxWidth: "78%", padding: 10, borderRadius: 14 },
-  bubbleMe: { backgroundColor: COLORS.brand, borderBottomRightRadius: 4 },
-  bubbleThem: { backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderBottomLeftRadius: 4 },
-  senderName: { color: COLORS.textDim, fontSize: 10, fontFamily: FONT.bold, marginBottom: 4, letterSpacing: 0.3, textTransform: "uppercase" },
+  bubble: { maxWidth: "78%", padding: 10, borderRadius: 16 },
+  bubbleMe: {
+    backgroundColor: COLORS.brand, borderBottomRightRadius: 4,
+    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 3,
+  },
+  bubbleThem: {
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border, borderBottomLeftRadius: 4,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 6, elevation: 1,
+  },
+  senderName: { color: COLORS.brand, fontSize: 10, fontFamily: FONT.bold, marginBottom: 4, letterSpacing: 0.3, textTransform: "uppercase" },
   msgText: { color: COLORS.text, fontFamily: FONT.medium, fontSize: 13, lineHeight: 18 },
   msgImg: { width: 200, height: 200, borderRadius: 10, marginTop: 6 },
   time: { color: COLORS.textDim, fontSize: 10, marginTop: 4, fontFamily: FONT.medium, alignSelf: "flex-end" },
-  composer: { backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.border, padding: 10 },
+  composer: {
+    backgroundColor: COLORS.surface, borderTopWidth: 1, borderTopColor: COLORS.border, padding: 10,
+    shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.6, shadowRadius: 12, elevation: 6,
+  },
   composerRow: { flexDirection: "row", alignItems: "flex-end", gap: 6 },
   composerBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
   composerInput: { flex: 1, backgroundColor: COLORS.surface2, color: COLORS.text, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, fontFamily: FONT.medium, fontSize: 14, maxHeight: 100 },
-  sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center" },
+  sendBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 8, elevation: 3 },
+  sendPress: { width: "100%", height: "100%", borderRadius: 20, alignItems: "center", justifyContent: "center" },
   attachPreview: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: COLORS.brandDim, padding: 8, borderRadius: 10, marginBottom: 8 },
   attachText: { flex: 1, color: COLORS.text, fontFamily: FONT.semibold, fontSize: 12 },
 });

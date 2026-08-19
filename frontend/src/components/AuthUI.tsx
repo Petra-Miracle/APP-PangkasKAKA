@@ -4,11 +4,20 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { COLORS, FONT } from "@/src/lib/api";
+import PressableScale from "@/src/components/PressableScale";
 
 /** Hero blue header dengan logo + curved bottom untuk auth screens */
 export function AuthHero({ title, subtitle }: { title?: string; subtitle?: string }) {
   return (
-    <LinearGradient colors={["#0059C9", COLORS.brand, "#3B8CFF"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
+    <LinearGradient
+      colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.hero}
+    >
+      <View pointerEvents="none" style={styles.decoCircleL} />
+      <View pointerEvents="none" style={styles.decoCircleR} />
+      <View pointerEvents="none" style={styles.decoRing} />
       <View style={styles.logoBadge}>
         <Image source={require("@/assets/images/logo-emblem.png")} style={styles.logoImg} contentFit="contain" />
       </View>
@@ -22,12 +31,20 @@ export function AuthHero({ title, subtitle }: { title?: string; subtitle?: strin
 /** Tombol gradient primary — untuk CTA di auth screens */
 export function GradientButton({ label, onPress, loading, icon, testID, disabled }: any) {
   return (
-    <Pressable testID={testID} onPress={onPress} disabled={disabled || loading} style={({ pressed }) => [styles.btnWrap, pressed && { opacity: 0.85 }]}>
-      <LinearGradient colors={["#0059C9", COLORS.brand, "#4C9FFF"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.btn}>
+    <PressableScale testID={testID} onPress={onPress} disabled={disabled || loading} haptic style={styles.btnWrap}>
+      <LinearGradient
+        colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.btn}
+      >
+        {loading ? (
+          <Ionicons name="sync" size={18} color="#FFFFFF" style={{ opacity: 0.9 }} />
+        ) : null}
         <Text style={styles.btnText}>{loading ? "MEMPROSES..." : label}</Text>
         {!loading && icon && <Ionicons name={icon} size={16} color="#FFFFFF" />}
       </LinearGradient>
-    </Pressable>
+    </PressableScale>
   );
 }
 
@@ -40,22 +57,46 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 48,
     borderBottomRightRadius: 48,
     shadowColor: COLORS.brand,
-    shadowOffset: { width: 0, height: 12 },
+    shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.3,
-    shadowRadius: 24,
-    elevation: 10,
+    shadowRadius: 28,
+    elevation: 12,
+    overflow: "hidden",
+  },
+  decoCircleL: {
+    position: "absolute",
+    width: 220, height: 220,
+    borderRadius: 110,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    top: -90, left: -80,
+  },
+  decoCircleR: {
+    position: "absolute",
+    width: 180, height: 180,
+    borderRadius: 90,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    bottom: -70, right: -50,
+  },
+  decoRing: {
+    position: "absolute",
+    width: 120, height: 120,
+    borderRadius: 60,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    top: 30, right: -34,
   },
   logoBadge: {
-    width: 64, height: 64, borderRadius: 20, backgroundColor: "#FFFFFF",
+    width: 68, height: 68, borderRadius: 22,
+    backgroundColor: "#FFFFFF",
     alignItems: "center", justifyContent: "center",
-    shadowColor: "#0A2540", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 6,
+    shadowColor: "#0A2540", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 16, elevation: 8,
   },
-  logoImg: { width: 44, height: 44 },
+  logoImg: { width: 46, height: 46 },
   brand: { color: "#FFFFFF", fontSize: 24, fontFamily: FONT.extrabold, marginTop: 14, letterSpacing: -0.5 },
   title: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.bold, marginTop: 24, textAlign: "center" },
   subtitle: { color: "rgba(255,255,255,0.85)", fontSize: 13, fontFamily: FONT.medium, marginTop: 6, textAlign: "center" },
 
-  btnWrap: { borderRadius: 16, marginTop: 20, shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 16, elevation: 8, overflow: "hidden" },
+  btnWrap: { borderRadius: 16, marginTop: 20, shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.4, shadowRadius: 20, elevation: 8, overflow: "hidden" },
   btn: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16, paddingHorizontal: 20 },
   btnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 1, fontSize: 14 },
 });
