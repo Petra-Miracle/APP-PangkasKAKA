@@ -280,6 +280,14 @@ class VerifyShopIn(BaseModel):
     note: Optional[str] = None
 
 
+class SuspendUserIn(BaseModel):
+    reason: Optional[str] = None
+
+
+class UpdateUserRoleIn(BaseModel):
+    role: Literal["customer", "owner", "karyawan", "admin"]
+
+
 class BarberIn(BaseModel):
     name: str
     photo: Optional[str] = None
@@ -562,6 +570,8 @@ async def login(body: LoginIn, request: Request):
     user = await db.profiles.find_one({"email": body.email.lower()})
     if not user or not verify_pw(body.password, user["password"]):
         raise HTTPException(401, "Email atau password salah")
+    if user.get("is_suspended"):
+        raise HTTPException(403, "Akun Anda telah ditangguhkan. Hubungi admin PangkasKAKA untuk info lebih lanjut.")
     token = make_token(user["id"], user["role"])
     return {"token": token, "user": clean(dict(user))}
 
@@ -1518,6 +1528,70 @@ async def admin_users(role: str = "customer", search: str = "", page: int = 1, s
     total = await db.profiles.count_documents(q)
     rows = await db.profiles.find(q, {"_id": 0, "password": 0}).skip(skip).limit(size).to_list(size)
     return {"total": total, "users": rows}
+
+
+@api.post("/admin/users/{user_id}/suspend")
+async def admin_suspend_user(user_id: str, body: SuspendUserIn, user=Depends(require_role("admin"))):
+    if user_id == user["id"]:
+        raise HTTPException(400, "Tidak bisa menangguhkan akun sendiri")
+    target = await db.profiles.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "User tidak ditemukan")
+    if target["role"] == "admin":
+        raise HTTPException(400, "Tidak bisa menangguhkan akun admin")
+    await db.profiles.update_one({"id": user_id}, {"$set": {
+        "is_suspended": True,
+        "suspended_reason": body.reason or "",
+        "suspended_at": now_utc().isoformat(),
+        "suspended_by": user["id"],
+    }})
+    await send_notif(user_id, "Akun ditangguhkan", body.reason or "Akun Anda telah ditangguhkan oleh admin.", "system")
+    return {"ok": True}
+
+
+@api.post("/admin/users/{user_id}/activate")
+async def admin_activate_user(user_id: str, user=Depends(require_role("admin"))):
+    target = await db.profiles.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "User tidak ditemukan")
+    await db.profiles.update_one({"id": user_id}, {"$set": {
+        "is_suspended": False, "suspended_reason": "", "suspended_at": None, "suspended_by": None,
+    }})
+    await send_notif(user_id, "Akun diaktifkan kembali", "Akun Anda telah diaktifkan kembali oleh admin.", "system")
+    return {"ok": True}
+
+
+@api.put("/admin/users/{user_id}/role")
+async def admin_update_user_role(user_id: str, body: UpdateUserRoleIn, user=Depends(require_role("admin"))):
+    if user_id == user["id"]:
+        raise HTTPException(400, "Tidak bisa mengubah role akun sendiri")
+    target = await db.profiles.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "User tidak ditemukan")
+    await db.profiles.update_one({"id": user_id}, {"$set": {"role": body.role}})
+    await send_notif(user_id, "Role akun diperbarui", f"Role akun Anda diubah menjadi {body.role} oleh admin.", "system")
+    return {"ok": True, "role": body.role}
+
+
+@api.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, user=Depends(require_role("admin"))):
+    if user_id == user["id"]:
+        raise HTTPException(400, "Tidak bisa menghapus akun sendiri")
+    target = await db.profiles.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "User tidak ditemukan")
+    if target["role"] == "admin":
+        raise HTTPException(400, "Tidak bisa menghapus akun admin")
+    if target["role"] == "owner" and await db.barbershops.find_one({"owner_id": user_id}):
+        raise HTTPException(400, "Pemilik ini masih punya toko terdaftar — hapus atau alihkan tokonya dulu sebelum menghapus akun")
+    await db.profiles.delete_one({"id": user_id})
+    if target["role"] == "karyawan":
+        karyawan_rows = await db.karyawan.find({"profile_id": user_id}, {"_id": 0, "id": 1}).to_list(50)
+        karyawan_ids = [k["id"] for k in karyawan_rows]
+        await db.karyawan.delete_many({"profile_id": user_id})
+        if karyawan_ids:
+            await db.karyawan_locations.delete_many({"karyawan_id": {"$in": karyawan_ids}})
+    return {"ok": True}
 
 
 # ============================================================
