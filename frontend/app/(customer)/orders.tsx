@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Modal } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -211,34 +211,36 @@ export default function Orders() {
       )}
 
       <Modal visible={!!reviewFor} transparent animationType="slide" onRequestClose={() => setReviewFor(null)}>
-        <Pressable style={styles.modalBg} onPress={() => setReviewFor(null)}>
-          <Pressable style={styles.modal} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.grabber} />
-            <View style={styles.modalHeadIcon}>
-              <Ionicons name="star" size={22} color={COLORS.warning} />
-            </View>
-            <Text style={styles.modalTitle}>Beri Ulasan</Text>
-            <Text style={styles.modalSub}>{reviewFor?.shop?.name}</Text>
-            <View style={{ flexDirection: "row", gap: 8, marginVertical: 20, justifyContent: "center" }}>
-              {[1, 2, 3, 4, 5].map((n) => (
-                <PressableScale key={n} onPress={() => setRating(n)} testID={`star-${n}`} scaleTo={0.85} haptic>
-                  <Ionicons name={n <= rating ? "star" : "star-outline"} size={40} color={COLORS.warning} />
-                </PressableScale>
-              ))}
-            </View>
-            <TextInput style={styles.input} multiline value={comment} onChangeText={setComment} placeholder="Ceritakan pengalamanmu (opsional)" placeholderTextColor={COLORS.textDim} />
-            <PressableScale style={styles.submitBtn} onPress={submitReview} testID="submit-review" haptic>
-              <LinearGradient
-                colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.submitBtnGrad}
-              >
-                <Text style={styles.payBtnText}>KIRIM ULASAN</Text>
-              </LinearGradient>
-            </PressableScale>
+        <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <Pressable style={styles.modalBg} onPress={() => setReviewFor(null)}>
+            <Pressable style={styles.modal} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.grabber} />
+              <View style={styles.modalHeadIcon}>
+                <Ionicons name="star" size={22} color={COLORS.warning} />
+              </View>
+              <Text style={styles.modalTitle}>Beri Ulasan</Text>
+              <Text style={styles.modalSub}>{reviewFor?.shop?.name}</Text>
+              <View style={{ flexDirection: "row", gap: 8, marginVertical: 20, justifyContent: "center" }}>
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <PressableScale key={n} onPress={() => setRating(n)} testID={`star-${n}`} scaleTo={0.85} haptic>
+                    <Ionicons name={n <= rating ? "star" : "star-outline"} size={40} color={COLORS.warning} />
+                  </PressableScale>
+                ))}
+              </View>
+              <TextInput style={styles.input} multiline value={comment} onChangeText={setComment} placeholder="Ceritakan pengalamanmu (opsional)" placeholderTextColor={COLORS.textDim} />
+              <PressableScale style={styles.submitBtn} onPress={submitReview} testID="submit-review" haptic>
+                <LinearGradient
+                  colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.submitBtnGrad}
+                >
+                  <Text style={styles.payBtnText}>KIRIM ULASAN</Text>
+                </LinearGradient>
+              </PressableScale>
+            </Pressable>
           </Pressable>
-        </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

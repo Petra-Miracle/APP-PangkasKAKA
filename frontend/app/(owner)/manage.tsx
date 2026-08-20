@@ -115,6 +115,26 @@ export default function Manage() {
     setEvalTarget(k);
   };
 
+  const confirmBerkas = (k: any, decision: "lolos" | "tolak") => {
+    const isApprove = decision === "lolos";
+    Alert.alert(
+      isApprove ? "Setujui Berkas" : "Tolak Berkas",
+      isApprove
+        ? `Berkas ${k.name} dinyatakan lolos dan lanjut ke tahap koordinasi uji tes kemampuan (via chat).`
+        : `Yakin ingin menolak lamaran ${k.name}? Aksi ini tidak bisa dibatalkan.`,
+      [
+        { text: "Batal", style: "cancel" },
+        {
+          text: isApprove ? "Setujui" : "Tolak", style: isApprove ? "default" : "destructive",
+          onPress: async () => {
+            try { await api.post(`/owner/karyawan/${k.id}/berkas-decision`, { decision }); await load(); }
+            catch (e: any) { alert(e.message); }
+          },
+        },
+      ]
+    );
+  };
+
   const submitEvaluation = async () => {
     if (!evalTarget) return;
     setSaving(true);
@@ -280,21 +300,43 @@ export default function Manage() {
                   </View>
                   <View style={[styles.statusBadge,
                     k.status === "active" ? { backgroundColor: "#ECFDF5" } :
-                    k.status === "rejected" ? { backgroundColor: "#FEF2F2" } : { backgroundColor: "#FFF7ED" }]}>
+                    k.status === "rejected" ? { backgroundColor: "#FEF2F2" } :
+                    ["menunggu_tes", "seleksi_berkas_lolos"].includes(k.status) ? { backgroundColor: "#EFF8FF" } : { backgroundColor: "#FFF7ED" }]}>
                     <Text style={[styles.statusBadgeText,
                       k.status === "active" ? { color: COLORS.success } :
-                      k.status === "rejected" ? { color: COLORS.error } : { color: COLORS.warning }]}>
-                      {k.status.toUpperCase()}
+                      k.status === "rejected" ? { color: COLORS.error } :
+                      ["menunggu_tes", "seleksi_berkas_lolos"].includes(k.status) ? { color: COLORS.info } : { color: COLORS.warning }]}>
+                      {k.status === "active" ? "DITERIMA" :
+                       k.status === "rejected" ? "DITOLAK" :
+                       ["menunggu_tes", "seleksi_berkas_lolos"].includes(k.status) ? "TAHAP TES" : "MENUNGGU BERKAS"}
                     </Text>
                   </View>
                 </View>
-                {k.status !== "pending" && (
+                {k.status !== "pending" && !["menunggu_tes", "seleksi_berkas_lolos"].includes(k.status) && (
                   <View style={styles.scoreBar}>
                     <View style={styles.scoreDot} />
                     <Text style={styles.scoreText}>Skor: <Text style={{ color: COLORS.text, fontFamily: FONT.extrabold }}>{k.total_score}/120</Text></Text>
                   </View>
                 )}
                 {k.status === "pending" ? (
+                  <View style={styles.berkasRow}>
+                    <PressableScale style={styles.berkasRejectBtn} onPress={() => confirmBerkas(k, "tolak")} testID={`berkas-tolak-${k.id}`} scaleTo={0.97}>
+                      <Ionicons name="close" size={16} color={COLORS.error} />
+                      <Text style={styles.berkasRejectText}>TOLAK BERKAS</Text>
+                    </PressableScale>
+                    <PressableScale style={styles.berkasApproveBtnWrap} onPress={() => confirmBerkas(k, "lolos")} testID={`berkas-lolos-${k.id}`} haptic>
+                      <LinearGradient
+                        colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.berkasApproveBtn}
+                      >
+                        <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                        <Text style={styles.berkasApproveText}>SETUJUI BERKAS</Text>
+                      </LinearGradient>
+                    </PressableScale>
+                  </View>
+                ) : ["menunggu_tes", "seleksi_berkas_lolos"].includes(k.status) ? (
                   <PressableScale style={styles.evalBtnWrap} onPress={() => openEvaluate(k)} testID={`eval-${k.id}`} haptic>
                     <LinearGradient
                       colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
@@ -315,7 +357,7 @@ export default function Manage() {
                 {["menunggu_tes", "seleksi_berkas_lolos", "active"].includes(k.status) && (
                   <PressableScale style={styles.evalBtnGhost} onPress={() => router.push(`/chat/recruitment/${k.id}` as any)} testID={`chat-${k.id}`} scaleTo={0.97}>
                     <Ionicons name="chatbubbles-outline" size={16} color={COLORS.brand} />
-                    <Text style={styles.evalBtnGhostText}>CHAT PELAMAR</Text>
+                    <Text style={styles.evalBtnGhostText} numberOfLines={1}>Chat {k.name}</Text>
                   </PressableScale>
                 )}
               </View>
@@ -356,7 +398,7 @@ export default function Manage() {
               </View>
 
               {/* Penilaian */}
-              {evalTarget?.status === "pending" ? (
+              {["menunggu_tes", "seleksi_berkas_lolos"].includes(evalTarget?.status) ? (
                 <>
                   <Text style={styles.sec}>PENILAIAN (0–20 per komponen)</Text>
                   {CRITERIA.map((c) => (
@@ -537,6 +579,14 @@ const styles = StyleSheet.create({
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 6, elevation: 1,
   },
   evalBtnGhostText: { color: COLORS.brand, fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 12 },
+  berkasRow: { flexDirection: "row", gap: 8, marginTop: 12 },
+  berkasRejectBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, paddingHorizontal: 10, borderRadius: 13, borderWidth: 1, borderColor: COLORS.error, backgroundColor: "#FEF2F2",
+  },
+  berkasRejectText: { color: COLORS.error, fontFamily: FONT.extrabold, letterSpacing: 0.6, fontSize: 11 },
+  berkasApproveBtnWrap: { flex: 1, borderRadius: 13, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.25, shadowRadius: 10, elevation: 3 },
+  berkasApproveBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, padding: 12 },
+  berkasApproveText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 0.6, fontSize: 11 },
 
   // Modal
   modalBg: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: "flex-end" },

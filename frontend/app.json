@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "platforms": ["ios", "android"],
     "orientation": "portrait",
-    "icon": "./assets/images/Logo-Terbaru-PangkasKAKA.jpg",
+    "icon": "./assets/images/icon-app.png",
     "scheme": "pangkaskaka",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -18,7 +18,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/Logo-Terbaru-PangkasKAKA.jpg",
+        "foregroundImage": "./assets/images/icon-adaptive-fg.png",
         "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,

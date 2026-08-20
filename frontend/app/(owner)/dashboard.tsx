@@ -2,8 +2,11 @@ import { useState, useCallback } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, Switch, RefreshControl, TextInput, Keyboard } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import Donut from "@/src/components/Donut";
@@ -21,6 +24,7 @@ export default function OwnerDashboard() {
   const [togglingOpen, setTogglingOpen] = useState(false);
   const [homeFee, setHomeFee] = useState("0");
   const [savingFee, setSavingFee] = useState(false);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,6 +52,30 @@ export default function OwnerDashboard() {
       alert(e.message || "Gagal mengubah status toko");
     }
     setTogglingOpen(false);
+  };
+
+  const changeBanner = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (perm.status !== "granted") { alert("Izin galeri ditolak"); return; }
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+    if (res.canceled) return;
+    setUploadingBanner(true);
+    try {
+      // Foto asli dari galeri bisa berdimensi sangat besar (bukan cuma ukuran file) —
+      // resize dulu ke lebar maks 1080px sebelum di-base64, supaya request tidak gagal
+      // di level jaringan sebelum sempat sampai ke backend.
+      const resized = await ImageManipulator.manipulateAsync(
+        res.assets[0].uri,
+        [{ resize: { width: 1080 } }],
+        { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+      );
+      const uri = `data:image/jpeg;base64,${resized.base64}`;
+      await api.put("/owner/shop/image", { image: uri });
+      setData((prev: any) => (prev ? { ...prev, shop: { ...prev.shop, image: uri } } : prev));
+    } catch (e: any) {
+      alert(e.message || "Gagal mengubah foto toko");
+    }
+    setUploadingBanner(false);
   };
 
   const saveHomeFee = async () => {
@@ -117,6 +145,21 @@ export default function OwnerDashboard() {
       </LinearGradient>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }} refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={COLORS.brand} />}>
+        {/* Banner foto toko */}
+        <View style={styles.bannerWrap}>
+          {shop.image ? (
+            <Image source={{ uri: shop.image }} style={styles.bannerImg} contentFit="cover" />
+          ) : (
+            <View style={[styles.bannerImg, styles.bannerImgFallback]}>
+              <Ionicons name="storefront" size={28} color={COLORS.brand} />
+            </View>
+          )}
+          <PressableScale style={styles.bannerEditBtn} onPress={changeBanner} disabled={uploadingBanner} testID="edit-shop-banner" haptic>
+            <Ionicons name={uploadingBanner ? "hourglass-outline" : "camera"} size={16} color="#FFFFFF" />
+            <Text style={styles.bannerEditText}>{uploadingBanner ? "MENGUNGGAH..." : "GANTI FOTO TOKO"}</Text>
+          </PressableScale>
+        </View>
+
         {/* Open/closed toggle + schedule shortcut */}
         <View style={styles.statusCard}>
           <View style={styles.statusDotWrap}>
@@ -272,6 +315,17 @@ const styles = StyleSheet.create({
   headerHi: { color: COLORS.sidebarTextDim, fontSize: 12, fontFamily: FONT.medium },
   headerTitle: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.extrabold, marginTop: 2 },
   headerSub: { color: COLORS.sidebarTextDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 4 },
+  bannerWrap: {
+    borderRadius: 20, overflow: "hidden", marginBottom: 12, backgroundColor: COLORS.surface2,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3,
+  },
+  bannerImg: { width: "100%", height: 150 },
+  bannerImgFallback: { alignItems: "center", justifyContent: "center", backgroundColor: COLORS.brandDim },
+  bannerEditBtn: {
+    position: "absolute", bottom: 10, right: 10, flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "rgba(10,37,64,0.75)", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999,
+  },
+  bannerEditText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.4 },
   statusCard: {
     flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.surface, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3,

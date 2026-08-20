@@ -20,6 +20,8 @@ const STATUS_META: Record<string, { color: string; bg: string; label: string }> 
   active: { color: COLORS.success, bg: "#ECFDF5", label: "DITERIMA" },
   rejected: { color: COLORS.error, bg: "#FEF2F2", label: "DITOLAK" },
   pending: { color: COLORS.warning, bg: "#FFF7ED", label: "MENUNGGU" },
+  seleksi_berkas_lolos: { color: COLORS.info, bg: "#EFF8FF", label: "BERKAS LOLOS" },
+  menunggu_tes: { color: COLORS.info, bg: "#EFF8FF", label: "MENUNGGU TES" },
 };
 
 export default function KaryawanStatus() {

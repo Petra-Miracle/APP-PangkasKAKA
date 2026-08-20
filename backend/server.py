@@ -342,6 +342,10 @@ class HomeServiceFeeIn(BaseModel):
     fee: int = Field(ge=0)
 
 
+class ShopImageIn(BaseModel):
+    image: str
+
+
 class ScheduleOverrideIn(BaseModel):
     date: str  # YYYY-MM-DD
     is_closed: bool = False
@@ -1258,6 +1262,21 @@ async def set_home_service_fee(body: HomeServiceFeeIn, user=Depends(require_role
         raise HTTPException(400, "Daftarkan toko terlebih dulu")
     await db.barbershops.update_one({"id": shop["id"]}, {"$set": {"home_service_fee": body.fee}})
     return {"ok": True, "home_service_fee": body.fee}
+
+
+@api.put("/owner/shop/image")
+async def set_shop_image(body: ShopImageIn, user=Depends(require_role("owner"))):
+    """Ganti foto banner toko tanpa memicu ulang proses verifikasi dokumen
+    (berbeda dari re-submit lewat POST /owner/shop yang mereset verification_status)."""
+    if not body.image:
+        raise HTTPException(400, "Foto wajib diisi")
+    if len(body.image) > 2_800_000:
+        raise HTTPException(400, "Ukuran file melebihi 2MB")
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    await db.barbershops.update_one({"id": shop["id"]}, {"$set": {"image": body.image}})
+    return {"ok": True, "image": body.image}
 
 
 @api.get("/owner/schedule-overrides")

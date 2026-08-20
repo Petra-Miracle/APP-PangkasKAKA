@@ -143,7 +143,7 @@ export default function PaymentStatusScreen() {
 
         {isPaid && <SuccessCard />}
         {isPending && <PendingCard mm={mm} ss={ss} />}
-        {isForfeited && <ExpiredCard />}
+        {isForfeited && <ExpiredCard lastEvent={data.payment?.last_event} />}
 
         <View style={styles.card}>
           <Text style={styles.sec}>DETAIL BOOKING</Text>
@@ -328,7 +328,17 @@ function PendingCard({ mm, ss }: { mm: number; ss: number }) {
   );
 }
 
-function ExpiredCard() {
+const FAILURE_REASONS: Record<string, string> = {
+  "payment.expired": "Waktu 15 menit untuk membayar sudah habis sebelum transaksi diselesaikan.",
+  "order.expired": "Waktu 15 menit untuk membayar sudah habis sebelum transaksi diselesaikan.",
+  "payment.failed": "Pembayaran ditolak penyedia layanan — bisa karena saldo tidak cukup, kartu/e-wallet ditolak, atau data pembayaran salah.",
+  "order.failed": "Pembayaran ditolak penyedia layanan — bisa karena saldo tidak cukup, kartu/e-wallet ditolak, atau data pembayaran salah.",
+  "payment.cancelled": "Pembayaran dibatalkan sebelum selesai diproses.",
+};
+
+function ExpiredCard({ lastEvent }: { lastEvent?: string }) {
+  const reason = (lastEvent && FAILURE_REASONS[lastEvent])
+    || "Batas waktu 15 menit untuk membayar telah lewat, atau pembayaran tidak berhasil diproses.";
   return (
     <LinearGradient
       colors={["#FEE2E2", "#FDD5D5"]}
@@ -339,8 +349,8 @@ function ExpiredCard() {
       <View style={[styles.stateIcon, { backgroundColor: COLORS.error }]}>
         <Ionicons name="close" size={44} color="#FFFFFF" />
       </View>
-      <Text style={[styles.stateTitle, { color: COLORS.error }]}>PEMBAYARAN KADALUARSA</Text>
-      <Text style={styles.stateSub}>Batas waktu pembayaran telah lewat. Silakan booking ulang untuk melanjutkan.</Text>
+      <Text style={[styles.stateTitle, { color: COLORS.error }]}>PEMBAYARAN GAGAL</Text>
+      <Text style={styles.stateSub}>{reason}</Text>
     </LinearGradient>
   );
 }

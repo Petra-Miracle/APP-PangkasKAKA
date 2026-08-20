@@ -25,6 +25,7 @@ export default function Register() {
   const [err, setErr] = useState<string | null>(null);
 
   const [basic, setBasic] = useState({ name: "", email: "", phone: "", password: "" });
+  const [showPw, setShowPw] = useState(false);
   const [shopForm, setShopForm] = useState({
     name: "", address: "", price_range: "Rp 25.000 - Rp 75.000",
     bank_name: "", account_number: "", account_holder: "",
@@ -161,7 +162,14 @@ export default function Register() {
                 <Text style={styles.label}>Nomor HP</Text>
                 <FormInput icon="call-outline" value={basic.phone} onChangeText={(t: string) => setBasic({ ...basic, phone: t })} placeholder="08xx-xxxx-xxxx" testID="reg-phone" keyboardType="phone-pad" onFocus={handleFocus} />
                 <Text style={styles.label}>Password</Text>
-                <FormInput icon="lock-closed-outline" value={basic.password} onChangeText={(t: string) => setBasic({ ...basic, password: t })} placeholder="Min. 8 karakter" testID="reg-password" secureTextEntry onFocus={handleFocus} />
+                <View style={styles.inputWrap}>
+                  <Ionicons name="lock-closed-outline" size={18} color={COLORS.textDim} />
+                  <TextInput testID="reg-password" style={styles.input} value={basic.password} onChangeText={(t: string) => setBasic({ ...basic, password: t })} onFocus={handleFocus}
+                    placeholder="Min. 8 karakter" placeholderTextColor={COLORS.textDim} secureTextEntry={!showPw} />
+                  <PressableScale onPress={() => setShowPw((v) => !v)} testID="toggle-reg-pw" scaleTo={0.9}>
+                    <Ionicons name={showPw ? "eye-off-outline" : "eye-outline"} size={18} color={COLORS.textDim} />
+                  </PressableScale>
+                </View>
 
                 {err && <ErrorMsg testID="reg-error" msg={err} />}
                 <GradientButton testID="reg-next" label={role === "customer" ? "DAFTAR SEKARANG" : "LANJUT"} icon="arrow-forward" onPress={nextFromBasic} loading={loading} />
