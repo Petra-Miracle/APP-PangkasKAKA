@@ -323,6 +323,32 @@ class HairstyleIn(BaseModel):
         return v
 
 
+class FaceReferenceIn(BaseModel):
+    reference_code: str  # e.g. "OV-01" — label pemilik data, bebas format
+    shape: str
+    face_width: float
+    face_height: float
+    forehead_width: float
+    cheekbone_width: float
+    jaw_width: float
+    confidence_level: float  # 0-1, tingkat keyakinan sumber data
+    recommended_hairstyles: str = ""
+
+    @field_validator("shape")
+    @classmethod
+    def validate_shape(cls, v):
+        if v not in FACE_SHAPES:
+            raise ValueError(f"bentuk wajah tidak valid: {v} (harus salah satu dari {FACE_SHAPES})")
+        return v
+
+    @field_validator("confidence_level")
+    @classmethod
+    def validate_confidence(cls, v):
+        if not (0 <= v <= 1):
+            raise ValueError("confidence_level harus 0-1")
+        return v
+
+
 class ScheduleRow(BaseModel):
     day_name: Literal["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
     open_time: str = "09:00"
@@ -1688,6 +1714,39 @@ async def admin_delete_hairstyle(hid: str, user=Depends(require_role("admin"))):
     return {"ok": True}
 
 
+# ---- Admin CRUD for the face-shape reference dataset (measured jaw/cheekbone/
+# forehead widths per shape, used to calibrate the on-device geometric classifier
+# in frontend/src/lib/faceShape.ts). This is a reference/audit table, not a live
+# lookup — editing it here does NOT change classification behavior by itself;
+# recalibrating the client thresholds from an updated dataset is a separate
+# manual step, exactly like it was done for the initial 30-row import. ----
+@api.get("/admin/face-references")
+async def admin_list_face_references(user=Depends(require_role("admin"))):
+    rows = await db.face_references.find({}, {"_id": 0}).sort("reference_code", 1).to_list(1000)
+    return {"references": rows}
+
+
+@api.post("/admin/face-references")
+async def admin_add_face_reference(body: FaceReferenceIn, user=Depends(require_role("admin"))):
+    doc = {"id": new_id(), **body.dict(), "created_at": now_utc().isoformat()}
+    await db.face_references.insert_one(doc)
+    return {"reference": clean(doc)}
+
+
+@api.put("/admin/face-references/{rid}")
+async def admin_update_face_reference(rid: str, body: FaceReferenceIn, user=Depends(require_role("admin"))):
+    r = await db.face_references.update_one({"id": rid}, {"$set": body.dict()})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Data referensi tidak ditemukan")
+    return {"ok": True}
+
+
+@api.delete("/admin/face-references/{rid}")
+async def admin_delete_face_reference(rid: str, user=Depends(require_role("admin"))):
+    await db.face_references.delete_one({"id": rid})
+    return {"ok": True}
+
+
 # Face shape itself is computed on-device (see frontend/src/lib/faceShape.ts) from
 # live camera landmarks — nothing here ever touches an image. Fallback sentences
 # used when GEMINI_API_KEY isn't set or the call fails, so a result is never blocked.
@@ -2111,7 +2170,8 @@ async def get_booking_messages(bid: str, user=Depends(get_current_user)):
         p = await db.profiles.find_one({"id": m["sender_id"]}, {"_id": 0, "name": 1, "role": 1})
         m["sender_name"] = p["name"] if p else "?"
     barber = await db.barbers.find_one({"id": booking["barber_id"]}, {"_id": 0, "name": 1, "photo": 1})
-    return {"booking_id": bid, "barber": barber, "messages": msgs}
+    customer = await db.profiles.find_one({"id": booking["user_id"]}, {"_id": 0, "name": 1, "photo": 1})
+    return {"booking_id": bid, "barber": barber, "customer": customer, "messages": msgs}
 
 
 @api.post("/bookings/{bid}/messages")
@@ -2151,7 +2211,8 @@ async def get_owner_messages(bid: str, user=Depends(get_current_user)):
         p = await db.profiles.find_one({"id": m["sender_id"]}, {"_id": 0, "name": 1, "role": 1})
         m["sender_name"] = p["name"] if p else "?"
     shop = await db.barbershops.find_one({"id": booking["shop_id"]}, {"_id": 0, "name": 1, "image": 1})
-    return {"booking_id": bid, "shop": shop, "messages": msgs}
+    customer = await db.profiles.find_one({"id": booking["user_id"]}, {"_id": 0, "name": 1, "photo": 1})
+    return {"booking_id": bid, "shop": shop, "customer": customer, "messages": msgs}
 
 
 @api.post("/bookings/{bid}/owner-messages")
