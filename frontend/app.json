@@ -3,7 +3,7 @@
     "name": "PangkasKAKA",
     "slug": "pangkaskaka",
     "version": "1.0.0",
-    "platforms": ["ios", "android"],
+    "platforms": ["ios", "android", "web"],
     "orientation": "portrait",
     "icon": "./assets/images/icon-app.png",
     "scheme": "pangkaskaka",
@@ -44,7 +44,8 @@
           "isAccessMediaLocationEnabled": false
         }
       ],
-      "./plugins/withRawPropsJsiValueFlag.js"
+      "./plugins/withRawPropsJsiValueFlag.js",
+      "@maplibre/maplibre-react-native"
     ],
     "experiments": {
       "typedRoutes": true

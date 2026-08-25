@@ -1,33 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Map, Camera, Marker } from "@maplibre/maplibre-react-native";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import PressableScale from "@/src/components/PressableScale";
 
-const POLL_INTERVAL = 8000; // 8 detik, selaras dengan interval push lokasi karyawan
+// MapLibre (peta live tracking) tidak jalan di web build — file .web.tsx ini
+// otomatis dipilih Metro saat build untuk web, jadi turun ke kartu jarak/status
+// berbasis teks saja (sama seperti tampilan sebelum peta ditambahkan). Peta
+// penuh tetap tersedia di aplikasi mobile — lihat [bookingId].tsx.
+const POLL_INTERVAL = 8000;
 
 type LocationResp = { lat: number; lng: number; updated_at: string; distance_km?: number };
 
-// Raster tile OSM gratis, tanpa API key. Sesuai kebijakan pemakaian OSM, atribusi
-// wajib ditampilkan — lihat komponen Map (attribution) dan caption di bawah peta.
-const OSM_STYLE = {
-  version: 8 as const,
-  sources: {
-    osm: {
-      type: "raster" as const,
-      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution: "© OpenStreetMap contributors",
-    },
-  },
-  layers: [{ id: "osm", type: "raster" as const, source: "osm" }],
-};
-
-export default function TrackBarberScreen() {
+export default function TrackBarberScreenWeb() {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
   const router = useRouter();
   const [booking, setBooking] = useState<any>(null);
@@ -62,21 +50,6 @@ export default function TrackBarberScreen() {
 
   const secondsAgo = loc ? Math.max(0, Math.round((Date.now() - new Date(loc.updated_at).getTime()) / 1000)) : 0;
 
-  const customerCoord: [number, number] | null =
-    booking?.customer_lat != null && booking?.customer_lng != null
-      ? [booking.customer_lng, booking.customer_lat]
-      : null;
-  const barberCoord: [number, number] | null = loc ? [loc.lng, loc.lat] : null;
-
-  const bounds = useMemo<[number, number, number, number] | null>(() => {
-    if (!customerCoord && !barberCoord) return null;
-    const pts = [customerCoord, barberCoord].filter(Boolean) as [number, number][];
-    const lngs = pts.map((p) => p[0]);
-    const lats = pts.map((p) => p[1]);
-    const pad = 0.006; // sedikit ruang di tepi peta
-    return [Math.min(...lngs) - pad, Math.min(...lats) - pad, Math.max(...lngs) + pad, Math.max(...lats) + pad];
-  }, [customerCoord, barberCoord]);
-
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
@@ -94,31 +67,6 @@ export default function TrackBarberScreen() {
           </PressableScale>
           <Text style={styles.backTitle}>Lacak Barber</Text>
         </View>
-
-        {bounds && (
-          <>
-            <View style={styles.mapCard}>
-              <Map mapStyle={OSM_STYLE} style={{ flex: 1 }} attribution logo={false} compass={false} scaleBar={false}>
-                <Camera initialViewState={{ bounds, padding: { top: 40, bottom: 40, left: 40, right: 40 } }} />
-                {customerCoord && (
-                  <Marker id="customer" lngLat={customerCoord}>
-                    <View style={styles.pinCustomer}>
-                      <Ionicons name="home" size={16} color="#FFFFFF" />
-                    </View>
-                  </Marker>
-                )}
-                {barberCoord && (
-                  <Marker id="barber" lngLat={barberCoord}>
-                    <View style={styles.pinBarber}>
-                      <Ionicons name="cut" size={16} color="#FFFFFF" />
-                    </View>
-                  </Marker>
-                )}
-              </Map>
-            </View>
-            <Text style={styles.mapAttribution}>Peta © OpenStreetMap contributors</Text>
-          </>
-        )}
 
         <LinearGradient
           colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
@@ -162,7 +110,7 @@ export default function TrackBarberScreen() {
         <View style={styles.tipBox}>
           <Ionicons name="information-circle" size={16} color={COLORS.info} />
           <Text style={styles.tipText}>
-            Halaman ini otomatis diperbarui tiap beberapa detik selama barber membagikan lokasi. Kalau lokasi tidak muncul, kemungkinan barber sedang tidak aktif membagikan lokasi — booking kamu tetap aman.
+            Peta lokasi live tersedia di aplikasi mobile. Halaman ini otomatis diperbarui tiap beberapa detik selama barber membagikan lokasi.
           </Text>
         </View>
       </ScrollView>
@@ -184,20 +132,6 @@ const styles = StyleSheet.create({
   backRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 },
   back: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.border },
   backTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 18 },
-
-  mapCard: {
-    height: 260, borderRadius: 20, overflow: "hidden", borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3,
-  },
-  mapAttribution: { color: COLORS.textDim, fontSize: 10, fontFamily: FONT.medium, textAlign: "right", marginTop: 4, marginBottom: 12 },
-  pinCustomer: {
-    width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.sidebar, alignItems: "center", justifyContent: "center",
-    borderWidth: 2, borderColor: "#FFFFFF", shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 4, elevation: 4,
-  },
-  pinBarber: {
-    width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center",
-    borderWidth: 2, borderColor: "#FFFFFF", shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 4, elevation: 4,
-  },
 
   hero: { padding: 24, borderRadius: 24, alignItems: "center", overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 20, elevation: 6 },
   heroDeco: { position: "absolute", width: 180, height: 180, borderRadius: 90, backgroundColor: "rgba(255,255,255,0.08)", top: -70, right: -50 },
