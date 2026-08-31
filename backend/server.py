@@ -12,9 +12,6 @@ import base64
 import logging
 import asyncio
 import secrets
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 from datetime import datetime, timedelta, timezone, date, time as dtime
 from typing import List, Optional, Any, Literal, Dict
@@ -55,8 +52,9 @@ JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", 168))
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 _gemini_client = _genai.Client(api_key=GEMINI_API_KEY) if (_genai and GEMINI_API_KEY) else None
 
-GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "")
-GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
+BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "")
+BREVO_SENDER_EMAIL = os.environ.get("BREVO_SENDER_EMAIL", "pangkaskaka26@gmail.com")
+BREVO_SENDER_NAME = os.environ.get("BREVO_SENDER_NAME", "PangkasKAKA")
 
 # "development" (default) | "production" — gerbang untuk fitur yang tidak boleh
 # aktif di production (auto-seed demo data, dsb).
@@ -454,27 +452,30 @@ async def send_notif(user_id: str, title: str, message: str, type: str = "info")
     await db.notifications.insert_one(doc)
 
 
-def _send_email_sync(to: str, subject: str, html: str) -> None:
-    msg = MIMEMultipart("alternative")
-    msg["From"] = f"PangkasKAKA <{GMAIL_ADDRESS}>"
-    msg["To"] = to
-    msg["Subject"] = subject
-    msg.attach(MIMEText(html, "html"))
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
-        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
-        server.sendmail(GMAIL_ADDRESS, [to], msg.as_string())
-
-
 async def send_email(to: str, subject: str, html: str) -> bool:
-    """Kirim email transaksional via Gmail SMTP (akun tim). No-op (log only) kalau GMAIL_APP_PASSWORD belum diset."""
-    if not (GMAIL_ADDRESS and GMAIL_APP_PASSWORD):
-        log.warning("GMAIL_APP_PASSWORD belum diset, email ke %s tidak dikirim (subject: %s)", to, subject)
+    """Kirim email transaksional via Brevo HTTP API, dengan sender terverifikasi
+    pangkaskaka26@gmail.com. Pakai HTTP API (bukan SMTP mentah) karena Railway
+    memblokir koneksi SMTP keluar (port 465/587) di level jaringan.
+    No-op (log only) kalau BREVO_API_KEY belum diset."""
+    if not BREVO_API_KEY:
+        log.warning("BREVO_API_KEY belum diset, email ke %s tidak dikirim (subject: %s)", to, subject)
         return False
     try:
-        await asyncio.to_thread(_send_email_sync, to, subject, html)
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            r = await http.post(
+                "https://api.brevo.com/v3/smtp/email",
+                headers={"api-key": BREVO_API_KEY, "content-type": "application/json"},
+                json={
+                    "sender": {"email": BREVO_SENDER_EMAIL, "name": BREVO_SENDER_NAME},
+                    "to": [{"email": to}],
+                    "subject": subject,
+                    "htmlContent": html,
+                },
+            )
+            r.raise_for_status()
         return True
     except Exception:
-        log.exception("Gagal mengirim email via Gmail SMTP ke %s", to)
+        log.exception("Gagal mengirim email via Brevo ke %s", to)
         return False
 
 
