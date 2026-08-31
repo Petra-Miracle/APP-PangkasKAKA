@@ -60,7 +60,7 @@ export default function Index() {
         <View pointerEvents="none" style={styles.decoSmall} />
         <Animated.View style={[styles.logo, logoAnimStyle]}>
           <View style={styles.logoRing} />
-          <Image source={require("@/assets/images/Logo-Terbaru-PangkasKAKA.jpg")} style={styles.logoImg} contentFit="contain" />
+          <Image source={require("@/assets/images/icon-app.png")} style={styles.logoImg} contentFit="contain" />
         </Animated.View>
         <Text style={styles.brand}>PangkasKAKA</Text>
         <Text style={styles.tag}>Barbershop · Kupang NTT</Text>
@@ -84,7 +84,7 @@ const styles = StyleSheet.create({
     shadowColor: "#000000", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.4, shadowRadius: 20, elevation: 10,
   },
   logoRing: { position: "absolute", width: 92, height: 92, borderRadius: 30, borderWidth: 2, borderColor: COLORS.gold, opacity: 0.55 },
-  logoImg: { width: 72, height: 72 },
+  logoImg: { width: 72, height: 72, borderRadius: 18 },
   brand: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 28, marginTop: 18, letterSpacing: -0.5 },
   tag: { color: COLORS.sidebarTextDim, fontFamily: FONT.medium, fontSize: 13, marginTop: 4, letterSpacing: 1 },
   spinner: { flexDirection: "row", gap: 8, marginTop: 40 },

@@ -19,7 +19,7 @@ export function AuthHero({ title, subtitle }: { title?: string; subtitle?: strin
       <View pointerEvents="none" style={styles.decoCircleR} />
       <View pointerEvents="none" style={styles.decoRing} />
       <View style={styles.logoBadge}>
-        <Image source={require("@/assets/images/Logo-Terbaru-PangkasKAKA.jpg")} style={styles.logoImg} contentFit="contain" />
+        <Image source={require("@/assets/images/icon-app.png")} style={styles.logoImg} contentFit="contain" />
       </View>
       <Text style={styles.brand}>PangkasKAKA</Text>
       {title && <Text style={styles.title}>{title}</Text>}
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     shadowColor: "#0A2540", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 16, elevation: 8,
   },
-  logoImg: { width: 46, height: 46 },
+  logoImg: { width: 46, height: 46, borderRadius: 12 },
   brand: { color: "#FFFFFF", fontSize: 24, fontFamily: FONT.extrabold, marginTop: 14, letterSpacing: -0.5 },
   title: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.bold, marginTop: 24, textAlign: "center" },
   subtitle: { color: "rgba(255,255,255,0.85)", fontSize: 13, fontFamily: FONT.medium, marginTop: 6, textAlign: "center" },

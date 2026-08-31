@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon-adaptive-fg.png",
-        "backgroundColor": "#FFFFFF"
+        "backgroundColor": "#006FEE"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.pangkaskaka.app",
@@ -30,10 +30,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/Logo-Terbaru-PangkasKAKA.jpg",
-          "imageWidth": 220,
+          "image": "./assets/images/icon-app.png",
+          "imageWidth": 180,
           "resizeMode": "contain",
-          "backgroundColor": "#FFFFFF"
+          "backgroundColor": "#006FEE"
         }
       ],
       [

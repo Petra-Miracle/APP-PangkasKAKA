@@ -1,11 +1,12 @@
 import { useState, useCallback, useEffect, useRef } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Modal, KeyboardAvoidingView, Platform, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
 import { api, COLORS, FONT, rupiah, tanggal, formatJarak } from "@/src/lib/api";
+import { useAuth } from "@/src/lib/auth";
 import PressableScale from "@/src/components/PressableScale";
 import EmptyState from "@/src/components/EmptyState";
 import Skeleton, { SkeletonRow } from "@/src/components/Skeleton";
@@ -72,6 +73,7 @@ const STATUS_META: Record<string, { color: string; bg: string; label: string }> 
 export default function Orders() {
   const router = useRouter();
   const [tab, setTab] = useState("aktif");
+  const { refresh: refreshAuth } = useAuth();
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [reviewFor, setReviewFor] = useState<any>(null);
@@ -87,8 +89,33 @@ export default function Orders() {
   useEffect(() => { api.get("/payments/mode").then((m) => setPaymentMode(m.mode || "simulation")).catch(() => {}); }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  const cancel = async (id: string) => {
-    try { await api.post(`/bookings/${id}/cancel`); await load(); } catch (e: any) { alert(e.message); }
+  const cancel = (o: any) => {
+    // Sesuai kebijakan: batal >= H-2 jam bebas penalti; batal < H-2 jam tetap
+    // boleh, tapi akun kena penalti (tidak bisa order Barber ke Rumah lagi).
+    const bookingDateTime = new Date(`${o.booking_date}T${o.booking_time}:00+08:00`);
+    const hoursLeft = (bookingDateTime.getTime() - Date.now()) / 3600000;
+    const isLate = hoursLeft < 2;
+    Alert.alert(
+      "Batalkan Pesanan",
+      isLate
+        ? "Pembatalan kurang dari H-2 jam sebelum jadwal akan memberi penalti: kamu tidak bisa lagi memesan jasa Barber ke Rumah. Tetap batalkan?"
+        : "Yakin ingin membatalkan pesanan ini?",
+      [
+        { text: "Batal", style: "cancel" },
+        {
+          text: "Ya, Batalkan", style: "destructive", onPress: async () => {
+            try {
+              const r = await api.post(`/bookings/${o.id}/cancel`);
+              await load();
+              if (r.penalty_applied) {
+                await refreshAuth();
+                Alert.alert("Pesanan Dibatalkan", "Karena dibatalkan kurang dari H-2 jam, akunmu tidak bisa lagi memesan jasa Barber ke Rumah.");
+              }
+            } catch (e: any) { alert(e.message); }
+          },
+        },
+      ]
+    );
   };
   const pay = async (id: string) => {
     if (paymentMode !== "simulation") { router.push(`/payment/status/${id}` as any); return; }
@@ -187,7 +214,7 @@ export default function Orders() {
                   </PressableScale>
                 )}
                 {(o.status === "pending" || o.status === "confirmed") && (
-                  <PressableScale style={styles.cancelBtn} onPress={() => cancel(o.id)} scaleTo={0.96}>
+                  <PressableScale style={styles.cancelBtn} onPress={() => cancel(o)} scaleTo={0.96}>
                     <Text style={styles.cancelText}>Batalkan Pesanan</Text>
                   </PressableScale>
                 )}

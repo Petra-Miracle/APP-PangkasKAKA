@@ -7,12 +7,14 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
+import { useAuth } from "@/src/lib/auth";
 import PressableScale from "@/src/components/PressableScale";
 import Skeleton from "@/src/components/Skeleton";
 
 export default function ShopDetail() {
   const { id, rebookServiceId, rebookBarberId } = useLocalSearchParams<{ id: string; rebookServiceId?: string; rebookBarberId?: string }>();
   const router = useRouter();
+  const { user } = useAuth();
   const [shop, setShop] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [step, setStep] = useState(1);
@@ -275,11 +277,25 @@ export default function ShopDetail() {
                   <Ionicons name="storefront" size={18} color={deliveryMode === "toko" ? "#FFFFFF" : COLORS.brand} />
                   <Text style={[styles.modeChipText, deliveryMode === "toko" && { color: "#FFFFFF" }]}>Datang ke Toko</Text>
                 </PressableScale>
-                <PressableScale testID="mode-rumah" style={[styles.modeChip, deliveryMode === "rumah" && styles.modeChipActive]} onPress={() => setDeliveryMode("rumah")} scaleTo={0.97}>
+                <PressableScale
+                  testID="mode-rumah"
+                  style={[styles.modeChip, deliveryMode === "rumah" && styles.modeChipActive, user?.home_delivery_blocked && { opacity: 0.4 }]}
+                  onPress={() => {
+                    if (user?.home_delivery_blocked) {
+                      Alert.alert("Tidak Tersedia", "Kamu tidak bisa memesan jasa Barber ke Rumah karena pernah membatalkan booking kurang dari H-2 jam sebelum jadwal.");
+                      return;
+                    }
+                    setDeliveryMode("rumah");
+                  }}
+                  scaleTo={0.97}
+                >
                   <Ionicons name="home" size={18} color={deliveryMode === "rumah" ? "#FFFFFF" : COLORS.brand} />
                   <Text style={[styles.modeChipText, deliveryMode === "rumah" && { color: "#FFFFFF" }]}>Barber ke Rumah</Text>
                 </PressableScale>
               </View>
+              {user?.home_delivery_blocked && (
+                <Text style={styles.homeBlockedHint}>Jasa Barber ke Rumah dinonaktifkan untuk akunmu karena riwayat pembatalan mendadak (kurang dari H-2 jam).</Text>
+              )}
 
               {deliveryMode === "rumah" && (
                 <View style={styles.homeBox}>
@@ -493,6 +509,7 @@ const styles = StyleSheet.create({
   },
   modeChipActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
   modeChipText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
+  homeBlockedHint: { color: COLORS.error, fontFamily: FONT.medium, fontSize: 11, marginBottom: 14, lineHeight: 15 },
   homeBox: { backgroundColor: COLORS.brandDim, padding: 14, borderRadius: 16, marginBottom: 14, gap: 10 },
   homeFeeNote: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 12 },
   addrInput: { backgroundColor: COLORS.surface, color: COLORS.text, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, fontFamily: FONT.medium, fontSize: 13, minHeight: 60, textAlignVertical: "top" },

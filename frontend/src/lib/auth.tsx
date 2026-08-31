@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "./api";
 
-type User = { id: string; email: string; name: string; phone: string; role: "customer" | "owner" | "admin" | "karyawan"; address?: string; lat?: number; lng?: number; photo?: string };
+type User = { id: string; email: string; name: string; phone: string; role: "customer" | "owner" | "admin" | "karyawan"; address?: string; lat?: number; lng?: number; photo?: string; home_delivery_blocked?: boolean };
 
 type AuthCtx = {
   user: User | null;

@@ -805,6 +805,8 @@ async def create_booking(body: BookingIn, user=Depends(get_current_user)):
         raise HTTPException(404, "Layanan tidak ditemukan")
     if body.delivery_mode == "rumah" and (body.customer_lat is None or body.customer_lng is None):
         raise HTTPException(400, "Lokasi rumah wajib diisi untuk booking ke rumah")
+    if body.delivery_mode == "rumah" and user.get("home_delivery_blocked"):
+        raise HTTPException(403, "Kamu tidak bisa memesan jasa panggil ke rumah lagi karena pernah membatalkan booking kurang dari H-2 jam sebelum jadwal.")
     # re-validate slot
     slots = await compute_available_slots(body.shop_id, body.barber_id, body.booking_date, svc["duration"])
     match = next((s for s in slots if s["time"] == body.booking_time), None)
@@ -937,12 +939,16 @@ async def cancel_booking(bid: str, user=Depends(get_current_user)):
         raise HTTPException(404, "Pesanan tidak ditemukan")
     if b["status"] not in ("pending", "confirmed"):
         raise HTTPException(400, "Pesanan ini tidak bisa dibatalkan")
-    # min 2 hours before
+    # Batal H-2 jam atau lebih: bebas, tanpa penalti. Batal kurang dari H-2 jam:
+    # tetap boleh dibatalkan, tapi akun kena penalti — tidak bisa lagi order
+    # jasa panggilan pangkas ke rumah (delivery_mode "rumah").
     dt = datetime.strptime(f"{b['booking_date']} {b['booking_time']}", "%Y-%m-%d %H:%M").replace(tzinfo=WITA)
-    if dt < datetime.now(WITA) + timedelta(hours=2):
-        raise HTTPException(400, "Pembatalan hanya bisa maksimal H-2 jam")
-    await db.bookings.update_one({"id": bid}, {"$set": {"status": "cancelled"}})
-    return {"ok": True}
+    late_cancel = dt < datetime.now(WITA) + timedelta(hours=2)
+    updates = {"status": "cancelled"}
+    if late_cancel:
+        await db.profiles.update_one({"id": user["id"]}, {"$set": {"home_delivery_blocked": True}})
+    await db.bookings.update_one({"id": bid}, {"$set": updates})
+    return {"ok": True, "penalty_applied": late_cancel}
 
 
 @api.post("/bookings/{bid}/review")
