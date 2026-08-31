@@ -217,6 +217,9 @@ class RegisterIn(BaseModel):
     name: str
     phone: str
     role: Literal["customer", "owner", "admin", "karyawan"] = "customer"
+    address: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 
 class LoginIn(BaseModel):
@@ -238,6 +241,8 @@ class UpdateProfileIn(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
     photo: Optional[str] = None
 
 
@@ -580,7 +585,9 @@ async def register(body: RegisterIn, request: Request):
         "name": body.name,
         "phone": body.phone,
         "role": body.role,
-        "address": "",
+        "address": body.address or "",
+        "lat": body.lat,
+        "lng": body.lng,
         "photo": "",
         "created_at": now_utc().isoformat(),
     }

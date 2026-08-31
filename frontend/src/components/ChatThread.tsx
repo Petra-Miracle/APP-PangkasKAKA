@@ -84,13 +84,30 @@ export default function ChatThread({
   };
 
   const send = async () => {
-    if (!text.trim() && !attachment) return;
+    const trimmed = text.trim();
+    if (!trimmed && !attachment) return;
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: ChatMessage = {
+      id: tempId,
+      sender_id: user?.id || "",
+      sender_name: user?.name,
+      sender_role: user?.role,
+      text: trimmed,
+      attachment,
+      created_at: new Date().toISOString(),
+    };
+    // Tampilkan pesan langsung (optimistic) — sebelumnya UI menunggu POST + GET
+    // (round-trip ganda) sebelum pesan muncul, terasa delay tiap kirim.
+    setMessages((prev) => [...prev, optimistic]);
+    setText(""); setAttachment("");
     setSending(true);
     try {
-      await api.post(sendUrl, { text: text.trim(), attachment });
-      setText(""); setAttachment("");
+      await api.post(sendUrl, { text: optimistic.text, attachment: optimistic.attachment });
       await load();
-    } catch (e: any) { alert(e.message); }
+    } catch (e: any) {
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
+      alert(e.message);
+    }
     setSending(false);
   };
 

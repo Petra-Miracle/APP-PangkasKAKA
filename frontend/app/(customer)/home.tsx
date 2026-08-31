@@ -43,6 +43,12 @@ export default function Home() {
     } catch { setNearbyBarbers([]); }
   }, []);
 
+  // Kalau GPS live gagal/ditolak, pakai koordinat alamat yang didaftarkan user
+  // (diisi saat registrasi) sebelum jatuh ke titik default Kupang — supaya
+  // "toko terdekat" tetap terasa personal walau izin lokasi tidak diberikan.
+  const registeredCoords = (): { lat: number; lng: number } =>
+    user?.lat != null && user?.lng != null ? { lat: user.lat, lng: user.lng } : { lat: -10.1789, lng: 123.607 };
+
   const init = useCallback(async () => {
     setLoading(true);
     try {
@@ -52,15 +58,15 @@ export default function Home() {
         try {
           const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           c = { lat: loc.coords.latitude, lng: loc.coords.longitude };
-        } catch { c = { lat: -10.1789, lng: 123.607 }; }
+        } catch { c = registeredCoords(); }
       } else {
-        c = { lat: -10.1789, lng: 123.607 };
+        c = registeredCoords();
       }
       setCoords(c);
       await loadShops(c);
       await loadNearbyBarbers(c);
     } catch {} finally { setLoading(false); }
-  }, [loadShops, loadNearbyBarbers]);
+  }, [loadShops, loadNearbyBarbers, user?.lat, user?.lng]);
 
   useEffect(() => { init(); }, [init]);
 

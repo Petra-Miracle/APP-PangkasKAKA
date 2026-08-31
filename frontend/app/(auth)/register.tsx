@@ -4,6 +4,7 @@ import { useRouter, Link } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import { useAuth } from "@/src/lib/auth";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import { AuthHero, GradientButton } from "@/src/components/AuthUI";
@@ -26,6 +27,9 @@ export default function Register() {
 
   const [basic, setBasic] = useState({ name: "", email: "", phone: "", password: "" });
   const [showPw, setShowPw] = useState(false);
+  const [regAddress, setRegAddress] = useState("");
+  const [regCoords, setRegCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [regGpsLoading, setRegGpsLoading] = useState(false);
   const [shopForm, setShopForm] = useState({
     name: "", address: "", price_range: "Rp 25.000 - Rp 75.000",
     bank_name: "", account_number: "", account_holder: "",
@@ -44,6 +48,16 @@ export default function Register() {
       api.get("/shops?sort=rating").then((r) => setShops(r.shops)).catch(() => {});
     }
   }, [role, step, shops.length]);
+
+  const useRegCurrentLocation = async () => {
+    setRegGpsLoading(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") { alert("Izin lokasi dibutuhkan untuk mendeteksi toko terdekat"); return; }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setRegCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+    } catch { alert("Gagal mengambil lokasi, coba lagi"); } finally { setRegGpsLoading(false); }
+  };
 
   const pickDoc = async (setter: (val: string) => void) => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -85,7 +99,10 @@ export default function Register() {
   const submit = async () => {
     setErr(null); setLoading(true);
     try {
-      const u = await register({ ...basic, role });
+      const u = await register({
+        ...basic, role,
+        ...(role === "customer" ? { address: regAddress, lat: regCoords?.lat, lng: regCoords?.lng } : {}),
+      });
       if (u.role === "owner") {
         const v = validOwner();
         if (v) { setErr(v); setLoading(false); return; }
@@ -170,6 +187,18 @@ export default function Register() {
                     <Ionicons name={showPw ? "eye-off-outline" : "eye-outline"} size={18} color={COLORS.textDim} />
                   </PressableScale>
                 </View>
+
+                {role === "customer" && (
+                  <>
+                    <Text style={styles.label}>Alamat</Text>
+                    <FormInput icon="home-outline" value={regAddress} onChangeText={setRegAddress} placeholder="Jl. Timor Raya No. 12, Kupang" testID="reg-address" onFocus={handleFocus} />
+                    <Text style={styles.hint}>Dipakai untuk menampilkan barbershop terdekat dari lokasimu di Beranda.</Text>
+                    <PressableScale onPress={useRegCurrentLocation} testID="reg-use-location" style={styles.locBtn} scaleTo={0.98}>
+                      {regGpsLoading ? <ActivityIndicator size="small" color={COLORS.brand} /> : <Ionicons name="locate" size={16} color={COLORS.brand} />}
+                      <Text style={styles.locBtnText}>{regCoords ? "Lokasi terdeteksi ✓" : "Gunakan Lokasi Saat Ini"}</Text>
+                    </PressableScale>
+                  </>
+                )}
 
                 {err && <ErrorMsg testID="reg-error" msg={err} />}
                 <GradientButton testID="reg-next" label={role === "customer" ? "DAFTAR SEKARANG" : "LANJUT"} icon="arrow-forward" onPress={nextFromBasic} loading={loading} />
@@ -325,6 +354,8 @@ const styles = StyleSheet.create({
   inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface2, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
   input: { flex: 1, color: COLORS.text, paddingVertical: 12, fontFamily: FONT.medium, fontSize: 14 },
   multi: { backgroundColor: COLORS.surface2, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, paddingHorizontal: 14, minHeight: 68, textAlignVertical: "top", color: COLORS.text, fontFamily: FONT.medium, paddingVertical: 12 },
+  locBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.brandDim, borderRadius: 12, paddingVertical: 12, marginTop: 10 },
+  locBtnText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 13 },
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 20 },
   agreeRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 16 },
   agreeText: { flex: 1, color: COLORS.text, fontFamily: FONT.medium, fontSize: 12, lineHeight: 17 },

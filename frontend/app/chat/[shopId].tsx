@@ -50,13 +50,31 @@ export default function ChatScreen() {
   };
 
   const send = async () => {
-    if (!text.trim() && !attachment) return;
+    const trimmed = text.trim();
+    if (!trimmed && !attachment) return;
+    const tempId = `temp-${Date.now()}`;
+    const optimistic = {
+      id: tempId,
+      sender_id: user?.id,
+      sender_name: user?.name,
+      sender_role: user?.role,
+      text: trimmed,
+      attachment,
+      doc_ref: docRef,
+      created_at: new Date().toISOString(),
+    };
+    // Optimistic append — sebelumnya pesan baru muncul setelah POST + GET
+    // (round-trip ganda), terasa delay tiap kirim.
+    setThread((prev: any) => (prev ? { ...prev, messages: [...(prev.messages || []), optimistic] } : prev));
+    setText(""); setAttachment(""); setDocRef("");
     setSending(true);
     try {
-      await api.post(`/chat/threads/${shopId}/messages`, { text: text.trim(), attachment, doc_ref: docRef });
-      setText(""); setAttachment(""); setDocRef("");
+      await api.post(`/chat/threads/${shopId}/messages`, { text: optimistic.text, attachment: optimistic.attachment, doc_ref: optimistic.doc_ref });
       await load();
-    } catch (e: any) { alert(e.message); }
+    } catch (e: any) {
+      setThread((prev: any) => (prev ? { ...prev, messages: (prev.messages || []).filter((m: any) => m.id !== tempId) } : prev));
+      alert(e.message);
+    }
     setSending(false);
   };
 

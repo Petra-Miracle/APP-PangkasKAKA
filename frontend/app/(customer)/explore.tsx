@@ -7,6 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { api, COLORS, FONT, formatJarak } from "@/src/lib/api";
+import { useAuth } from "@/src/lib/auth";
 import PressableScale from "@/src/components/PressableScale";
 import EmptyState from "@/src/components/EmptyState";
 import Skeleton, { SkeletonShopCard } from "@/src/components/Skeleton";
@@ -45,6 +46,7 @@ const PRICE_OPTIONS = [
 
 export default function Explore() {
   const router = useRouter();
+  const { user } = useAuth();
   // "q" bisa datang dari luar (mis. tombol "Cari Barber Terdekat" di hasil AI Face Scan)
   // untuk pre-fill pencarian — ini murni prefill kotak cari, bukan jaminan toko tersedia.
   const params = useLocalSearchParams<{ q?: string }>();
@@ -75,6 +77,11 @@ export default function Explore() {
     } catch {} finally { setLoading(false); }
   }, []);
 
+  // Kalau GPS live gagal/ditolak, pakai koordinat alamat yang didaftarkan user
+  // sebelum jatuh ke titik default Kupang — sama seperti di Beranda.
+  const registeredCoords = (): { lat: number; lng: number } =>
+    user?.lat != null && user?.lng != null ? { lat: user.lat, lng: user.lng } : { lat: -10.1789, lng: 123.607 };
+
   useEffect(() => {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -83,15 +90,15 @@ export default function Explore() {
         try {
           const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           c = { lat: loc.coords.latitude, lng: loc.coords.longitude };
-        } catch { c = { lat: -10.1789, lng: 123.607 }; }
+        } catch { c = registeredCoords(); }
       } else {
-        c = { lat: -10.1789, lng: 123.607 };
+        c = registeredCoords();
       }
       setCoords(c);
       await load(c, { sort, maxDistance, minRating, maxPrice, search });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.lat, user?.lng]);
 
   const runSearch = async (text: string) => {
     setSearch(text);
