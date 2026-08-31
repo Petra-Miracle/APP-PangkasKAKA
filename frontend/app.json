@@ -16,6 +16,9 @@
         "NSCameraUsageDescription": "PangkasKAKA butuh akses kamera untuk AI Face Scan."
       }
     },
+    "web": {
+      "favicon": "./assets/images/icon-app.png"
+    },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon-adaptive-fg.png",

@@ -12,6 +12,9 @@ import base64
 import logging
 import asyncio
 import secrets
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 from datetime import datetime, timedelta, timezone, date, time as dtime
 from typing import List, Optional, Any, Literal, Dict
@@ -41,12 +44,6 @@ try:
 except Exception:  # pragma: no cover
     _genai = None
 
-# Resend (transactional email — forgot-password OTP)
-try:
-    import resend as _resend
-except Exception:  # pragma: no cover
-    _resend = None
-
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
@@ -58,10 +55,8 @@ JWT_EXP_HOURS = int(os.environ.get("JWT_EXP_HOURS", 168))
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 _gemini_client = _genai.Client(api_key=GEMINI_API_KEY) if (_genai and GEMINI_API_KEY) else None
 
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
-RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "PangkasKAKA <onboarding@resend.dev>")
-if _resend and RESEND_API_KEY:
-    _resend.api_key = RESEND_API_KEY
+GMAIL_ADDRESS = os.environ.get("GMAIL_ADDRESS", "")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
 
 # "development" (default) | "production" — gerbang untuk fitur yang tidak boleh
 # aktif di production (auto-seed demo data, dsb).
@@ -459,19 +454,27 @@ async def send_notif(user_id: str, title: str, message: str, type: str = "info")
     await db.notifications.insert_one(doc)
 
 
+def _send_email_sync(to: str, subject: str, html: str) -> None:
+    msg = MIMEMultipart("alternative")
+    msg["From"] = f"PangkasKAKA <{GMAIL_ADDRESS}>"
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg.attach(MIMEText(html, "html"))
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=15) as server:
+        server.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
+        server.sendmail(GMAIL_ADDRESS, [to], msg.as_string())
+
+
 async def send_email(to: str, subject: str, html: str) -> bool:
-    """Kirim email transaksional via Resend. No-op (log only) kalau RESEND_API_KEY belum diset."""
-    if not (_resend and RESEND_API_KEY):
-        log.warning("RESEND_API_KEY belum diset, email ke %s tidak dikirim (subject: %s)", to, subject)
+    """Kirim email transaksional via Gmail SMTP (akun tim). No-op (log only) kalau GMAIL_APP_PASSWORD belum diset."""
+    if not (GMAIL_ADDRESS and GMAIL_APP_PASSWORD):
+        log.warning("GMAIL_APP_PASSWORD belum diset, email ke %s tidak dikirim (subject: %s)", to, subject)
         return False
     try:
-        await asyncio.to_thread(
-            _resend.Emails.send,
-            {"from": RESEND_FROM_EMAIL, "to": [to], "subject": subject, "html": html},
-        )
+        await asyncio.to_thread(_send_email_sync, to, subject, html)
         return True
     except Exception:
-        log.exception("Gagal mengirim email via Resend ke %s", to)
+        log.exception("Gagal mengirim email via Gmail SMTP ke %s", to)
         return False
 
 
