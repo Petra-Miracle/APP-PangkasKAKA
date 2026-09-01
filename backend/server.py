@@ -35,11 +35,15 @@ try:
 except Exception:  # pragma: no cover
     _HAS_CRYPTO = False
 
-# Gemini (AI Face Scan reasoning text — text-only, official Google GenAI SDK)
+# Gemini (AI Face Scan reasoning text, admin document-review assist — official
+# Google GenAI SDK). _genai_types is needed separately for the image Part
+# helper used by document review.
 try:
     from google import genai as _genai
+    from google.genai import types as _genai_types
 except Exception:  # pragma: no cover
     _genai = None
+    _genai_types = None
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
@@ -1111,15 +1115,128 @@ async def admin_review_doc(shop_id: str, doc_key: str, body: DocReviewIn, user=D
         else:
             updates["verification_status"] = "pending"
         # Send per-doc notification
-        label_map = {"ktp": "KTP", "nib": "NIB", "npwp": "NPWP", "surat_usaha": "Surat Izin Usaha", "toko": "Foto Toko"}
         if body.status == "invalid":
-            await send_notif(shop["owner_id"], f"Dokumen {label_map[doc_key]} ditolak", body.note or "Silakan hubungi admin.", "system")
+            await send_notif(shop["owner_id"], f"Dokumen {DOC_LABELS[doc_key]} ditolak", body.note or "Silakan hubungi admin.", "system")
         elif body.status == "needs_revision":
-            await send_notif(shop["owner_id"], f"Perlu revisi: {label_map[doc_key]}", body.note or "Silakan unggah ulang.", "system")
+            await send_notif(shop["owner_id"], f"Perlu revisi: {DOC_LABELS[doc_key]}", body.note or "Silakan unggah ulang.", "system")
         elif body.status == "valid":
-            await send_notif(shop["owner_id"], f"Dokumen {label_map[doc_key]} valid ✓", "Menunggu dokumen lainnya diverifikasi.", "system")
+            await send_notif(shop["owner_id"], f"Dokumen {DOC_LABELS[doc_key]} valid ✓", "Menunggu dokumen lainnya diverifikasi.", "system")
     await db.barbershops.update_one({"id": shop_id}, {"$set": updates})
     return {"ok": True, "docs": docs, "all_valid": all_valid}
+
+
+def _parse_document_data_uri(value: str):
+    """('data:image/jpeg;base64,...') -> (mime_type, raw_bytes), or None if not
+    a usable image (missing, not a data URI, or a non-image MIME type — every
+    document upload in this app is picker-restricted to images, never PDF)."""
+    if not value or not value.startswith("data:"):
+        return None
+    try:
+        header, b64data = value.split(",", 1)
+        mime = header[len("data:"):].split(";")[0]
+        if not mime.startswith("image/"):
+            return None
+        return mime, base64.b64decode(b64data)
+    except Exception:
+        return None
+
+
+DOC_LABELS = {"ktp": "KTP", "nib": "NIB", "npwp": "NPWP", "surat_usaha": "Surat Izin Usaha", "toko": "Foto Toko"}
+
+# Plain-language description of what a genuine version of each document type
+# actually contains, so Gemini has something concrete to compare the upload
+# against instead of guessing. This is prompt guidance, not training data —
+# no document images are stored anywhere for this feature (see the endpoint
+# below: the Gemini call result is returned straight to the admin and never
+# written to the database).
+DOC_AI_GUIDANCE = {
+    "ktp": (
+        "KTP (Kartu Tanda Penduduk) Indonesia asli punya: lambang Garuda di kiri atas, "
+        "kop 'PROVINSI ...' dan 'KABUPATEN/KOTA ...', foto wajah pemegang di kanan, NIK "
+        "16 digit angka, kolom Nama, Tempat/Tgl Lahir, Jenis Kelamin, Alamat, Agama, "
+        "Status Perkawinan, Pekerjaan, Kewarganegaraan (WNI), Berlaku Hingga, dan tanda "
+        "tangan/nama pejabat penerbit di kanan bawah."
+    ),
+    "nib": (
+        "NIB (Nomor Induk Berusaha) asli adalah sertifikat elektronik dari sistem OSS "
+        "(Online Single Submission) pemerintah — punya nomor NIB 13 digit, QR code, nama "
+        "pelaku usaha, nama & alamat usaha, kode KBLI, dan kop resmi 'Lembaga OSS'."
+    ),
+    "npwp": (
+        "NPWP (Nomor Pokok Wajib Pajak) asli — kartu atau surat dari Direktorat Jenderal "
+        "Pajak, berisi nomor NPWP (format 15 atau 16 digit), nama Wajib Pajak, alamat "
+        "terdaftar, dan nama Kantor Pelayanan Pajak (KPP) penerbit."
+    ),
+    "surat_usaha": (
+        "Surat Izin Usaha asli biasanya surat resmi dengan kop instansi (kelurahan/"
+        "kecamatan/dinas terkait), nomor surat, tanggal terbit, nama & alamat usaha, "
+        "serta tanda tangan dan cap basah/stempel pejabat berwenang."
+    ),
+    "toko": (
+        "Ini seharusnya foto asli tampak depan sebuah barbershop/pangkas rambut fisik — "
+        "papan nama/signage, etalase atau pintu masuk toko yang nyata, bukan foto stok, "
+        "gambar dari internet, atau lokasi yang tidak relevan (mis. rumah tanpa identitas "
+        "usaha)."
+    ),
+}
+
+
+@api.post("/admin/shops/{shop_id}/documents/{doc_key}/ai-review")
+async def admin_ai_review_doc(shop_id: str, doc_key: str, user=Depends(require_role("admin"))):
+    """Advisory-only: asks Gemini Vision to describe what it reads in the
+    document and flag anything inconsistent with a genuine one, to help the
+    admin's own review. Never decides valid/invalid itself, and never writes
+    anything to the database — the result is returned once and forgotten,
+    same as this call not happening if GEMINI_API_KEY isn't configured."""
+    if doc_key not in DOC_LABELS:
+        raise HTTPException(400, "Doc key tidak valid")
+    if not _gemini_client:
+        return {"available": False, "reason": "Fitur AI belum dikonfigurasi di server"}
+
+    shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0})
+    if not shop:
+        raise HTTPException(404, "Toko tidak ditemukan")
+
+    doc = shop.get("docs", {}).get(doc_key) or {}
+    parsed = _parse_document_data_uri(doc.get("url", ""))
+    if not parsed:
+        return {"available": False, "reason": "Dokumen belum diunggah atau bukan format gambar yang bisa dianalisis"}
+    mime_type, image_bytes = parsed
+
+    owner = await db.profiles.find_one({"id": shop.get("owner_id")}, {"_id": 0, "name": 1})
+    owner_name = (owner or {}).get("name") or "(tidak diketahui)"
+
+    prompt = (
+        f"Kamu membantu admin sebuah platform barbershop meninjau dokumen "
+        f"'{DOC_LABELS[doc_key]}' yang diunggah pemilik toko bernama '{owner_name}' saat "
+        f"mendaftarkan tokonya '{shop.get('name', '')}'.\n\n"
+        f"Ciri dokumen {DOC_LABELS[doc_key]} asli: {DOC_AI_GUIDANCE[doc_key]}\n\n"
+        "Lihat gambar terlampir dan berikan catatan singkat (maksimal 4 kalimat, Bahasa "
+        "Indonesia, tanpa markdown) mencakup: apa yang terbaca di dokumen ini, apakah "
+        "tampilannya konsisten dengan dokumen asli sejenis atau ada kejanggalan (buram, "
+        "terpotong, jenis dokumen tidak cocok, tanda-tanda hasil edit/tempel), dan apakah "
+        "nama/data yang terbaca cocok dengan nama pemilik toko di atas. Ini HANYA catatan "
+        "bantuan untuk admin manusia — jangan menyatakan keputusan akhir valid atau "
+        "tidak valid, admin yang memutuskan."
+    )
+
+    try:
+        resp = await asyncio.wait_for(
+            _gemini_client.aio.models.generate_content(
+                model="gemini-flash-latest",
+                contents=[prompt, _genai_types.Part.from_bytes(data=image_bytes, mime_type=mime_type)],
+            ),
+            timeout=20.0,
+        )
+        notes = (getattr(resp, "text", "") or "").strip()
+    except Exception:
+        log.exception("Gemini document review call failed")
+        return {"available": False, "reason": "Analisis AI gagal — lanjutkan review manual"}
+
+    if not notes:
+        return {"available": False, "reason": "AI tidak menghasilkan catatan — lanjutkan review manual"}
+
+    return {"available": True, "doc_key": doc_key, "notes": notes}
 
 
 @api.get("/owner/dashboard")
