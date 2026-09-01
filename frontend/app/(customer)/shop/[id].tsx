@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal, Alert, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -21,6 +21,7 @@ export default function ShopDetail() {
   const [service, setService] = useState<any>(null);
   const [barber, setBarber] = useState<any>(null);
   const [date, setDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
+  const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [slots, setSlots] = useState<any[]>([]);
   const [slotTime, setSlotTime] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -76,10 +77,27 @@ export default function ShopDetail() {
     return () => clearInterval(iv);
   }, [payModal]);
 
-  const nextDays = Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date(); d.setDate(d.getDate() + i);
-    return { iso: d.toISOString().slice(0, 10), day: d.toLocaleDateString("id-ID", { weekday: "short" }), date: d.getDate() };
-  });
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const monthLabel = calendarMonth.toLocaleDateString("id-ID", { month: "long", year: "numeric" });
+  const isCurrentMonth = calendarMonth.getFullYear() === new Date().getFullYear() && calendarMonth.getMonth() === new Date().getMonth();
+
+  const calendarWeeks = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstWeekday = (new Date(year, month, 1).getDay() + 6) % 7; // Senin = 0
+    const cursor = new Date(year, month, 1 - firstWeekday);
+    const weeks: { iso: string; day: number; inMonth: boolean; isPast: boolean }[][] = [];
+    for (let w = 0; w < 6; w++) {
+      const week = [];
+      for (let d = 0; d < 7; d++) {
+        const iso = cursor.toISOString().slice(0, 10);
+        week.push({ iso, day: cursor.getDate(), inMonth: cursor.getMonth() === month, isPast: iso < todayIso });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+      weeks.push(week);
+    }
+    return weeks;
+  }, [calendarMonth, todayIso]);
 
   const createBooking = async () => {
     setCreating(true);
@@ -248,24 +266,97 @@ export default function ShopDetail() {
           {step === 3 && (
             <View>
               <Text style={styles.sec}>PILIH TANGGAL & JAM</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }} style={{ marginBottom: 12 }}>
-                {nextDays.map((d) => (
-                  <PressableScale key={d.iso} testID={`day-${d.iso}`} onPress={() => { setDate(d.iso); setSlotTime(null); }}
-                    style={[styles.dayChip, date === d.iso && styles.dayChipActive]} scaleTo={0.94}>
-                    <Text style={[styles.dayLabel, date === d.iso && { color: "rgba(255,255,255,0.85)" }]}>{d.day}</Text>
-                    <Text style={[styles.dayNum, date === d.iso && { color: "#FFFFFF" }]}>{d.date}</Text>
+
+              <View style={styles.calendarCard}>
+                <View style={styles.calendarHeader}>
+                  <PressableScale
+                    testID="cal-prev"
+                    onPress={() => !isCurrentMonth && setCalendarMonth((m) => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+                    disabled={isCurrentMonth}
+                    style={[styles.calendarNavBtn, isCurrentMonth && { opacity: 0.3 }]}
+                    scaleTo={0.9}
+                  >
+                    <Ionicons name="chevron-back" size={18} color={COLORS.text} />
                   </PressableScale>
+                  <Text style={styles.calendarMonthLabel}>{monthLabel}</Text>
+                  <PressableScale
+                    testID="cal-next"
+                    onPress={() => setCalendarMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+                    style={styles.calendarNavBtn}
+                    scaleTo={0.9}
+                  >
+                    <Ionicons name="chevron-forward" size={18} color={COLORS.text} />
+                  </PressableScale>
+                </View>
+
+                <View style={styles.calendarRow}>
+                  {["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"].map((wd) => (
+                    <Text key={wd} style={styles.calendarWeekDay}>{wd}</Text>
+                  ))}
+                </View>
+
+                {calendarWeeks.map((week, wi) => (
+                  <View key={wi} style={styles.calendarRow}>
+                    {week.map((d) => {
+                      const disabled = !d.inMonth || d.isPast;
+                      const selected = date === d.iso;
+                      return (
+                        <Pressable
+                          key={d.iso}
+                          testID={`day-${d.iso}`}
+                          disabled={disabled}
+                          onPress={() => { setDate(d.iso); setSlotTime(null); }}
+                          style={styles.calendarCell}
+                        >
+                          <View style={[styles.calendarDayCircle, selected && styles.calendarDayCircleActive]}>
+                            <Text
+                              style={[
+                                styles.calendarDayText,
+                                (!d.inMonth || disabled) && styles.calendarDayTextMuted,
+                                selected && styles.calendarDayTextActive,
+                              ]}
+                            >
+                              {d.day}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
                 ))}
-              </ScrollView>
-              <View style={styles.slotGrid}>
+              </View>
+
+              <View style={styles.slotList}>
                 {slots.length === 0 && <Text style={styles.empty}>Toko tutup atau tidak ada slot.</Text>}
-                {slots.map((sl) => (
-                  <PressableScale key={sl.time} testID={`slot-${sl.time}`} disabled={!sl.available}
-                    onPress={() => setSlotTime(sl.time)}
-                    style={[styles.slot, !sl.available && styles.slotOff, slotTime === sl.time && styles.slotActive]} scaleTo={0.92}>
-                    <Text style={[styles.slotText, !sl.available && { color: COLORS.textDim, textDecorationLine: "line-through" }, slotTime === sl.time && { color: "#FFFFFF" }]}>{sl.time}</Text>
-                  </PressableScale>
-                ))}
+                {slots.map((sl) => {
+                  const selected = slotTime === sl.time;
+                  return (
+                    <PressableScale
+                      key={sl.time}
+                      testID={`slot-${sl.time}`}
+                      disabled={!sl.available}
+                      onPress={() => setSlotTime(sl.time)}
+                      style={[
+                        styles.slotRow,
+                        sl.available ? styles.slotRowAvailable : styles.slotRowOff,
+                        selected && styles.slotRowActive,
+                      ]}
+                      scaleTo={0.98}
+                    >
+                      <Text style={[styles.slotRowTime, !sl.available && styles.slotRowTimeOff, selected && styles.slotRowTimeActive]}>
+                        {sl.time}
+                      </Text>
+                      {sl.available ? (
+                        <View style={[styles.slotBadge, selected && styles.slotBadgeActive]}>
+                          <Ionicons name="checkmark-circle" size={14} color={selected ? "#FFFFFF" : COLORS.success} />
+                          <Text style={[styles.slotBadgeText, selected && { color: "#FFFFFF" }]}>Anti-bentrok</Text>
+                        </View>
+                      ) : (
+                        <Text style={styles.slotBookedText}>Sudah dipesan</Text>
+                      )}
+                    </PressableScale>
+                  );
+                })}
               </View>
             </View>
           )}
@@ -485,21 +576,36 @@ const styles = StyleSheet.create({
   skillBadge: { alignSelf: "flex-start", backgroundColor: COLORS.brandDim, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginTop: 4 },
   skillText: { color: COLORS.brand, fontSize: 10, fontFamily: FONT.bold },
 
-  dayChip: {
-    flexShrink: 0, width: 60, alignItems: "center", paddingVertical: 12, borderRadius: 14, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 6, elevation: 1,
+  calendarCard: {
+    backgroundColor: COLORS.surface, borderRadius: 18, padding: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 16,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2,
   },
-  dayChipActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
-  dayLabel: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.semibold, textTransform: "uppercase" },
-  dayNum: { color: COLORS.text, fontSize: 20, fontFamily: FONT.extrabold, marginTop: 2 },
-  slotGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  slot: {
-    width: 82, paddingVertical: 12, alignItems: "center", backgroundColor: COLORS.surface, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 4, elevation: 1,
+  calendarHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
+  calendarNavBtn: { width: 32, height: 32, borderRadius: 10, backgroundColor: COLORS.surface2, alignItems: "center", justifyContent: "center" },
+  calendarMonthLabel: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15, textTransform: "capitalize" },
+  calendarRow: { flexDirection: "row" },
+  calendarWeekDay: { flex: 1, textAlign: "center", color: COLORS.textDim, fontSize: 11, fontFamily: FONT.semibold, marginBottom: 6 },
+  calendarCell: { flex: 1, alignItems: "center", paddingVertical: 3 },
+  calendarDayCircle: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  calendarDayCircleActive: { backgroundColor: COLORS.text },
+  calendarDayText: { color: COLORS.text, fontSize: 13, fontFamily: FONT.semibold },
+  calendarDayTextMuted: { color: COLORS.textDim, opacity: 0.4 },
+  calendarDayTextActive: { color: "#FFFFFF", fontFamily: FONT.bold },
+
+  slotList: { gap: 8 },
+  slotRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 14, borderRadius: 14, borderWidth: 1,
   },
-  slotOff: { backgroundColor: COLORS.surface2, opacity: 0.6 },
-  slotActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
-  slotText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
+  slotRowAvailable: { backgroundColor: "#ECFDF5", borderColor: "#BBF0D9" },
+  slotRowOff: { backgroundColor: COLORS.surface2, borderColor: COLORS.border, opacity: 0.6 },
+  slotRowActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+  slotRowTime: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15 },
+  slotRowTimeOff: { color: COLORS.textDim, textDecorationLine: "line-through" },
+  slotRowTimeActive: { color: "#FFFFFF" },
+  slotBadge: { flexDirection: "row", alignItems: "center", gap: 4 },
+  slotBadgeActive: {},
+  slotBadgeText: { color: COLORS.success, fontFamily: FONT.bold, fontSize: 12 },
+  slotBookedText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12 },
   empty: { color: COLORS.textDim, marginVertical: 20, textAlign: "center", width: "100%", fontFamily: FONT.medium },
 
   modeRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
