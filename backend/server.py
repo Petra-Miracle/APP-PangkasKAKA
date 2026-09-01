@@ -290,6 +290,10 @@ class UpdateUserRoleIn(BaseModel):
     role: Literal["customer", "owner", "karyawan", "admin"]
 
 
+class SetUserPasswordIn(BaseModel):
+    new_password: str
+
+
 class BarberIn(BaseModel):
     name: str
     photo: Optional[str] = None
@@ -1770,6 +1774,18 @@ async def admin_delete_user(user_id: str, user=Depends(require_role("admin"))):
         await db.karyawan.delete_many({"profile_id": user_id})
         if karyawan_ids:
             await db.karyawan_locations.delete_many({"karyawan_id": {"$in": karyawan_ids}})
+    return {"ok": True}
+
+
+@api.put("/admin/users/{user_id}/set-password")
+async def admin_set_user_password(user_id: str, body: SetUserPasswordIn, user=Depends(require_role("admin"))):
+    if len(body.new_password) < 8:
+        raise HTTPException(400, "Password minimal 8 karakter")
+    target = await db.profiles.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "User tidak ditemukan")
+    await db.profiles.update_one({"id": user_id}, {"$set": {"password": hash_pw(body.new_password)}})
+    await send_notif(user_id, "Password diubah admin", "Password akun Anda telah diatur ulang oleh admin.", "system")
     return {"ok": True}
 
 
