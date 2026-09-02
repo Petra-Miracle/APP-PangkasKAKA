@@ -111,7 +111,6 @@ export default function KaryawanStatus() {
     if (!selShop) return;
     setApplyErr("");
     if (!ktpPhoto) return setApplyErr("Foto KTP wajib diunggah");
-    if (!diplomaPhoto) return setApplyErr("Foto/scan ijazah wajib diunggah");
     if (form.work_experience.trim().length < 20) return setApplyErr("Pengalaman kerja wajib diisi minimal 20 karakter");
     if (!criteriaAgreed) return setApplyErr("Anda harus menyetujui kriteria platform");
     setApplying(true);
@@ -351,18 +350,6 @@ export default function KaryawanStatus() {
                   <>
                     <View style={styles.photoIcon}><Ionicons name="camera-outline" size={20} color={COLORS.brand} /></View>
                     <Text style={styles.photoPickText}>Unggah foto KTP</Text>
-                  </>
-                )}
-              </PressableScale>
-
-              <Text style={styles.label}>Foto/Scan Ijazah *</Text>
-              <PressableScale style={styles.photoPick} onPress={() => pickPhoto("diploma")} testID="pick-diploma" scaleTo={0.99}>
-                {diplomaPhoto ? (
-                  <Image source={{ uri: diplomaPhoto }} style={styles.photoPreview} contentFit="cover" />
-                ) : (
-                  <>
-                    <View style={styles.photoIcon}><Ionicons name="camera-outline" size={20} color={COLORS.brand} /></View>
-                    <Text style={styles.photoPickText}>Unggah foto ijazah</Text>
                   </>
                 )}
               </PressableScale>

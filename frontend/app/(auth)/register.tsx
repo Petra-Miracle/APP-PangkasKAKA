@@ -82,7 +82,6 @@ export default function Register() {
   const validKaryawan = () => {
     if (!karyawanForm.shop_id) return "Pilih toko tujuan lamaran";
     if (!karyawanForm.ktp_photo) return "Foto KTP wajib diunggah";
-    if (!karyawanForm.diploma_photo) return "Foto/scan ijazah wajib diunggah";
     if (karyawanForm.work_experience.trim().length < 20) return "Pengalaman kerja wajib diisi minimal 20 karakter";
     if (!karyawanCriteriaAgreed) return "Anda harus menyetujui kriteria platform";
     return null;
@@ -276,15 +275,13 @@ export default function Register() {
 
                 <View style={styles.divider} />
                 <Text style={styles.sectionLabel}>DOKUMEN WAJIB</Text>
-                <Text style={styles.hint}>KTP dan ijazah/scan diploma wajib diunggah untuk verifikasi lamaran.</Text>
+                <Text style={styles.hint}>KTP wajib diunggah untuk verifikasi lamaran.</Text>
                 <DocPicker label="Foto KTP" testID="ktp-photo" value={karyawanForm.ktp_photo} onPick={() => pickDoc((v) => setKaryawanForm({ ...karyawanForm, ktp_photo: v }))} />
-                <DocPicker label="Ijazah / Diploma" testID="diploma-photo" value={karyawanForm.diploma_photo} onPick={() => pickDoc((v) => setKaryawanForm({ ...karyawanForm, diploma_photo: v }))} />
 
                 <View style={styles.divider} />
                 <Text style={styles.sectionLabel}>UPLOAD BUKTI (OPSIONAL)</Text>
                 <Text style={styles.hint}>Owner akan menilai skor lamaran (portofolio, sertifikat, bukti alat kerja).</Text>
                 <DocPicker label="Foto Alat Kerja" testID="tools-photo" value={karyawanForm.tools_photo} onPick={() => pickDoc((v) => setKaryawanForm({ ...karyawanForm, tools_photo: v }))} />
-                <DocPicker label="Sertifikat BNSP" testID="bnsp-cert" value={karyawanForm.bnsp_cert} onPick={() => pickDoc((v) => setKaryawanForm({ ...karyawanForm, bnsp_cert: v }))} />
 
                 <PressableScale style={styles.agreeRow} onPress={() => setKaryawanCriteriaAgreed((v) => !v)} testID="k-criteria-agree" scaleTo={0.99}>
                   <View style={[styles.checkBox, karyawanCriteriaAgreed && { backgroundColor: COLORS.brand, borderColor: COLORS.brand }]}>

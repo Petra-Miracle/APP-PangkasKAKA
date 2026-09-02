@@ -405,13 +405,13 @@ class ReviewIn(BaseModel):
 
 class KaryawanApplyIn(BaseModel):
     shop_id: str
-    # WAJIB: KTP + Ijazah + Pengalaman kerja
+    # WAJIB: KTP + Pengalaman kerja
     ktp_photo: str  # base64 atau URL
-    diploma_photo: str  # ijazah, base64 atau URL
     work_experience: str  # deskripsi teks pengalaman
     # OPSIONAL tapi dianjurkan: portofolio (foto hasil cukur)
     portfolio_url: Optional[str] = None
     tools_photo: Optional[str] = None
+    diploma_photo: Optional[str] = None  # ijazah, base64 atau URL
     bnsp_cert: Optional[str] = None
     certificates: Optional[str] = None
     # WAJIB: konfirmasi memenuhi kriteria
@@ -1523,7 +1523,7 @@ async def evaluate_karyawan(kid: str, body: EvaluateKaryawanIn, user=Depends(req
         skill = "Senior" if total >= 85 else ("Standar" if total >= 70 else "Junior")
         await db.barbers.insert_one({
             "id": new_id(), "shop_id": shop["id"], "karyawan_id": kid,
-            "name": k["name"], "photo": k.get("diploma_photo", ""),
+            "name": k["name"], "photo": k.get("diploma_photo") or k.get("tools_photo") or "",
             "specialization": "", "skill_level": skill, "rating": 0.0,
             "status": "active", "created_at": now_utc().isoformat(),
         })
@@ -1543,8 +1543,6 @@ async def karyawan_apply(body: KaryawanApplyIn, user=Depends(require_role("karya
     # Validasi berkas WAJIB
     if not body.ktp_photo or len(body.ktp_photo) < 20:
         raise HTTPException(400, "Foto KTP wajib diunggah")
-    if not body.diploma_photo or len(body.diploma_photo) < 20:
-        raise HTTPException(400, "Foto/scan ijazah wajib diunggah")
     if not body.work_experience or len(body.work_experience.strip()) < 20:
         raise HTTPException(400, "Pengalaman kerja wajib diisi minimal 20 karakter")
     if not body.criteria_agreed:
