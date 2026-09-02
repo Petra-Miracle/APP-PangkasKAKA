@@ -17,9 +17,9 @@ import Skeleton from "@/src/components/Skeleton";
 const LOCATION_PUSH_INTERVAL_MS = 8000;
 
 const STATUS_META: Record<string, { color: string; bg: string; label: string }> = {
-  active: { color: COLORS.success, bg: "#ECFDF5", label: "DITERIMA" },
+  active: { color: COLORS.success, bg: "#ECFDF5", label: "STREETBARBER AKTIF" },
   rejected: { color: COLORS.error, bg: "#FEF2F2", label: "DITOLAK" },
-  pending: { color: COLORS.warning, bg: "#FFF7ED", label: "MENUNGGU" },
+  pending: { color: COLORS.warning, bg: "#FFF7ED", label: "MENUNGGU VALIDASI" },
   seleksi_berkas_lolos: { color: COLORS.info, bg: "#EFF8FF", label: "BERKAS LOLOS" },
   menunggu_tes: { color: COLORS.info, bg: "#EFF8FF", label: "MENUNGGU TES" },
 };
@@ -152,7 +152,7 @@ export default function KaryawanStatus() {
         <View style={{ flex: 1 }}>
           <View style={styles.brandBadge}>
             <Ionicons name="cut" size={12} color={COLORS.gold} />
-            <Text style={styles.brandBadgeText}>BARBER PORTAL</Text>
+            <Text style={styles.brandBadgeText}>STREETBARBER PORTAL</Text>
           </View>
           <Text style={styles.headerTitle}>{user?.name}</Text>
           <Text style={styles.headerSub}>{user?.email}</Text>
@@ -163,14 +163,25 @@ export default function KaryawanStatus() {
       </LinearGradient>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
-        {apps.length > 0 && !apps.some((a) => a.status === "active") && (
+        {!apps.some((a) => a.status === "active") && apps.some((a) => ["menunggu_tes", "seleksi_berkas_lolos"].includes(a.status)) && (
           <View style={styles.pendingBanner}>
             <View style={styles.pendingIcon}>
               <Ionicons name="time-outline" size={20} color={COLORS.warning} />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.pendingTitle}>Akun Belum Aktif Sebagai Barber</Text>
-              <Text style={styles.pendingSub}>Menunggu persetujuan pemilik toko. Fitur pesanan &amp; bagikan lokasi akan otomatis aktif begitu lamaran kamu diterima.</Text>
+              <Text style={styles.pendingTitle}>Berkas Lolos — Menunggu Tes Keterampilan</Text>
+              <Text style={styles.pendingSub}>Validator akan menghubungimu lewat chat untuk menjadwalkan tes keterampilan. Fitur pesanan &amp; bagikan lokasi otomatis aktif begitu kamu lulus.</Text>
+            </View>
+          </View>
+        )}
+        {!apps.some((a) => a.status === "active") && !apps.some((a) => ["menunggu_tes", "seleksi_berkas_lolos"].includes(a.status)) && apps.some((a) => a.status === "pending") && (
+          <View style={styles.pendingBanner}>
+            <View style={styles.pendingIcon}>
+              <Ionicons name="time-outline" size={20} color={COLORS.warning} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.pendingTitle}>Mohon Tunggu</Text>
+              <Text style={styles.pendingSub}>Mohon tunggu. Anda sedang dalam proses validasi oleh validator.</Text>
             </View>
           </View>
         )}
@@ -244,7 +255,7 @@ export default function KaryawanStatus() {
           <EmptyState
             icon="briefcase-outline"
             title="Belum ada lamaran"
-            description="Pilih toko di bawah untuk mulai melamar."
+            description="Pilih toko validator di bawah untuk mulai mendaftar sebagai StreetBarber."
           />
         )}
         {apps.map((a: any) => {
@@ -264,7 +275,7 @@ export default function KaryawanStatus() {
               {a.status === "active" && (
                 <View style={styles.congrats}>
                   <View style={styles.trophyWrap}><Ionicons name="trophy" size={14} color={COLORS.success} /></View>
-                  <Text style={styles.congratsText}>Anda diterima sebagai barber di toko ini!</Text>
+                  <Text style={styles.congratsText}>Anda resmi menjadi StreetBarber, tervalidasi oleh toko ini!</Text>
                 </View>
               )}
               {["menunggu_tes", "seleksi_berkas_lolos", "active"].includes(a.status) && (
@@ -276,15 +287,29 @@ export default function KaryawanStatus() {
                     style={styles.chatBtn}
                   >
                     <Ionicons name="chatbubbles" size={14} color="#FFFFFF" />
-                    <Text style={styles.chatBtnText}>CHAT DENGAN OWNER</Text>
+                    <Text style={styles.chatBtnText}>CHAT DENGAN VALIDATOR</Text>
                   </LinearGradient>
+                </PressableScale>
+              )}
+              {a.status === "rejected" && (
+                <PressableScale
+                  style={styles.reapplyBtnWrap}
+                  testID={`reapply-${a.id}`}
+                  scaleTo={0.96}
+                  onPress={() => {
+                    if (availableShops.length === 0) { setApplyErr(""); alert("Belum ada toko validator lain yang tersedia saat ini."); return; }
+                    setSelShop(availableShops[0]); setShowApply(true);
+                  }}
+                >
+                  <Ionicons name="refresh" size={14} color={COLORS.brand} />
+                  <Text style={styles.reapplyBtnText}>Ajukan Lamaran Baru</Text>
                 </PressableScale>
               )}
             </View>
           );
         })}
 
-        <Text style={styles.sec}>LAMAR KE TOKO</Text>
+        <Text style={styles.sec}>PILIH TOKO VALIDATOR</Text>
         {availableShops.length === 0 && <Text style={styles.empty}>Anda sudah melamar ke semua toko.</Text>}
         {availableShops.map((s: any) => (
           <PressableScale key={s.id} style={styles.shopRow} testID={`apply-shop-${s.id}`} onPress={() => { setSelShop(s); setShowApply(true); }} scaleTo={0.98}>
@@ -314,8 +339,8 @@ export default function KaryawanStatus() {
                 style={styles.modalHead}
               >
                 <View style={styles.modalHeadIcon}><Ionicons name="briefcase" size={20} color={COLORS.brand} /></View>
-                <Text style={styles.modalTitle}>Lamar Kerja</Text>
-                <Text style={styles.modalSub}>{selShop?.name}</Text>
+                <Text style={styles.modalTitle}>Ajukan Diri sebagai StreetBarber</Text>
+                <Text style={styles.modalSub}>Divalidasi oleh {selShop?.name}</Text>
               </LinearGradient>
 
               <Text style={styles.label}>Foto KTP *</Text>
@@ -438,6 +463,8 @@ const styles = StyleSheet.create({
   chatBtnWrap: { borderRadius: 11, marginTop: 10, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.25, shadowRadius: 8, elevation: 3 },
   chatBtn: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, padding: 10 },
   chatBtnText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.4 },
+  reapplyBtnWrap: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 10, padding: 10, borderRadius: 11, borderWidth: 1, borderColor: COLORS.brand, backgroundColor: COLORS.brandDim },
+  reapplyBtnText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.4 },
   shopRow: {
     flexDirection: "row", gap: 12, padding: 12, backgroundColor: COLORS.surface, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 8, alignItems: "center",
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 8, elevation: 2,

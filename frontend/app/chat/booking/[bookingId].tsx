@@ -9,8 +9,8 @@ export default function BookingChatScreen() {
   const [barber, setBarber] = useState<{ name?: string; photo?: string } | null>(null);
   const [customer, setCustomer] = useState<{ name?: string; photo?: string } | null>(null);
 
-  // Thread ini dipakai customer<->karyawan. Dari sisi karyawan, lawan bicaranya
-  // adalah customer — bukan diri sendiri (barber).
+  // Thread ini dipakai customer<->barber (toko maupun StreetBarber). Dari sisi
+  // barber, lawan bicaranya adalah customer — bukan diri sendiri.
   const isKaryawan = user?.role === "karyawan";
   const other = isKaryawan ? customer : barber;
 

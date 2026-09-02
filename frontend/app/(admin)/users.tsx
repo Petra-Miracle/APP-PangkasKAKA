@@ -12,7 +12,7 @@ import Skeleton, { SkeletonRow } from "@/src/components/Skeleton";
 const TABS = [
   { key: "customer", label: "Pelanggan", icon: "person" },
   { key: "owner", label: "Owner", icon: "storefront" },
-  { key: "karyawan", label: "Barber", icon: "cut" },
+  { key: "karyawan", label: "StreetBarber", icon: "cut" },
   { key: "admin", label: "Admin", icon: "shield" },
 ];
 

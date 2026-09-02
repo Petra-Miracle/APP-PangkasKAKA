@@ -121,7 +121,7 @@ export default function Manage() {
       isApprove ? "Setujui Berkas" : "Tolak Berkas",
       isApprove
         ? `Berkas ${k.name} dinyatakan lolos dan lanjut ke tahap koordinasi uji tes kemampuan (via chat).`
-        : `Yakin ingin menolak lamaran ${k.name}? Aksi ini tidak bisa dibatalkan.`,
+        : `Yakin ingin menolak lamaran StreetBarber ${k.name}? Aksi ini tidak bisa dibatalkan.`,
       [
         { text: "Batal", style: "cancel" },
         {
@@ -142,7 +142,7 @@ export default function Manage() {
       const r = await api.post(`/owner/karyawan/${evalTarget.id}/evaluate`, weights);
       Alert.alert(
         r.status === "active" ? "Pelamar Diterima" : "Pelamar Ditolak",
-        `Skor total: ${r.total_score}/120\nStatus: ${r.status === "active" ? "AKTIF (dibuat sebagai barber)" : "DITOLAK"}`
+        `Skor total: ${r.total_score}/120\nStatus: ${r.status === "active" ? "AKTIF — resmi jadi StreetBarber, melayani panggilan ke rumah secara mandiri" : "DITOLAK"}`
       );
       setEvalTarget(null);
       await load();
@@ -186,7 +186,7 @@ export default function Manage() {
         <Text style={styles.headerSub}>{shop.name}</Text>
       </LinearGradient>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow} style={{ maxHeight: 60 }}>
-        {[["barbers", "Barber", "cut"], ["services", "Layanan", "pricetag"], ["karyawan", "Pelamar", "people"]].map(([k, l, i]) => (
+        {[["barbers", "Barber Toko", "cut"], ["services", "Layanan", "pricetag"], ["karyawan", "Pelamar StreetBarber", "people"]].map(([k, l, i]) => (
           <PressableScale key={k} testID={`tab-${k}`} onPress={() => setTab(k as any)} style={[styles.tab, tab === k && styles.tabActive]} scaleTo={0.94}>
             <Ionicons name={i as any} size={14} color={tab === k ? "#FFFFFF" : COLORS.textDim} />
             <Text style={[styles.tabText, tab === k && styles.tabTextActive]}>{l}</Text>
@@ -196,7 +196,7 @@ export default function Manage() {
       <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
         {tab === "barbers" && (
           <View>
-            {shop.barbers.map((br: any) => (
+            {shop.barbers.filter((br: any) => !br.is_street_barber).map((br: any) => (
               <View key={br.id} style={styles.item} testID={`brb-${br.id}`}>
                 <View style={styles.avatar}><Ionicons name="cut" size={18} color={COLORS.brand} /></View>
                 <View style={{ flex: 1 }}>
@@ -287,7 +287,7 @@ export default function Manage() {
               <EmptyState
                 icon="people-outline"
                 title="Belum ada pelamar"
-                description="Pelamar karyawan yang mendaftar akan muncul di sini."
+                description="Pelamar StreetBarber yang memilih toko ini sebagai validator akan muncul di sini."
               />
             )}
             {karyawan.map((k: any) => (
@@ -306,7 +306,7 @@ export default function Manage() {
                       k.status === "active" ? { color: COLORS.success } :
                       k.status === "rejected" ? { color: COLORS.error } :
                       ["menunggu_tes", "seleksi_berkas_lolos"].includes(k.status) ? { color: COLORS.info } : { color: COLORS.warning }]}>
-                      {k.status === "active" ? "DITERIMA" :
+                      {k.status === "active" ? "STREETBARBER AKTIF" :
                        k.status === "rejected" ? "DITOLAK" :
                        ["menunggu_tes", "seleksi_berkas_lolos"].includes(k.status) ? "TAHAP TES" : "MENUNGGU BERKAS"}
                     </Text>
@@ -452,7 +452,7 @@ export default function Manage() {
                   </LinearGradient>
 
                   <Text style={styles.hint}>
-                    Skor ≥ 60 → Aktif (dibuat sebagai barber otomatis).{"\n"}
+                    Skor ≥ 60 → Aktif, otomatis jadi StreetBarber mandiri (bukan karyawan toko).{"\n"}
                     Skor ≥ 85 = Senior · ≥ 70 = Standar · Lainnya = Junior.
                   </Text>
 

@@ -8,7 +8,7 @@ import { COLORS, FONT } from "@/src/lib/api";
 import PressableScale from "@/src/components/PressableScale";
 
 const ROLE_LABEL: Record<string, string> = {
-  customer: "Pelanggan", owner: "Pemilik Toko", admin: "Administrator", karyawan: "Barber",
+  customer: "Pelanggan", owner: "Pemilik Toko", admin: "Administrator", karyawan: "StreetBarber",
 };
 
 export default function Profile() {

@@ -130,14 +130,14 @@ export default function Home() {
           <View>
             <View style={styles.nearbyHeaderRow}>
               <View style={styles.liveDot} />
-              <Text style={styles.sectionTitle}>Barber Online Terdekat</Text>
+              <Text style={styles.sectionTitle}>StreetBarber Online Terdekat</Text>
               <View style={styles.livePill}>
                 <Text style={styles.livePillText}>LIVE</Text>
               </View>
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
               {nearbyBarbers.map((b: any) => (
-                <PressableScale key={b.id} testID={`nearby-barber-${b.id}`} style={styles.barberCard} onPress={() => router.push(`/(customer)/shop/${b.shop_id}` as any)} scaleTo={0.95}>
+                <PressableScale key={b.id} testID={`nearby-barber-${b.id}`} style={styles.barberCard} onPress={() => router.push({ pathname: `/(customer)/shop/${b.shop_id}`, params: { presetBarberId: b.id } } as any)} scaleTo={0.95}>
                   <Image source={{ uri: b.photo }} style={styles.barberImg} contentFit="cover" />
                   <View style={styles.onlineDot} />
                   <Text style={styles.barberName} numberOfLines={1}>{b.name}</Text>

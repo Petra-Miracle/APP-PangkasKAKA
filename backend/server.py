@@ -778,6 +778,9 @@ async def shop_detail(shop_id: str):
         raise HTTPException(404, "Barbershop tidak ditemukan")
     services = await db.services.find({"shop_id": shop_id}, {"_id": 0}).to_list(100)
     barbers = await db.barbers.find({"shop_id": shop_id, "status": "active"}, {"_id": 0}).to_list(100)
+    for b in barbers:
+        # StreetBarber = lulus jalur validasi (karyawan_id terisi); barber toko biasa ditambah langsung oleh owner
+        b["is_street_barber"] = bool(b.get("karyawan_id"))
     schedules = await db.shop_schedules.find({"shop_id": shop_id}, {"_id": 0}).to_list(20)
     today_str = datetime.now(WITA).date().isoformat()
     overrides = await db.shop_schedule_overrides.find(
@@ -815,6 +818,14 @@ async def create_booking(body: BookingIn, user=Depends(get_current_user)):
     svc = await db.services.find_one({"id": body.service_id}, {"_id": 0})
     if not svc:
         raise HTTPException(404, "Layanan tidak ditemukan")
+    barber = await db.barbers.find_one({"id": body.barber_id}, {"_id": 0})
+    if not barber:
+        raise HTTPException(404, "Barber tidak ditemukan")
+    is_street_barber = bool(barber.get("karyawan_id"))
+    if body.delivery_mode == "rumah" and not is_street_barber:
+        raise HTTPException(400, "Barber ini hanya melayani di toko, bukan panggilan ke rumah")
+    if body.delivery_mode == "toko" and is_street_barber:
+        raise HTTPException(400, "StreetBarber ini hanya melayani panggilan ke rumah, bukan di toko")
     if body.delivery_mode == "rumah" and (body.customer_lat is None or body.customer_lng is None):
         raise HTTPException(400, "Lokasi rumah wajib diisi untuk booking ke rumah")
     if body.delivery_mode == "rumah" and user.get("home_delivery_blocked"):
@@ -1253,6 +1264,7 @@ async def owner_dashboard(user=Depends(require_role("owner"))):
     today_count = await db.bookings.count_documents({"shop_id": shop["id"], "booking_date": today})
     paid_this_month = await db.bookings.find({
         "shop_id": shop["id"], "payment_status": "paid",
+        "delivery_mode": {"$ne": "rumah"},  # revenue StreetBarber (panggilan rumah) mandiri, bukan milik toko
         "created_at": {"$gte": month_start}
     }, {"_id": 0, "total_price": 1}).to_list(2000)
     revenue = sum(b["total_price"] for b in paid_this_month)
@@ -1515,8 +1527,8 @@ async def evaluate_karyawan(kid: str, body: EvaluateKaryawanIn, user=Depends(req
             "specialization": "", "skill_level": skill, "rating": 0.0,
             "status": "active", "created_at": now_utc().isoformat(),
         })
-        await send_notif(k["profile_id"], "Selamat! Anda diterima sebagai barber",
-                         f"Skor tes: {total}/120. Level: {skill}. Profil barber Anda sudah aktif.", "system")
+        await send_notif(k["profile_id"], "Selamat! Anda resmi menjadi StreetBarber",
+                         f"Skor tes: {total}/120. Level: {skill}. Anda sekarang bisa melayani panggilan pangkas rambut ke rumah secara mandiri.", "system")
     else:
         await send_notif(k["profile_id"], "Lamaran ditolak setelah tes",
                          f"Skor tes: {total}/120 (di bawah nilai minimum 60).", "system")
@@ -1568,8 +1580,8 @@ async def karyawan_apply(body: KaryawanApplyIn, user=Depends(require_role("karya
     await db.karyawan.insert_one(doc)
     shop = await db.barbershops.find_one({"id": body.shop_id}, {"_id": 0, "owner_id": 1, "name": 1})
     if shop:
-        await send_notif(shop["owner_id"], "Lamaran baru masuk",
-                         f"{user['name']} melamar sebagai barber di toko Anda.", "system")
+        await send_notif(shop["owner_id"], "Lamaran StreetBarber baru masuk",
+                         f"{user['name']} melamar sebagai StreetBarber dan memilih toko Anda sebagai validator dokumen & tes keterampilan.", "system")
     return {"application": clean(doc)}
 
 
@@ -2420,7 +2432,7 @@ async def analytics_owner(user=Depends(require_role("owner"))):
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
     total_month = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": month_start}})
     paid_this_month = await db.bookings.find(
-        {"shop_id": sid, "payment_status": "paid", "created_at": {"$gte": month_start}},
+        {"shop_id": sid, "payment_status": "paid", "delivery_mode": {"$ne": "rumah"}, "created_at": {"$gte": month_start}},
         {"_id": 0, "total_price": 1},
     ).to_list(5000)
     monthly_revenue = sum(b["total_price"] for b in paid_this_month)
@@ -3297,13 +3309,13 @@ async def berkas_decision(kid: str, body: BerkasDecisionIn, user=Depends(require
     if body.decision == "lolos":
         new_status = "seleksi_berkas_lolos"
         notif_title = "Berkas Anda LOLOS seleksi!"
-        notif_msg = "Selamat! Berkas Anda diterima. Owner akan mengoordinasikan jadwal tes kemampuan via chat."
+        notif_msg = "Selamat! Berkas Anda diterima. Validator akan mengoordinasikan jadwal tes keterampilan via chat."
         # Otomatis pindah ke menunggu_tes (buka ruang chat)
         new_status = "menunggu_tes"
     else:
         new_status = "rejected"
         notif_title = "Lamaran Ditolak"
-        notif_msg = body.reason or "Mohon maaf, berkas Anda belum memenuhi persyaratan."
+        notif_msg = (body.reason or "Mohon maaf, berkas Anda belum memenuhi persyaratan.") + " Anda bisa mengajukan lamaran StreetBarber baru kapan saja."
 
     await db.karyawan.update_one(
         {"id": kid},
@@ -3322,7 +3334,7 @@ async def berkas_decision(kid: str, body: BerkasDecisionIn, user=Depends(require
             "karyawan_id": kid,
             "sender_id": user["id"],
             "sender_role": "owner",
-            "text": f"Selamat, berkas Anda lolos seleksi! Silakan koordinasi jadwal uji tes kemampuan memangkas di sini. Kapan Anda bisa datang?",
+            "text": f"Selamat, berkas Anda lolos seleksi! Sebagai validator, kami akan menjadwalkan tes keterampilan StreetBarber Anda di sini. Kapan Anda bisa datang?",
             "is_read": False,
             "created_at": now_utc().isoformat(),
         })

@@ -12,7 +12,7 @@ type Props = {
   bottomRadius?: boolean;
 };
 
-/** Header navy bergradasi untuk layar Owner / Karyawan / Admin. */
+/** Header navy bergradasi untuk layar Owner / StreetBarber / Admin. */
 export default function NavyHeader({ children, back, onBack, style, bottomRadius = true }: Props) {
   return (
     <LinearGradient

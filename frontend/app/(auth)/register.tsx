@@ -14,7 +14,7 @@ import PressableScale from "@/src/components/PressableScale";
 const ROLES = [
   { key: "customer", label: "Pelanggan", icon: "person", desc: "Cari & booking barbershop" },
   { key: "owner", label: "Pemilik Toko", icon: "storefront", desc: "Daftarkan toko + kelola barber" },
-  { key: "karyawan", label: "Barber", icon: "cut", desc: "Lamar kerja dengan portofolio" },
+  { key: "karyawan", label: "StreetBarber", icon: "cut", desc: "Pangkas rambut panggilan ke rumah, divalidasi toko mitra" },
 ];
 
 export default function Register() {
@@ -129,7 +129,7 @@ export default function Register() {
   const submitOwner = () => { const v = validOwner(); if (v) return setErr(v); submit(); };
   const submitKaryawan = () => { const v = validKaryawan(); if (v) return setErr(v); submit(); };
 
-  const heroTitle = step === 1 ? "Buat Akun" : role === "owner" ? "Data Toko" : "Data Barber";
+  const heroTitle = step === 1 ? "Buat Akun" : role === "owner" ? "Data Toko" : "Data StreetBarber";
   const heroSub = step === 1 ? "Bergabunglah dengan PangkasKAKA" : role === "owner" ? "Toko diverifikasi admin sebelum aktif" : "Pilih toko + portofolio Anda";
 
   return (
@@ -247,7 +247,8 @@ export default function Register() {
 
             {step === 2 && role === "karyawan" && (
               <View>
-                <Text style={styles.sectionLabel}>TOKO TUJUAN LAMARAN</Text>
+                <Text style={styles.sectionLabel}>PILIH TOKO VALIDATOR</Text>
+                <Text style={styles.hint}>Toko ini hanya memvalidasi dokumen & keterampilanmu — StreetBarber tidak bekerja di toko dan tidak menjadi karyawan toko manapun. Setelah lulus, kamu melayani panggilan ke rumah secara mandiri.</Text>
                 {shops.length === 0 ? <ActivityIndicator color={COLORS.brand} style={{ marginVertical: 20 }} /> : (
                   <View style={{ gap: 8, marginTop: 8 }}>
                     {shops.map((s) => (

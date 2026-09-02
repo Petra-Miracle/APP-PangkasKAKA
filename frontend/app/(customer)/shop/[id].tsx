@@ -12,7 +12,7 @@ import PressableScale from "@/src/components/PressableScale";
 import Skeleton from "@/src/components/Skeleton";
 
 export default function ShopDetail() {
-  const { id, rebookServiceId, rebookBarberId } = useLocalSearchParams<{ id: string; rebookServiceId?: string; rebookBarberId?: string }>();
+  const { id, rebookServiceId, rebookBarberId, presetBarberId } = useLocalSearchParams<{ id: string; rebookServiceId?: string; rebookBarberId?: string; presetBarberId?: string }>();
   const router = useRouter();
   const { user } = useAuth();
   const [shop, setShop] = useState<any>(null);
@@ -56,10 +56,15 @@ export default function ShopDetail() {
             setService(svc);
             if (brb) { setBarber(brb); setStep(3); } else { setStep(2); }
           }
+        } else if (presetBarberId) {
+          // Datang dari kartu "StreetBarber Online Terdekat" di Beranda — langsung
+          // set mode ke rumah & pilihkan StreetBarber-nya, tinggal pilih layanan & jadwal.
+          const brb = (r.barbers || []).find((b: any) => b.id === presetBarberId);
+          if (brb) { setDeliveryMode("rumah"); setBarber(brb); }
         }
       } catch {} finally { setLoading(false); }
     })();
-  }, [id, rebookServiceId, rebookBarberId]);
+  }, [id, rebookServiceId, rebookBarberId, presetBarberId]);
 
   useEffect(() => {
     if (step === 3 && service && barber) {
@@ -239,8 +244,42 @@ export default function ShopDetail() {
           )}
           {step === 2 && (
             <View>
-              <Text style={styles.sec}>PILIH BARBER</Text>
-              {shop.barbers.map((b: any) => (
+              <Text style={styles.sec}>METODE LAYANAN</Text>
+              <View style={styles.modeRow}>
+                <PressableScale testID="mode-toko" style={[styles.modeChip, deliveryMode === "toko" && styles.modeChipActive]} onPress={() => { setDeliveryMode("toko"); setBarber(null); }} scaleTo={0.97}>
+                  <Ionicons name="storefront" size={18} color={deliveryMode === "toko" ? "#FFFFFF" : COLORS.brand} />
+                  <Text style={[styles.modeChipText, deliveryMode === "toko" && { color: "#FFFFFF" }]}>Datang ke Toko</Text>
+                </PressableScale>
+                <PressableScale
+                  testID="mode-rumah"
+                  style={[styles.modeChip, deliveryMode === "rumah" && styles.modeChipActive, user?.home_delivery_blocked && { opacity: 0.4 }]}
+                  onPress={() => {
+                    if (user?.home_delivery_blocked) {
+                      Alert.alert("Tidak Tersedia", "Kamu tidak bisa memesan jasa Barber ke Rumah karena pernah membatalkan booking kurang dari H-2 jam sebelum jadwal.");
+                      return;
+                    }
+                    setDeliveryMode("rumah"); setBarber(null);
+                  }}
+                  scaleTo={0.97}
+                >
+                  <Ionicons name="home" size={18} color={deliveryMode === "rumah" ? "#FFFFFF" : COLORS.brand} />
+                  <Text style={[styles.modeChipText, deliveryMode === "rumah" && { color: "#FFFFFF" }]}>Barber ke Rumah</Text>
+                </PressableScale>
+              </View>
+              {user?.home_delivery_blocked && (
+                <Text style={styles.homeBlockedHint}>Jasa Barber ke Rumah dinonaktifkan untuk akunmu karena riwayat pembatalan mendadak (kurang dari H-2 jam).</Text>
+              )}
+              {deliveryMode === "rumah" && (
+                <Text style={styles.validatorHint}>Dilayani oleh StreetBarber independen, divalidasi oleh {shop.name}.</Text>
+              )}
+
+              <Text style={styles.sec}>{deliveryMode === "rumah" ? "PILIH STREETBARBER" : "PILIH BARBER"}</Text>
+              {shop.barbers.filter((b: any) => !!b.is_street_barber === (deliveryMode === "rumah")).length === 0 && (
+                <Text style={styles.empty}>
+                  {deliveryMode === "rumah" ? "Belum ada StreetBarber tervalidasi di toko ini." : "Belum ada barber toko."}
+                </Text>
+              )}
+              {shop.barbers.filter((b: any) => !!b.is_street_barber === (deliveryMode === "rumah")).map((b: any) => (
                 <PressableScale key={b.id} testID={`barber-${b.id}`} style={[styles.item, barber?.id === b.id && styles.itemActive]} onPress={() => setBarber(b)} scaleTo={0.98}>
                   {b.photo ?
                     <Image source={{ uri: b.photo }} style={styles.brAvatar} /> :
@@ -362,32 +401,6 @@ export default function ShopDetail() {
           )}
           {step === 4 && (
             <View>
-              <Text style={styles.sec}>METODE LAYANAN</Text>
-              <View style={styles.modeRow}>
-                <PressableScale testID="mode-toko" style={[styles.modeChip, deliveryMode === "toko" && styles.modeChipActive]} onPress={() => setDeliveryMode("toko")} scaleTo={0.97}>
-                  <Ionicons name="storefront" size={18} color={deliveryMode === "toko" ? "#FFFFFF" : COLORS.brand} />
-                  <Text style={[styles.modeChipText, deliveryMode === "toko" && { color: "#FFFFFF" }]}>Datang ke Toko</Text>
-                </PressableScale>
-                <PressableScale
-                  testID="mode-rumah"
-                  style={[styles.modeChip, deliveryMode === "rumah" && styles.modeChipActive, user?.home_delivery_blocked && { opacity: 0.4 }]}
-                  onPress={() => {
-                    if (user?.home_delivery_blocked) {
-                      Alert.alert("Tidak Tersedia", "Kamu tidak bisa memesan jasa Barber ke Rumah karena pernah membatalkan booking kurang dari H-2 jam sebelum jadwal.");
-                      return;
-                    }
-                    setDeliveryMode("rumah");
-                  }}
-                  scaleTo={0.97}
-                >
-                  <Ionicons name="home" size={18} color={deliveryMode === "rumah" ? "#FFFFFF" : COLORS.brand} />
-                  <Text style={[styles.modeChipText, deliveryMode === "rumah" && { color: "#FFFFFF" }]}>Barber ke Rumah</Text>
-                </PressableScale>
-              </View>
-              {user?.home_delivery_blocked && (
-                <Text style={styles.homeBlockedHint}>Jasa Barber ke Rumah dinonaktifkan untuk akunmu karena riwayat pembatalan mendadak (kurang dari H-2 jam).</Text>
-              )}
-
               {deliveryMode === "rumah" && (
                 <View style={styles.homeBox}>
                   <Text style={styles.homeFeeNote}>
@@ -616,6 +629,7 @@ const styles = StyleSheet.create({
   modeChipActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
   modeChipText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
   homeBlockedHint: { color: COLORS.error, fontFamily: FONT.medium, fontSize: 11, marginBottom: 14, lineHeight: 15 },
+  validatorHint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginBottom: 14, lineHeight: 15 },
   homeBox: { backgroundColor: COLORS.brandDim, padding: 14, borderRadius: 16, marginBottom: 14, gap: 10 },
   homeFeeNote: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 12 },
   addrInput: { backgroundColor: COLORS.surface, color: COLORS.text, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, fontFamily: FONT.medium, fontSize: 13, minHeight: 60, textAlignVertical: "top" },
