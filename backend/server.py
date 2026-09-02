@@ -2185,6 +2185,19 @@ async def do_seed(user=Depends(require_role("admin"))):
 # ============================================================
 # CHAT (Owner ↔ Admin, per-shop thread)
 # ============================================================
+async def _enrich_sender_names(msgs: list) -> None:
+    """Isi m['sender_name'] untuk setiap pesan pakai satu query batch, bukan
+    satu query find_one per pesan (N+1) — sebelumnya bikin polling chat makin
+    lambat seiring makin panjang percakapan."""
+    sender_ids = list({m["sender_id"] for m in msgs})
+    if not sender_ids:
+        return
+    profiles = await db.profiles.find({"id": {"$in": sender_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(sender_ids))
+    names = {p["id"]: p["name"] for p in profiles}
+    for m in msgs:
+        m["sender_name"] = names.get(m["sender_id"], "?")
+
+
 async def _shop_access(shop_id: str, user: dict):
     shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0})
     if not shop:
@@ -2223,10 +2236,7 @@ async def list_threads(user=Depends(get_current_user)):
 async def get_thread(shop_id: str, user=Depends(get_current_user)):
     shop = await _shop_access(shop_id, user)
     msgs = await db.chat_messages.find({"shop_id": shop_id}, {"_id": 0}).sort("created_at", 1).to_list(500)
-    # enrich sender name
-    for m in msgs:
-        p = await db.profiles.find_one({"id": m["sender_id"]}, {"_id": 0, "name": 1, "role": 1})
-        m["sender_name"] = p["name"] if p else "?"
+    await _enrich_sender_names(msgs)
     return {"shop": {"id": shop["id"], "name": shop["name"], "image": shop.get("image", ""), "closed": shop.get("chat_closed", False)}, "messages": msgs}
 
 
@@ -2326,9 +2336,7 @@ async def get_booking_messages(bid: str, user=Depends(get_current_user)):
         raise HTTPException(404, "Pesanan tidak ditemukan")
     await _booking_chat_access(booking, user)
     msgs = await db.service_messages.find({"booking_id": bid}, {"_id": 0}).sort("created_at", 1).to_list(500)
-    for m in msgs:
-        p = await db.profiles.find_one({"id": m["sender_id"]}, {"_id": 0, "name": 1, "role": 1})
-        m["sender_name"] = p["name"] if p else "?"
+    await _enrich_sender_names(msgs)
     barber = await db.barbers.find_one({"id": booking["barber_id"]}, {"_id": 0, "name": 1, "photo": 1})
     customer = await db.profiles.find_one({"id": booking["user_id"]}, {"_id": 0, "name": 1, "photo": 1})
     return {"booking_id": bid, "barber": barber, "customer": customer, "messages": msgs}
@@ -2367,9 +2375,7 @@ async def get_owner_messages(bid: str, user=Depends(get_current_user)):
         raise HTTPException(404, "Pesanan tidak ditemukan")
     await _owner_chat_access(booking, user)
     msgs = await db.owner_messages.find({"booking_id": bid}, {"_id": 0}).sort("created_at", 1).to_list(500)
-    for m in msgs:
-        p = await db.profiles.find_one({"id": m["sender_id"]}, {"_id": 0, "name": 1, "role": 1})
-        m["sender_name"] = p["name"] if p else "?"
+    await _enrich_sender_names(msgs)
     shop = await db.barbershops.find_one({"id": booking["shop_id"]}, {"_id": 0, "name": 1, "image": 1})
     customer = await db.profiles.find_one({"id": booking["user_id"]}, {"_id": 0, "name": 1, "photo": 1})
     return {"booking_id": bid, "shop": shop, "customer": customer, "messages": msgs}

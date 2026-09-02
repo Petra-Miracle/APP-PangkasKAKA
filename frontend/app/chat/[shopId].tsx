@@ -24,18 +24,31 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const pollingRef = useRef<any>(null);
+  // Sama seperti ChatThread.tsx: jaga pesan yang baru dikirim tapi belum tentu
+  // sudah kebawa di response GET berikutnya (polling background bisa nyelip
+  // di antara POST dan GET-ulang setelah kirim), supaya tidak sempat "hilang".
+  const pendingRef = useRef<any[]>([]);
 
   const load = useCallback(async () => {
     try {
       const r = await api.get(`/chat/threads/${shopId}`);
-      setThread(r);
+      const serverMsgs = r?.messages || [];
+      const now = Date.now();
+      pendingRef.current = pendingRef.current.filter((p) => {
+        const stillFresh = now - new Date(p.created_at).getTime() < 20000;
+        const alreadyOnServer = serverMsgs.some(
+          (s: any) => s.sender_id === p.sender_id && s.text === p.text && s.attachment === p.attachment
+        );
+        return stillFresh && !alreadyOnServer;
+      });
+      setThread(pendingRef.current.length ? { ...r, messages: [...serverMsgs, ...pendingRef.current] } : r);
       await api.post(`/chat/threads/${shopId}/read`).catch(() => {});
     } catch (e) {} finally { setLoading(false); }
   }, [shopId]);
 
   useEffect(() => {
     load();
-    pollingRef.current = setInterval(load, 3000);
+    pollingRef.current = setInterval(load, 2000);
     return () => { if (pollingRef.current) clearInterval(pollingRef.current); };
   }, [load]);
 
@@ -65,6 +78,7 @@ export default function ChatScreen() {
     };
     // Optimistic append — sebelumnya pesan baru muncul setelah POST + GET
     // (round-trip ganda), terasa delay tiap kirim.
+    pendingRef.current = [...pendingRef.current, optimistic];
     setThread((prev: any) => (prev ? { ...prev, messages: [...(prev.messages || []), optimistic] } : prev));
     setText(""); setAttachment(""); setDocRef("");
     setSending(true);
@@ -72,6 +86,7 @@ export default function ChatScreen() {
       await api.post(`/chat/threads/${shopId}/messages`, { text: optimistic.text, attachment: optimistic.attachment, doc_ref: optimistic.doc_ref });
       await load();
     } catch (e: any) {
+      pendingRef.current = pendingRef.current.filter((m) => m.id !== tempId);
       setThread((prev: any) => (prev ? { ...prev, messages: (prev.messages || []).filter((m: any) => m.id !== tempId) } : prev));
       alert(e.message);
     }

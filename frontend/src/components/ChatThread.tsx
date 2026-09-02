@@ -33,7 +33,8 @@ type Props = {
   onData?: (data: any) => void;
 };
 
-const POLL_INTERVAL = 3000;
+const POLL_INTERVAL = 2000;
+const PENDING_MATCH_WINDOW_MS = 20000;
 
 export default function ChatThread({
   fetchUrl, sendUrl, title, subtitle, headerImage, headerIcon = "person",
@@ -50,11 +51,25 @@ export default function ChatThread({
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const pollingRef = useRef<any>(null);
+  // Pesan yang baru dikirim tapi belum tentu sudah kebawa di response GET
+  // berikutnya (mis. polling background nyelip di antara POST dan GET-ulang
+  // setelah kirim) — kalau tidak dijaga, full-replace di bawah bisa bikin
+  // pesan yang baru saja dikirim sempat "hilang" sekilas sebelum muncul lagi.
+  const pendingRef = useRef<ChatMessage[]>([]);
 
   const load = useCallback(async () => {
     try {
       const r = await api.get(fetchUrl);
-      setMessages(getMessages(r));
+      const serverMsgs = getMessages(r);
+      const now = Date.now();
+      pendingRef.current = pendingRef.current.filter((p) => {
+        const stillFresh = now - new Date(p.created_at).getTime() < PENDING_MATCH_WINDOW_MS;
+        const alreadyOnServer = serverMsgs.some(
+          (s) => s.sender_id === p.sender_id && s.text === p.text && s.attachment === p.attachment
+        );
+        return stillFresh && !alreadyOnServer;
+      });
+      setMessages(pendingRef.current.length ? [...serverMsgs, ...pendingRef.current] : serverMsgs);
       onData?.(r);
     } catch {} finally { setLoading(false); }
   }, [fetchUrl, getMessages, onData]);
@@ -98,6 +113,7 @@ export default function ChatThread({
     };
     // Tampilkan pesan langsung (optimistic) — sebelumnya UI menunggu POST + GET
     // (round-trip ganda) sebelum pesan muncul, terasa delay tiap kirim.
+    pendingRef.current = [...pendingRef.current, optimistic];
     setMessages((prev) => [...prev, optimistic]);
     setText(""); setAttachment("");
     setSending(true);
@@ -105,6 +121,7 @@ export default function ChatThread({
       await api.post(sendUrl, { text: optimistic.text, attachment: optimistic.attachment });
       await load();
     } catch (e: any) {
+      pendingRef.current = pendingRef.current.filter((m) => m.id !== tempId);
       setMessages((prev) => prev.filter((m) => m.id !== tempId));
       alert(e.message);
     }
