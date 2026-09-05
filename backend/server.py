@@ -144,14 +144,21 @@ def new_id():
 # bertambah. upload_to_r2() memindahkan file ke R2 dan hanya menyimpan URL publiknya.
 _r2_client = None
 if R2_ENDPOINT and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY:
-    _r2_client = boto3.client(
-        "s3",
-        endpoint_url=R2_ENDPOINT,
-        aws_access_key_id=R2_ACCESS_KEY_ID,
-        aws_secret_access_key=R2_SECRET_ACCESS_KEY,
-        config=BotoConfig(signature_version="s3v4"),
-        region_name="auto",
-    )
+    try:
+        _r2_client = boto3.client(
+            "s3",
+            endpoint_url=R2_ENDPOINT,
+            aws_access_key_id=R2_ACCESS_KEY_ID,
+            aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+            config=BotoConfig(signature_version="s3v4"),
+            region_name="auto",
+        )
+    except Exception:
+        # Konfigurasi R2 salah tidak boleh menjatuhkan seluruh aplikasi saat startup —
+        # upload_to_r2() fallback ke base64 selama _r2_client None, sama seperti kalau
+        # R2 memang belum dikonfigurasi sama sekali.
+        log.exception("Gagal membuat R2 client, upload foto/dokumen fallback ke base64")
+        _r2_client = None
 
 _DATA_URL_RE = re.compile(r"^data:([\w/\-+.]+);base64,(.*)$", re.DOTALL)
 
@@ -172,12 +179,19 @@ async def upload_to_r2(value: Optional[str], folder: str) -> str:
     endpoint upload tanpa perlu cek kondisi itu di tiap caller."""
     if not value or not value.startswith("data:") or not _r2_client:
         return value or ""
-    raw, content_type, ext = _decode_data_url(value)
-    key = f"{folder}/{new_id()}{ext}"
-    await asyncio.to_thread(
-        _r2_client.put_object, Bucket=R2_BUCKET_NAME, Key=key, Body=raw, ContentType=content_type
-    )
-    return f"{R2_PUBLIC_URL}/{key}"
+    try:
+        raw, content_type, ext = _decode_data_url(value)
+        key = f"{folder}/{new_id()}{ext}"
+        await asyncio.to_thread(
+            _r2_client.put_object, Bucket=R2_BUCKET_NAME, Key=key, Body=raw, ContentType=content_type
+        )
+        return f"{R2_PUBLIC_URL}/{key}"
+    except Exception:
+        # Upload ke R2 gagal (kredensial salah, bucket tidak ada, dsb) tidak boleh
+        # menggagalkan seluruh alur (booking/registrasi toko/lamaran karyawan) —
+        # fallback simpan base64 apa adanya, sama seperti sebelum migrasi R2 ada.
+        log.exception("Upload ke R2 gagal (folder=%s), fallback simpan base64", folder)
+        return value
 
 
 def hash_pw(pw: str) -> str:
