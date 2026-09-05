@@ -104,11 +104,11 @@ DURIANPAY_WEBHOOK_SECRET = os.environ.get("DURIANPAY_WEBHOOK_SECRET", "")
 # ---------- Cloudflare R2 (object storage untuk foto/dokumen) ----------
 # Kalau belum diisi, upload_to_r2() fallback: simpan base64 apa adanya (perilaku lama)
 # supaya backend tetap jalan di lingkungan yang belum diset up R2 (mis. lokal/dev).
-R2_ENDPOINT = os.environ.get("R2_ENDPOINT", "")
-R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
-R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
-R2_BUCKET_NAME = os.environ.get("R2_BUCKET_NAME", "pangkaskaka-uploads")
-R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "").rstrip("/")
+R2_ENDPOINT = os.environ.get("R2_ENDPOINT", "").strip()
+R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "").strip()
+R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "").strip()
+R2_BUCKET_NAME = os.environ.get("R2_BUCKET_NAME", "pangkaskaka-uploads").strip()
+R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "").strip().rstrip("/")
 
 if ENVIRONMENT == "production" and PAYMENT_MODE == "simulation":
     raise RuntimeError(
