@@ -3,6 +3,7 @@ PangkasKAKA Backend — FastAPI + MongoDB
 On-demand barbershop booking platform for Kupang City, Indonesia
 """
 import os
+import re
 import math
 import uuid
 import json
@@ -12,6 +13,7 @@ import base64
 import logging
 import asyncio
 import secrets
+import mimetypes
 from pathlib import Path
 from datetime import datetime, timedelta, timezone, date, time as dtime
 from typing import List, Optional, Any, Literal, Dict
@@ -19,6 +21,8 @@ from typing import List, Optional, Any, Literal, Dict
 import bcrypt
 import httpx
 import jwt as pyjwt
+import boto3
+from botocore.config import Config as BotoConfig
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Body, Request
 from fastapi.responses import JSONResponse
@@ -97,6 +101,15 @@ DURIANPAY_PUBLIC_KEY_PEM = os.environ.get("DURIANPAY_PUBLIC_KEY_PEM", "").replac
 # Opsional: HMAC secret untuk verifikasi tambahan (legacy webhook / signature payment fallback)
 DURIANPAY_WEBHOOK_SECRET = os.environ.get("DURIANPAY_WEBHOOK_SECRET", "")
 
+# ---------- Cloudflare R2 (object storage untuk foto/dokumen) ----------
+# Kalau belum diisi, upload_to_r2() fallback: simpan base64 apa adanya (perilaku lama)
+# supaya backend tetap jalan di lingkungan yang belum diset up R2 (mis. lokal/dev).
+R2_ENDPOINT = os.environ.get("R2_ENDPOINT", "")
+R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
+R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+R2_BUCKET_NAME = os.environ.get("R2_BUCKET_NAME", "pangkaskaka-uploads")
+R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "").rstrip("/")
+
 if ENVIRONMENT == "production" and PAYMENT_MODE == "simulation":
     raise RuntimeError(
         "PAYMENT_MODE=simulation tidak boleh dipakai saat ENVIRONMENT=production "
@@ -123,6 +136,48 @@ def now_utc():
 
 def new_id():
     return str(uuid.uuid4())
+
+
+# ---------- Object storage (Cloudflare R2) ----------
+# Foto/dokumen sebelumnya disimpan sebagai base64 langsung di dokumen MongoDB — cepat
+# menghabiskan kuota Atlas tier gratis dan bikin query jadi berat begitu jumlah toko/user
+# bertambah. upload_to_r2() memindahkan file ke R2 dan hanya menyimpan URL publiknya.
+_r2_client = None
+if R2_ENDPOINT and R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY:
+    _r2_client = boto3.client(
+        "s3",
+        endpoint_url=R2_ENDPOINT,
+        aws_access_key_id=R2_ACCESS_KEY_ID,
+        aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+        config=BotoConfig(signature_version="s3v4"),
+        region_name="auto",
+    )
+
+_DATA_URL_RE = re.compile(r"^data:([\w/\-+.]+);base64,(.*)$", re.DOTALL)
+
+
+def _decode_data_url(value: str):
+    m = _DATA_URL_RE.match(value)
+    content_type = m.group(1) if m else "application/octet-stream"
+    b64data = m.group(2) if m else value
+    raw = base64.b64decode(b64data)
+    ext = mimetypes.guess_extension(content_type) or ""
+    return raw, content_type, ext
+
+
+async def upload_to_r2(value: Optional[str], folder: str) -> str:
+    """Upload data-URL base64 (data:<mime>;base64,<data>) ke R2, kembalikan URL publik.
+    Kalau value kosong, sudah berupa URL http(s), atau R2 belum dikonfigurasi (mis. dev
+    lokal tanpa kredensial R2), kembalikan value apa adanya — aman dipanggil di semua
+    endpoint upload tanpa perlu cek kondisi itu di tiap caller."""
+    if not value or not value.startswith("data:") or not _r2_client:
+        return value or ""
+    raw, content_type, ext = _decode_data_url(value)
+    key = f"{folder}/{new_id()}{ext}"
+    await asyncio.to_thread(
+        _r2_client.put_object, Bucket=R2_BUCKET_NAME, Key=key, Body=raw, ContentType=content_type
+    )
+    return f"{R2_PUBLIC_URL}/{key}"
 
 
 def hash_pw(pw: str) -> str:
@@ -1008,15 +1063,22 @@ async def owner_shop(user=Depends(require_role("owner"))):
 async def register_shop(body: ShopRegisterIn, user=Depends(require_role("owner"))):
     existing = await db.barbershops.find_one({"owner_id": user["id"]})
     sid = existing["id"] if existing else new_id()
+    # Foto/dokumen datang sebagai base64 dari app — upload ke R2, simpan URL-nya saja.
+    doc_ktp = await upload_to_r2(body.doc_ktp, f"shops/{sid}/docs")
+    doc_nib = await upload_to_r2(body.doc_nib, f"shops/{sid}/docs")
+    doc_npwp = await upload_to_r2(body.doc_npwp, f"shops/{sid}/docs")
+    doc_surat_usaha = await upload_to_r2(body.doc_surat_usaha, f"shops/{sid}/docs")
+    doc_toko = await upload_to_r2(body.doc_toko, f"shops/{sid}/docs")
+    shop_image = await upload_to_r2(body.image, f"shops/{sid}")
     # Build per-doc status sub-doc
     def _doc(url):
         return {"url": url or "", "status": "pending" if url else "missing", "note": "", "reviewed_at": None, "reviewed_by": None}
     docs = {
-        "ktp": _doc(body.doc_ktp),
-        "nib": _doc(body.doc_nib),
-        "npwp": _doc(body.doc_npwp),
-        "surat_usaha": _doc(body.doc_surat_usaha),
-        "toko": _doc(body.doc_toko),
+        "ktp": _doc(doc_ktp),
+        "nib": _doc(doc_nib),
+        "npwp": _doc(doc_npwp),
+        "surat_usaha": _doc(doc_surat_usaha),
+        "toko": _doc(doc_toko),
     }
     doc = {
         "id": sid,
@@ -1027,7 +1089,7 @@ async def register_shop(body: ShopRegisterIn, user=Depends(require_role("owner")
         "latitude": body.latitude,
         "longitude": body.longitude,
         "price_range": body.price_range,
-        "image": body.image or "",
+        "image": shop_image,
         "rating": existing["rating"] if existing else 0.0,
         "reviews_count": existing["reviews_count"] if existing else 0,
         "is_verified": False,
@@ -1039,11 +1101,11 @@ async def register_shop(body: ShopRegisterIn, user=Depends(require_role("owner")
         "is_open": existing.get("is_open", True) if existing else True,
         "home_service_fee": existing.get("home_service_fee", 0) if existing else 0,
         # legacy flat fields kept for backwards compat
-        "doc_ktp": body.doc_ktp or "",
-        "doc_nib": body.doc_nib or "",
-        "doc_npwp": body.doc_npwp or "",
-        "doc_surat_usaha": body.doc_surat_usaha or "",
-        "doc_toko": body.doc_toko or "",
+        "doc_ktp": doc_ktp,
+        "doc_nib": doc_nib,
+        "doc_npwp": doc_npwp,
+        "doc_surat_usaha": doc_surat_usaha,
+        "doc_toko": doc_toko,
         # new per-doc validation
         "docs": docs,
         "revision_count": 0,
@@ -1065,20 +1127,21 @@ async def replace_document(body: DocReplaceIn, user=Depends(require_role("owner"
     shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0})
     if not shop:
         raise HTTPException(404, "Toko tidak ditemukan")
-    # size check: base64 length ~1.33x binary; 2MB = ~2.66M chars
-    if body.file_base64 and len(body.file_base64) > 2_800_000:
-        raise HTTPException(400, "Ukuran file melebihi 2MB")
+    # size check: base64 length ~1.33x binary; 8MB = ~10.6M chars
+    if body.file_base64 and len(body.file_base64) > 10_600_000:
+        raise HTTPException(400, "Ukuran file melebihi 8MB")
     key = body.doc_key
     update_path = f"docs.{key}"
+    file_url = await upload_to_r2(body.file_base64, f"shops/{shop['id']}/docs")
     docs = shop.get("docs", {})
-    docs[key] = {"url": body.file_base64, "status": "pending", "note": "", "reviewed_at": None, "reviewed_by": None}
+    docs[key] = {"url": file_url, "status": "pending", "note": "", "reviewed_at": None, "reviewed_by": None}
     revision_count = shop.get("revision_count", 0) + 1
     # if shop was rejected, move back to pending
     new_verification_status = "pending" if shop.get("verification_status") == "rejected" else shop.get("verification_status", "pending")
     await db.barbershops.update_one(
         {"id": shop["id"]},
         {"$set": {
-            f"doc_{key}": body.file_base64,
+            f"doc_{key}": file_url,
             "docs": docs,
             "revision_count": revision_count,
             "verification_status": new_verification_status,
@@ -1330,8 +1393,9 @@ async def add_barber(body: BarberIn, user=Depends(require_role("owner"))):
     shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
     if not shop:
         raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    photo_url = await upload_to_r2(body.photo, f"shops/{shop['id']}/barbers")
     doc = {"id": new_id(), "shop_id": shop["id"], "karyawan_id": None,
-           "name": body.name, "photo": body.photo or "", "specialization": body.specialization or "",
+           "name": body.name, "photo": photo_url, "specialization": body.specialization or "",
            "skill_level": body.skill_level, "rating": 0.0, "status": "active",
            "created_at": now_utc().isoformat()}
     await db.barbers.insert_one(doc)
@@ -1343,9 +1407,10 @@ async def update_barber(bid: str, body: BarberIn, user=Depends(require_role("own
     shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
     if not shop:
         raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    photo_url = await upload_to_r2(body.photo, f"shops/{shop['id']}/barbers")
     r = await db.barbers.update_one(
         {"id": bid, "shop_id": shop["id"]},
-        {"$set": {"name": body.name, "photo": body.photo or "", "specialization": body.specialization or "", "skill_level": body.skill_level}},
+        {"$set": {"name": body.name, "photo": photo_url, "specialization": body.specialization or "", "skill_level": body.skill_level}},
     )
     if r.matched_count == 0:
         raise HTTPException(404, "Barber tidak ditemukan")
@@ -1446,13 +1511,14 @@ async def set_shop_image(body: ShopImageIn, user=Depends(require_role("owner")))
     (berbeda dari re-submit lewat POST /owner/shop yang mereset verification_status)."""
     if not body.image:
         raise HTTPException(400, "Foto wajib diisi")
-    if len(body.image) > 2_800_000:
-        raise HTTPException(400, "Ukuran file melebihi 2MB")
+    if len(body.image) > 10_600_000:
+        raise HTTPException(400, "Ukuran file melebihi 8MB")
     shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
     if not shop:
         raise HTTPException(400, "Daftarkan toko terlebih dulu")
-    await db.barbershops.update_one({"id": shop["id"]}, {"$set": {"image": body.image}})
-    return {"ok": True, "image": body.image}
+    image_url = await upload_to_r2(body.image, f"shops/{shop['id']}")
+    await db.barbershops.update_one({"id": shop["id"]}, {"$set": {"image": image_url}})
+    return {"ok": True, "image": image_url}
 
 
 @api.get("/owner/schedule-overrides")
@@ -1552,8 +1618,15 @@ async def karyawan_apply(body: KaryawanApplyIn, user=Depends(require_role("karya
     if existing:
         raise HTTPException(400, "Anda sudah melamar ke toko ini")
 
+    folder = f"karyawan/{user['id']}"
+    ktp_photo = await upload_to_r2(body.ktp_photo, folder)
+    diploma_photo = await upload_to_r2(body.diploma_photo, folder)
+    tools_photo = await upload_to_r2(body.tools_photo, folder)
+    bnsp_cert = await upload_to_r2(body.bnsp_cert, folder)
+    certificates = await upload_to_r2(body.certificates, folder)
+
     # Update juga profil karyawan dengan KTP (untuk akses admin)
-    await db.profiles.update_one({"id": user["id"]}, {"$set": {"ktp_photo": body.ktp_photo}})
+    await db.profiles.update_one({"id": user["id"]}, {"$set": {"ktp_photo": ktp_photo}})
 
     doc = {
         "id": new_id(),
@@ -1563,15 +1636,15 @@ async def karyawan_apply(body: KaryawanApplyIn, user=Depends(require_role("karya
         "phone": user["phone"],
         "shop_id": body.shop_id,
         # WAJIB
-        "ktp_photo": body.ktp_photo,
-        "diploma_photo": body.diploma_photo,
+        "ktp_photo": ktp_photo,
+        "diploma_photo": diploma_photo,
         "work_experience": body.work_experience,
         "criteria_agreed": True,
         # Opsional
         "portfolio_url": body.portfolio_url or "",
-        "tools_photo": body.tools_photo or "",
-        "bnsp_cert": body.bnsp_cert or "",
-        "certificates": body.certificates or "",
+        "tools_photo": tools_photo,
+        "bnsp_cert": bnsp_cert,
+        "certificates": certificates,
         "total_score": 0, "status": "pending",
         "created_at": now_utc().isoformat(),
     }
@@ -2247,15 +2320,16 @@ async def send_msg(shop_id: str, body: ChatSendIn, user=Depends(get_current_user
         raise HTTPException(400, "Percakapan telah ditutup")
     if not body.text and not body.attachment:
         raise HTTPException(400, "Pesan atau lampiran wajib diisi")
-    if body.attachment and len(body.attachment) > 2_800_000:
-        raise HTTPException(400, "Lampiran melebihi 2MB")
+    if body.attachment and len(body.attachment) > 10_600_000:
+        raise HTTPException(400, "Lampiran melebihi 8MB")
+    attachment_url = await upload_to_r2(body.attachment, f"chat/shops/{shop_id}")
     msg = {
         "id": new_id(),
         "shop_id": shop_id,
         "sender_id": user["id"],
         "sender_role": user["role"],
         "text": body.text or "",
-        "attachment": body.attachment or "",
+        "attachment": attachment_url,
         "doc_ref": body.doc_ref or "",
         "is_read": False,
         "created_at": now_utc().isoformat(),
@@ -2350,11 +2424,12 @@ async def send_booking_message(bid: str, body: ServiceChatSendIn, user=Depends(g
     role_in_thread = await _booking_chat_access(booking, user)
     if not body.text and not body.attachment:
         raise HTTPException(400, "Pesan atau lampiran wajib diisi")
-    if body.attachment and len(body.attachment) > 2_800_000:
-        raise HTTPException(400, "Lampiran melebihi 2MB")
+    if body.attachment and len(body.attachment) > 10_600_000:
+        raise HTTPException(400, "Lampiran melebihi 8MB")
+    attachment_url = await upload_to_r2(body.attachment, f"chat/bookings/{bid}")
     msg = {
         "id": new_id(), "booking_id": bid, "sender_id": user["id"], "sender_role": user["role"],
-        "text": body.text or "", "attachment": body.attachment or "",
+        "text": body.text or "", "attachment": attachment_url,
         "is_read": False, "created_at": now_utc().isoformat(),
     }
     await db.service_messages.insert_one(msg)
@@ -2389,11 +2464,12 @@ async def send_owner_message(bid: str, body: ServiceChatSendIn, user=Depends(get
     role_in_thread = await _owner_chat_access(booking, user)
     if not body.text and not body.attachment:
         raise HTTPException(400, "Pesan atau lampiran wajib diisi")
-    if body.attachment and len(body.attachment) > 2_800_000:
-        raise HTTPException(400, "Lampiran melebihi 2MB")
+    if body.attachment and len(body.attachment) > 10_600_000:
+        raise HTTPException(400, "Lampiran melebihi 8MB")
+    attachment_url = await upload_to_r2(body.attachment, f"chat/bookings/{bid}")
     msg = {
         "id": new_id(), "booking_id": bid, "sender_id": user["id"], "sender_role": user["role"],
-        "text": body.text or "", "attachment": body.attachment or "",
+        "text": body.text or "", "attachment": attachment_url,
         "is_read": False, "created_at": now_utc().isoformat(),
     }
     await db.owner_messages.insert_one(msg)
@@ -3393,15 +3469,16 @@ async def send_recruitment_message(kid: str, body: RecruitmentMessageIn, user=De
     text = (body.text or "").strip()
     if not text and not body.attachment:
         raise HTTPException(400, "Pesan kosong")
-    if body.attachment and len(body.attachment) > 2_800_000:
-        raise HTTPException(400, "Lampiran melebihi 2MB")
+    if body.attachment and len(body.attachment) > 10_600_000:
+        raise HTTPException(400, "Lampiran melebihi 8MB")
+    attachment_url = await upload_to_r2(body.attachment, f"chat/recruitment/{kid}")
     msg = {
         "id": new_id(),
         "karyawan_id": kid,
         "sender_id": user["id"],
         "sender_role": user["role"],
         "text": text,
-        "attachment": body.attachment or "",
+        "attachment": attachment_url,
         "is_read": False,
         "created_at": now_utc().isoformat(),
     }
