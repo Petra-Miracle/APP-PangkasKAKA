@@ -28,6 +28,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Body, Re
 from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ReturnDocument
 from pydantic import BaseModel, Field, EmailStr, field_validator
 
 # Cryptography (Durianpay webhook RSA-2048 verification)
@@ -109,6 +110,19 @@ R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "").strip()
 R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "").strip()
 R2_BUCKET_NAME = os.environ.get("R2_BUCKET_NAME", "pangkaskaka-uploads").strip()
 R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "").strip().rstrip("/")
+
+# ---------- Alur transaksi (wallet/ledger) — lihat Noted/2026-09-05/README_ALUR_TRANSAKSI.md ----------
+PLATFORM_COMMISSION_RATE = float(os.environ.get("PLATFORM_COMMISSION_RATE", "0.10"))
+ADMIN_FEE_BORNE_BY = os.environ.get("ADMIN_FEE_BORNE_BY", "customer")  # "customer" | "platform" (belum dipakai — Model 1 selalu ke customer untuk sekarang)
+# ASUMSI — ganti setelah tarif Durianpay per metode pembayaran dikonfirmasi (README §2.6)
+PAYMENT_FEE_RATE_QRIS = float(os.environ.get("PAYMENT_FEE_RATE_QRIS", "0.007"))
+PAYMENT_FEE_FLAT = int(os.environ.get("PAYMENT_FEE_FLAT", "0"))
+MAX_ETA_MINUTES = int(os.environ.get("MAX_ETA_MINUTES", "30"))
+AVG_SPEED_KMH = float(os.environ.get("AVG_SPEED_KMH", "25"))  # kecepatan rata-rata sepeda motor dalam kota Kupang
+ROAD_FACTOR = float(os.environ.get("ROAD_FACTOR", "1.3"))  # koreksi jarak lurus (haversine) -> jarak jalan sebenarnya
+MAX_RADIUS_KM = (MAX_ETA_MINUTES / 60) * AVG_SPEED_KMH / ROAD_FACTOR  # diturunkan dari 3 konstanta di atas, jangan hardcode terpisah
+MIN_PAYOUT_AMOUNT = int(os.environ.get("MIN_PAYOUT_AMOUNT", "50000"))
+AUTO_RELEASE_HOURS = int(os.environ.get("AUTO_RELEASE_HOURS", "48"))  # jaga-jaga kalau pemangkas lupa menekan "Selesai" (README §4)
 
 if ENVIRONMENT == "production" and PAYMENT_MODE == "simulation":
     raise RuntimeError(
@@ -243,6 +257,125 @@ def haversine_km(lat1, lng1, lat2, lng2):
     dlng = to_rad(lng2 - lng1)
     a = math.sin(dlat / 2) ** 2 + math.cos(to_rad(lat1)) * math.cos(to_rad(lat2)) * math.sin(dlng / 2) ** 2
     return round(R * 2 * math.asin(math.sqrt(a)) * 100) / 100
+
+
+def eta_minutes(distance_km: float) -> int:
+    return math.ceil(distance_km * ROAD_FACTOR / AVG_SPEED_KMH * 60)
+
+
+# ---------- Wallet / Ledger — lihat Noted/2026-09-05/README_ALUR_TRANSAKSI.md §1 ----------
+# Dana user tidak pernah masuk langsung ke pemangkas: selalu lewat wallet "platform" dulu
+# (held/pending), baru dilepas ke wallet pemangkas (shop atau karyawan, tergantung
+# delivery_mode) saat pemangkas menekan "Selesai". Setiap perpindahan dicatat di
+# ledger_entries supaya bisa direkonsiliasi (SUM(credit) - SUM(debit) per wallet harus sama
+# dengan total saldo tersimpan, balance_pending + balance_available).
+async def get_or_create_wallet(owner_type: str, owner_id: Optional[str]) -> dict:
+    existing = await db.wallets.find_one({"owner_type": owner_type, "owner_id": owner_id})
+    if existing:
+        return existing
+    doc = {
+        "id": new_id(), "owner_type": owner_type, "owner_id": owner_id,
+        "balance_pending": 0, "balance_available": 0, "currency": "IDR",
+        "created_at": now_utc().isoformat(), "updated_at": now_utc().isoformat(),
+    }
+    try:
+        await db.wallets.insert_one(doc)
+    except Exception:
+        # race: wallet ini sempat dibuat proses lain di antara find_one dan insert_one
+        existing = await db.wallets.find_one({"owner_type": owner_type, "owner_id": owner_id})
+        if existing:
+            return existing
+        raise
+    return doc
+
+
+async def _adjust_wallet(wallet_id: str, delta_pending: int, delta_available: int, session) -> dict:
+    return await db.wallets.find_one_and_update(
+        {"id": wallet_id},
+        {"$inc": {"balance_pending": delta_pending, "balance_available": delta_available},
+         "$set": {"updated_at": now_utc().isoformat()}},
+        session=session, return_document=ReturnDocument.AFTER,
+    )
+
+
+async def _ledger(session, wallet_id: str, txn_id: str, order_id: str, direction: str,
+                   amount: int, entry_type: str, balance_after: int, memo: str = ""):
+    await db.ledger_entries.insert_one({
+        "id": new_id(), "transaction_id": txn_id, "order_id": order_id,
+        "wallet_id": wallet_id, "direction": direction, "amount": amount,
+        "entry_type": entry_type, "balance_after": balance_after,
+        # deterministic (bukan random) supaya retry pada peristiwa yang sama benar-benar
+        # ditolak oleh unique index, bukan cuma diandalkan dari pengecekan fund_state di caller
+        "idempotency_key": f"{entry_type}:{direction}:{order_id}:{wallet_id}",
+        "memo": memo, "created_at": now_utc().isoformat(),
+    }, session=session)
+
+
+async def _hold_booking_funds(booking: dict, session):
+    """Trigger 1 — pembayaran terkonfirmasi. Tahan dana di wallet platform (fund_state: held)."""
+    platform_wallet = await get_or_create_wallet("platform", None)
+    amount_service = booking["amount_service"]
+    updated = await _adjust_wallet(platform_wallet["id"], amount_service, 0, session)
+    txn_id = new_id()
+    await _ledger(session, platform_wallet["id"], txn_id, booking["id"], "credit", amount_service,
+                  "payment_in", updated["balance_pending"] + updated["balance_available"],
+                  "Dana ditahan menunggu layanan selesai")
+    await db.bookings.update_one({"id": booking["id"]}, {"$set": {"fund_state": "held"}}, session=session)
+
+
+async def _release_booking_funds(booking: dict, session) -> bool:
+    """Trigger 2 — pemangkas menekan 'Selesai'. Idempoten: no-op kalau fund_state bukan 'held'."""
+    fresh = await db.bookings.find_one({"id": booking["id"]}, {"_id": 0}, session=session)
+    if not fresh or fresh.get("fund_state") != "held":
+        return False
+    platform_wallet = await get_or_create_wallet("platform", None)
+    payee_wallet = await get_or_create_wallet(fresh["payout_wallet_type"], fresh["payout_wallet_owner_id"])
+    commission = fresh["amount_platform_commission"]
+    barber_net = fresh["amount_barber_net"]
+    txn_id = new_id()
+
+    # Platform: pending turun sebesar amount_service (dana keluar dari bucket), available naik
+    # sebesar komisi saja — efek bersih -barber_net, itu yang dicatat di ledger.
+    platform_after = await _adjust_wallet(platform_wallet["id"], -fresh["amount_service"], commission, session)
+    await _ledger(session, platform_wallet["id"], txn_id, fresh["id"], "debit", barber_net,
+                  "barber_payout", platform_after["balance_pending"] + platform_after["balance_available"],
+                  "Dana dilepas dari bucket platform")
+    await _ledger(session, platform_wallet["id"], txn_id, fresh["id"], "credit", commission,
+                  "platform_commission", platform_after["balance_pending"] + platform_after["balance_available"],
+                  "Komisi platform")
+
+    payee_after = await _adjust_wallet(payee_wallet["id"], 0, barber_net, session)
+    await _ledger(session, payee_wallet["id"], txn_id, fresh["id"], "credit", barber_net,
+                  "barber_payout", payee_after["balance_pending"] + payee_after["balance_available"],
+                  "Pendapatan pemangkas")
+
+    await db.bookings.update_one(
+        {"id": fresh["id"]},
+        {"$set": {"fund_state": "released", "released_at": now_utc().isoformat()}},
+        session=session,
+    )
+    return True
+
+
+async def _refund_booking_if_held(booking: dict, session) -> bool:
+    """Pembatalan sebelum selesai — kembalikan dana ke user tanpa menyentuh wallet pemangkas
+    sama sekali (README §1.7: ini keuntungan utama skema bucket)."""
+    fresh = await db.bookings.find_one({"id": booking["id"]}, {"_id": 0}, session=session)
+    if not fresh or fresh.get("fund_state") != "held":
+        return False
+    platform_wallet = await get_or_create_wallet("platform", None)
+    amount_service = fresh["amount_service"]
+    txn_id = new_id()
+    platform_after = await _adjust_wallet(platform_wallet["id"], -amount_service, 0, session)
+    await _ledger(session, platform_wallet["id"], txn_id, fresh["id"], "debit", amount_service,
+                  "refund", platform_after["balance_pending"] + platform_after["balance_available"],
+                  "Dikembalikan ke user")
+    await db.bookings.update_one(
+        {"id": fresh["id"]},
+        {"$set": {"fund_state": "refunded", "refunded_at": now_utc().isoformat(), "payment_status": "refunded"}},
+        session=session,
+    )
+    return True
 
 
 def bayesian_rating(v: int, R: float, C: float, m: int = 10) -> float:
@@ -828,11 +961,17 @@ async def nearby_barbers(lat: float, lng: float):
         loc = loc_by_karyawan.get(b["karyawan_id"])
         if not loc:
             continue
+        distance_km = haversine_km(lat, lng, loc["lat"], loc["lng"])
+        eta = eta_minutes(distance_km)
+        # Batas layanan 30 menit perjalanan (README §3.3) — difilter di server, bukan di klien.
+        if eta > MAX_ETA_MINUTES:
+            continue
         shop = await db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0, "name": 1, "address": 1})
         result.append({
             **b,
             "lat": loc["lat"], "lng": loc["lng"], "updated_at": loc["updated_at"],
-            "distance_km": haversine_km(lat, lng, loc["lat"], loc["lng"]),
+            "distance_km": distance_km,
+            "eta_minutes": eta,
             "shop_name": shop["name"] if shop else "",
             "shop_address": shop["address"] if shop else "",
         })
@@ -906,10 +1045,31 @@ async def create_booking(body: BookingIn, user=Depends(get_current_user)):
         raise HTTPException(409, "Slot baru saja dipesan orang lain, silakan pilih waktu lain")
     price = svc["price"]  # trust DB
     home_service_fee = 0
+    eta_minutes_at_booking = None
     if body.delivery_mode == "rumah":
         shop = await db.barbershops.find_one({"id": body.shop_id}, {"_id": 0, "home_service_fee": 1})
         home_service_fee = (shop or {}).get("home_service_fee", 0)
         price += home_service_fee
+        # Batas layanan 30 menit perjalanan (README §3) — dicek juga di saat booking dibuat,
+        # bukan cuma di pencarian /barbers/nearby, karena barber sudah dipilih spesifik di sini.
+        loc = await db.karyawan_locations.find_one({"karyawan_id": barber["karyawan_id"]}, {"_id": 0})
+        if not loc or not loc.get("is_online"):
+            raise HTTPException(400, "StreetBarber ini sedang tidak online, tidak bisa menerima panggilan ke rumah")
+        distance_km = haversine_km(body.customer_lat, body.customer_lng, loc["lat"], loc["lng"])
+        eta_minutes_at_booking = eta_minutes(distance_km)
+        if eta_minutes_at_booking > MAX_ETA_MINUTES:
+            raise HTTPException(400, f"Lokasi Anda di luar jangkauan {MAX_ETA_MINUTES} menit perjalanan StreetBarber ini (perkiraan {eta_minutes_at_booking} menit)")
+    # Rincian biaya — README §2.2: komisi dihitung dari harga layanan, BUKAN dari total yang
+    # dibayar user (kalau dihitung dari total, platform ikut ambil komisi dari biaya admin).
+    amount_service = price
+    amount_admin_fee = round(amount_service * PAYMENT_FEE_RATE_QRIS) + PAYMENT_FEE_FLAT
+    amount_total_charged = amount_service + amount_admin_fee
+    amount_platform_commission = round(amount_service * PLATFORM_COMMISSION_RATE)
+    amount_barber_net = amount_service - amount_platform_commission
+    if body.delivery_mode == "rumah":
+        payout_wallet_type, payout_wallet_owner_id = "karyawan", barber["karyawan_id"]
+    else:
+        payout_wallet_type, payout_wallet_owner_id = "shop", body.shop_id
     bid = new_id()
     booking = {
         "id": bid,
@@ -932,6 +1092,18 @@ async def create_booking(body: BookingIn, user=Depends(get_current_user)):
         "customer_lng": body.customer_lng,
         "arrival_status": "unknown",
         "created_at": now_utc().isoformat(),
+        # Alur transaksi (README_ALUR_TRANSAKSI.md)
+        "fund_state": "unpaid",
+        "amount_service": amount_service,
+        "amount_admin_fee": amount_admin_fee,
+        "amount_total_charged": amount_total_charged,
+        "amount_platform_commission": amount_platform_commission,
+        "amount_barber_net": amount_barber_net,
+        "payout_wallet_type": payout_wallet_type,
+        "payout_wallet_owner_id": payout_wallet_owner_id,
+        "eta_minutes_at_booking": eta_minutes_at_booking,
+        "released_at": None,
+        "refunded_at": None,
     }
     await db.bookings.insert_one(booking)
     # race check
@@ -947,7 +1119,7 @@ async def create_booking(body: BookingIn, user=Depends(get_current_user)):
     await db.payments.insert_one({
         "id": new_id(), "booking_id": bid,
         "transaction_id": f"TRX-{int(now_utc().timestamp())}-{new_id()[:8]}",
-        "amount": price, "method": "qris", "status": "pending",
+        "amount": amount_total_charged, "method": "qris", "status": "pending",
         "created_at": now_utc().isoformat(),
     })
     return {"booking": clean(booking)}
@@ -955,6 +1127,9 @@ async def create_booking(body: BookingIn, user=Depends(get_current_user)):
 
 @api.post("/bookings/{bid}/pay")
 async def pay_booking(bid: str, user=Depends(get_current_user)):
+    """Jalur manual/legacy (fallback simulasi di frontend) — dilewatkan lewat
+    _mark_booking_paid yang sama dengan webhook/simulate, supaya Trigger 1 (dana ditahan)
+    tetap jalan di jalur ini juga, bukan cuma di webhook Durianpay."""
     b = await db.bookings.find_one({"id": bid, "user_id": user["id"]}, {"_id": 0})
     if not b:
         raise HTTPException(404, "Pesanan tidak ditemukan")
@@ -965,12 +1140,7 @@ async def pay_booking(bid: str, user=Depends(get_current_user)):
     if (now_utc() - created).total_seconds() > 15 * 60:
         await db.bookings.update_one({"id": bid}, {"$set": {"status": "cancelled", "payment_status": "forfeited"}})
         raise HTTPException(410, "Pembayaran kadaluarsa, silakan pesan ulang")
-    await db.bookings.update_one({"id": bid}, {"$set": {"payment_status": "paid", "status": "confirmed"}})
-    await db.payments.update_one({"booking_id": bid}, {"$set": {"status": "success", "paid_at": now_utc().isoformat()}})
-    shop = await db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0})
-    await send_notif(user["id"], "Pembayaran berhasil", f"Booking di {shop['name']} telah dikonfirmasi.", "payment")
-    if shop:
-        await send_notif(shop["owner_id"], "Pesanan baru masuk!", f"{user['name']} memesan slot {b['booking_time']} pada {b['booking_date']}.", "booking")
+    await _mark_booking_paid(b, provider_ref=f"MANUAL-{int(now_utc().timestamp())}", method="manual")
     return {"ok": True}
 
 
@@ -1036,10 +1206,17 @@ async def cancel_booking(bid: str, user=Depends(get_current_user)):
     # jasa panggilan pangkas ke rumah (delivery_mode "rumah").
     dt = datetime.strptime(f"{b['booking_date']} {b['booking_time']}", "%Y-%m-%d %H:%M").replace(tzinfo=WITA)
     late_cancel = dt < datetime.now(WITA) + timedelta(hours=2)
-    updates = {"status": "cancelled"}
     if late_cancel:
         await db.profiles.update_one({"id": user["id"]}, {"$set": {"home_delivery_blocked": True}})
-    await db.bookings.update_one({"id": bid}, {"$set": updates})
+
+    async def _txn(session):
+        await db.bookings.update_one({"id": bid}, {"$set": {"status": "cancelled"}}, session=session)
+        # Dana ditahan sampai selesai (README §1.7) — pembatalan sebelum selesai selalu
+        # refund 100%, tidak pernah menyentuh wallet pemangkas.
+        await _refund_booking_if_held(b, session)
+
+    async with await client.start_session() as session:
+        await session.with_transaction(_txn)
     return {"ok": True, "penalty_applied": late_cancel}
 
 
@@ -1341,6 +1518,7 @@ async def owner_dashboard(user=Depends(require_role("owner"))):
     today_count = await db.bookings.count_documents({"shop_id": shop["id"], "booking_date": today})
     paid_this_month = await db.bookings.find({
         "shop_id": shop["id"], "payment_status": "paid",
+        "fund_state": {"$ne": "refunded"},  # booking yang dibatalkan+refund tidak lagi dihitung pendapatan
         "delivery_mode": {"$ne": "rumah"},  # revenue StreetBarber (panggilan rumah) mandiri, bukan milik toko
         "created_at": {"$gte": month_start}
     }, {"_id": 0, "total_price": 1}).to_list(2000)
@@ -1397,7 +1575,18 @@ async def update_order_status(bid: str, payload: dict = Body(...), user=Depends(
         raise HTTPException(403, "Bukan milik Anda")
     if new_status not in valid.get(b["status"], []):
         raise HTTPException(400, "Transisi status tidak valid")
-    await db.bookings.update_one({"id": bid}, {"$set": {"status": new_status}})
+    if new_status == "completed" and b.get("delivery_mode") == "rumah":
+        raise HTTPException(400, "Booking panggilan ke rumah diselesaikan oleh StreetBarber sendiri, bukan owner")
+
+    async def _txn(session):
+        await db.bookings.update_one({"id": bid}, {"$set": {"status": new_status}}, session=session)
+        if new_status == "completed":
+            await _release_booking_funds(b, session)
+        elif new_status == "cancelled":
+            await _refund_booking_if_held(b, session)
+
+    async with await client.start_session() as session:
+        await session.with_transaction(_txn)
     await send_notif(b["user_id"], "Status pesanan berubah", f"Pesanan Anda kini: {new_status}", "booking")
     return {"ok": True}
 
@@ -1691,7 +1880,8 @@ async def karyawan_earnings(user=Depends(require_role("karyawan"))):
         return {"monthly_revenue": 0, "completed_count": 0}
     month_start = datetime.now(WITA).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
     paid = await db.bookings.find(
-        {"barber_id": {"$in": barber_ids}, "payment_status": "paid", "created_at": {"$gte": month_start}},
+        {"barber_id": {"$in": barber_ids}, "payment_status": "paid",
+         "fund_state": {"$ne": "refunded"}, "created_at": {"$gte": month_start}},
         {"_id": 0, "total_price": 1},
     ).to_list(2000)
     return {"monthly_revenue": sum(b["total_price"] for b in paid), "completed_count": len(paid)}
@@ -1731,6 +1921,93 @@ async def karyawan_bookings(user=Depends(require_role("karyawan"))):
     return {"bookings": bookings}
 
 
+@api.post("/karyawan/bookings/{bid}/complete")
+async def karyawan_complete_booking(bid: str, user=Depends(require_role("karyawan"))):
+    """Trigger 2 untuk booking panggilan ke rumah — StreetBarber sendiri yang menekan
+    'Selesai' (bukan owner), dana dilepas ke wallet karyawan itu sendiri, bukan wallet toko
+    (README_ALUR_TRANSAKSI.md, keputusan pembagian trigger)."""
+    b = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    if b.get("delivery_mode") != "rumah":
+        raise HTTPException(400, "Booking di toko diselesaikan oleh owner, bukan di sini")
+    barber = await db.barbers.find_one({"id": b["barber_id"]}, {"_id": 0, "karyawan_id": 1})
+    app_ = await db.karyawan.find_one({"id": (barber or {}).get("karyawan_id"), "profile_id": user["id"], "status": "active"}, {"_id": 0, "id": 1})
+    if not app_:
+        raise HTTPException(403, "Bukan booking Anda")
+    if b["status"] != "confirmed":
+        raise HTTPException(400, "Pesanan harus berstatus 'confirmed' sebelum bisa diselesaikan")
+
+    async def _txn(session):
+        await db.bookings.update_one({"id": bid}, {"$set": {"status": "completed"}}, session=session)
+        await _release_booking_funds(b, session)
+
+    async with await client.start_session() as session:
+        await session.with_transaction(_txn)
+    await send_notif(b["user_id"], "Layanan selesai", "Terima kasih! Booking Anda telah diselesaikan.", "booking")
+    return {"ok": True}
+
+
+# ============================================================
+# WALLET / LEDGER — README_ALUR_TRANSAKSI.md §1.5
+# ============================================================
+async def _resolve_own_wallet(user: dict) -> dict:
+    if user["role"] == "owner":
+        shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+        if not shop:
+            raise HTTPException(400, "Daftarkan toko terlebih dulu")
+        return await get_or_create_wallet("shop", shop["id"])
+    if user["role"] == "karyawan":
+        app_ = await db.karyawan.find_one({"profile_id": user["id"], "status": "active"}, {"_id": 0, "id": 1})
+        if not app_:
+            raise HTTPException(400, "Anda belum menjadi StreetBarber aktif di toko manapun")
+        return await get_or_create_wallet("karyawan", app_["id"])
+    raise HTTPException(403, "Hanya owner atau karyawan yang punya wallet")
+
+
+@api.get("/wallets/me")
+async def wallet_me(user=Depends(require_role("owner", "karyawan"))):
+    w = await _resolve_own_wallet(user)
+    return {"wallet": clean(w)}
+
+
+@api.get("/wallets/me/ledger")
+async def wallet_me_ledger(page: int = 1, size: int = 20, user=Depends(require_role("owner", "karyawan"))):
+    w = await _resolve_own_wallet(user)
+    skip = max(0, (page - 1) * size)
+    rows = await db.ledger_entries.find({"wallet_id": w["id"]}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(size).to_list(size)
+    total = await db.ledger_entries.count_documents({"wallet_id": w["id"]})
+    return {"entries": rows, "total": total, "page": page, "size": size}
+
+
+@api.post("/payouts")
+async def request_payout(user=Depends(require_role("owner", "karyawan"))):
+    """Prototipe: tidak ada transfer bank sungguhan (README — 'jangan pernah memproses uang
+    nyata dengan kode ini'), cuma catatan pengajuan + saldo tersedia langsung dipotong."""
+    w = await _resolve_own_wallet(user)
+    if w["balance_available"] < MIN_PAYOUT_AMOUNT:
+        formatted_min = f"{MIN_PAYOUT_AMOUNT:,}".replace(",", ".")
+        formatted_bal = f"{w['balance_available']:,}".replace(",", ".")
+        raise HTTPException(400, f"Saldo tersedia (Rp{formatted_bal}) di bawah minimum penarikan (Rp{formatted_min})")
+    amount = w["balance_available"]
+    payout_id = new_id()
+
+    async def _txn(session):
+        after = await _adjust_wallet(w["id"], 0, -amount, session)
+        await db.payouts.insert_one({
+            "id": payout_id, "wallet_id": w["id"], "amount": amount,
+            "status": "requested",
+            "created_at": now_utc().isoformat(),
+        }, session=session)
+        txn_id = new_id()
+        await _ledger(session, w["id"], txn_id, payout_id, "debit", amount, "withdrawal",
+                      after["balance_pending"] + after["balance_available"], "Pengajuan penarikan saldo")
+
+    async with await client.start_session() as session:
+        await session.with_transaction(_txn)
+    return {"ok": True, "amount": amount, "payout_id": payout_id}
+
+
 # ============================================================
 # ADMIN
 # ============================================================
@@ -1740,7 +2017,7 @@ async def admin_dashboard(user=Depends(require_role("admin"))):
     pending = await db.barbershops.count_documents({"verification_status": "pending"})
     customers = await db.profiles.count_documents({"role": "customer"})
     today = datetime.now(WITA).date().isoformat()
-    paid_today = await db.bookings.find({"payment_status": "paid", "booking_date": today}, {"_id": 0, "total_price": 1}).to_list(2000)
+    paid_today = await db.bookings.find({"payment_status": "paid", "fund_state": {"$ne": "refunded"}, "booking_date": today}, {"_id": 0, "total_price": 1}).to_list(2000)
     revenue_today = sum(b["total_price"] for b in paid_today)
     return {
         "stats": {
@@ -1883,6 +2160,45 @@ async def admin_set_user_password(user_id: str, body: SetUserPasswordIn, user=De
         raise HTTPException(404, "User tidak ditemukan")
     await db.profiles.update_one({"id": user_id}, {"$set": {"password": hash_pw(body.new_password)}})
     await send_notif(user_id, "Password diubah admin", "Password akun Anda telah diatur ulang oleh admin.", "system")
+    return {"ok": True}
+
+
+@api.post("/admin/wallets/reconcile")
+async def admin_reconcile_wallets(user=Depends(require_role("admin"))):
+    """README §1.6 — jalankan sebelum demo: SUM(credit) - SUM(debit) per wallet harus sama
+    dengan total saldo tersimpan (balance_pending + balance_available). Kalau tidak cocok,
+    ada bug yang harus diselesaikan sebelum apa pun ditampilkan ke juri."""
+    wallets = await db.wallets.find({}, {"_id": 0}).to_list(1000)
+    mismatches = []
+    for w in wallets:
+        entries = await db.ledger_entries.find({"wallet_id": w["id"]}, {"_id": 0, "direction": 1, "amount": 1}).to_list(10000)
+        ledger_sum = sum(e["amount"] if e["direction"] == "credit" else -e["amount"] for e in entries)
+        stored_total = w["balance_pending"] + w["balance_available"]
+        if ledger_sum != stored_total:
+            mismatches.append({
+                "wallet_id": w["id"], "owner_type": w["owner_type"], "owner_id": w["owner_id"],
+                "ledger_sum": ledger_sum, "stored_total": stored_total, "diff": stored_total - ledger_sum,
+            })
+    return {"ok": len(mismatches) == 0, "checked": len(wallets), "mismatches": mismatches}
+
+
+@api.post("/admin/bookings/{bid}/force-release")
+async def admin_force_release(bid: str, user=Depends(require_role("admin"))):
+    """Intervensi manual (README §4) — dipakai kalau auto-release belum sempat jalan atau
+    ada sengketa yang perlu superadmin selesaikan segera."""
+    b = await db.bookings.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+
+    async def _txn(session):
+        await db.bookings.update_one({"id": bid}, {"$set": {"status": "completed"}}, session=session)
+        released = await _release_booking_funds(b, session)
+        return released
+
+    async with await client.start_session() as session:
+        released = await session.with_transaction(_txn)
+    if not released:
+        raise HTTPException(400, f"Tidak bisa dilepas — fund_state saat ini: {b.get('fund_state', 'unpaid')}")
     return {"ok": True}
 
 
@@ -2526,7 +2842,8 @@ async def analytics_owner(user=Depends(require_role("owner"))):
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
     total_month = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": month_start}})
     paid_this_month = await db.bookings.find(
-        {"shop_id": sid, "payment_status": "paid", "delivery_mode": {"$ne": "rumah"}, "created_at": {"$gte": month_start}},
+        {"shop_id": sid, "payment_status": "paid", "fund_state": {"$ne": "refunded"},
+         "delivery_mode": {"$ne": "rumah"}, "created_at": {"$gte": month_start}},
         {"_id": 0, "total_price": 1},
     ).to_list(5000)
     monthly_revenue = sum(b["total_price"] for b in paid_this_month)
@@ -2623,8 +2940,8 @@ async def analytics_admin(user=Depends(require_role("admin"))):
 
     today = now.date().isoformat()
     yesterday = (now - timedelta(days=1)).date().isoformat()
-    today_paid = await db.bookings.find({"payment_status": "paid", "booking_date": today}, {"_id": 0, "total_price": 1}).to_list(5000)
-    yst_paid = await db.bookings.find({"payment_status": "paid", "booking_date": yesterday}, {"_id": 0, "total_price": 1}).to_list(5000)
+    today_paid = await db.bookings.find({"payment_status": "paid", "fund_state": {"$ne": "refunded"}, "booking_date": today}, {"_id": 0, "total_price": 1}).to_list(5000)
+    yst_paid = await db.bookings.find({"payment_status": "paid", "fund_state": {"$ne": "refunded"}, "booking_date": yesterday}, {"_id": 0, "total_price": 1}).to_list(5000)
     today_rev = sum(b["total_price"] for b in today_paid)
     yst_rev = sum(b["total_price"] for b in yst_paid)
     rev_growth = round(((today_rev - yst_rev) / yst_rev) * 100, 1) if yst_rev else (100.0 if today_rev else 0.0)
@@ -2852,23 +3169,35 @@ async def _load_booking_for_payment(booking_id: str, user: dict) -> dict:
 
 
 async def _mark_booking_paid(booking: dict, provider_ref: str, method: str = "durianpay"):
-    """Idempotent: update booking + payment, send notifications. Skips if already paid."""
+    """Idempotent: update booking + payment, tahan dana ke wallet platform (Trigger 1 —
+    README_ALUR_TRANSAKSI.md §1.5), kirim notifikasi. Skips if already paid."""
     bid = booking["id"]
     fresh = await db.bookings.find_one({"id": bid}, {"_id": 0})
     if fresh and fresh.get("payment_status") == "paid":
         return False  # already processed
 
-    await db.bookings.update_one(
-        {"id": bid},
-        {"$set": {"payment_status": "paid", "status": "confirmed",
-                  "paid_at": now_utc().isoformat()}}
-    )
-    await db.payments.update_one(
-        {"booking_id": bid},
-        {"$set": {"status": "success", "method": method,
-                  "provider_ref": provider_ref,
-                  "paid_at": now_utc().isoformat()}}
-    )
+    async def _txn(session):
+        await db.bookings.update_one(
+            {"id": bid},
+            {"$set": {"payment_status": "paid", "status": "confirmed",
+                      "paid_at": now_utc().isoformat()}},
+            session=session,
+        )
+        await db.payments.update_one(
+            {"booking_id": bid},
+            {"$set": {"status": "success", "method": method,
+                      "provider_ref": provider_ref,
+                      "paid_at": now_utc().isoformat()}},
+            session=session,
+        )
+        # Booking lama (dari sebelum migrasi alur transaksi ini) tidak punya amount_service
+        # dkk — biarkan saja, tidak ada dana yang perlu/bisa ditahan untuk booking semacam itu.
+        if fresh and "amount_service" in fresh:
+            await _hold_booking_funds(fresh, session)
+
+    async with await client.start_session() as session:
+        await session.with_transaction(_txn)
+
     # Notify customer + owner
     shop = await db.barbershops.find_one({"id": booking["shop_id"]}, {"_id": 0})
     customer = await db.profiles.find_one({"id": booking["user_id"]}, {"_id": 0, "name": 1})
@@ -2928,7 +3257,7 @@ async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
         }
 
     payload = {
-        "amount": str(int(b["total_price"])),
+        "amount": str(int(b.get("amount_total_charged", b["total_price"]))),
         "currency": "IDR",
         "payment_option": "full_payment",
         "is_payment_link": True,
@@ -3011,7 +3340,7 @@ async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
             "qr_debug": qr_debug if (PAYMENT_MODE == "sandbox" and not qr_string) else "",
             "method": "durianpay",
             "status": "pending",
-            "amount": int(b["total_price"]),
+            "amount": int(b.get("amount_total_charged", b["total_price"])),
             "expires_at": payload["expiry_date"],
             "updated_at": now_utc().isoformat(),
         }, "$setOnInsert": {
@@ -3591,6 +3920,41 @@ async def ensure_indexes():
     await db.recruitment_messages.create_index("karyawan_id")
     await db.service_messages.create_index("booking_id")
     await db.password_resets.create_index([("email", 1), ("code", 1)])
+    await db.wallets.create_index([("owner_type", 1), ("owner_id", 1)], unique=True)
+    await db.ledger_entries.create_index("idempotency_key", unique=True)
+    await db.ledger_entries.create_index([("order_id", 1), ("created_at", 1)])
+    await db.ledger_entries.create_index([("wallet_id", 1), ("created_at", -1)])
+    await db.bookings.create_index("fund_state")
+
+
+async def _auto_release_loop():
+    """Jaga-jaga kalau pemangkas lupa menekan 'Selesai' (README §4, open-question #4) —
+    dana yang masih held lebih dari AUTO_RELEASE_HOURS sejak jadwal booking dilepas otomatis,
+    supaya tidak tertahan selamanya di bucket platform."""
+    while True:
+        try:
+            cutoff_utc = now_utc() - timedelta(hours=AUTO_RELEASE_HOURS)
+            stuck = await db.bookings.find(
+                {"fund_state": "held", "status": "confirmed"}, {"_id": 0}
+            ).to_list(500)
+            for b in stuck:
+                try:
+                    dt_wita = datetime.strptime(f"{b['booking_date']} {b['booking_time']}", "%Y-%m-%d %H:%M").replace(tzinfo=WITA)
+                except Exception:
+                    continue
+                if dt_wita.astimezone(timezone.utc) >= cutoff_utc:
+                    continue
+
+                async def _txn(session, booking=b):
+                    await db.bookings.update_one({"id": booking["id"]}, {"$set": {"status": "completed"}}, session=session)
+                    await _release_booking_funds(booking, session)
+
+                async with await client.start_session() as session:
+                    await session.with_transaction(_txn)
+                log.info("Auto-release dana untuk booking %s (held terlalu lama, jadwal sudah lewat)", b["id"])
+        except Exception:
+            log.exception("Auto-release loop gagal, coba lagi di siklus berikutnya")
+        await asyncio.sleep(15 * 60)
 
 
 @app.on_event("startup")
@@ -3599,6 +3963,7 @@ async def startup_seed():
         await ensure_indexes()
     except Exception as e:
         log.exception("Index creation on startup failed: %s", e)
+    asyncio.create_task(_auto_release_loop())
     if ENVIRONMENT == "production":
         log.info("ENVIRONMENT=production — auto-seed demo data dilewati.")
         return
