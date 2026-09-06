@@ -1521,8 +1521,8 @@ async def owner_dashboard(user=Depends(require_role("owner"))):
         "fund_state": {"$ne": "refunded"},  # booking yang dibatalkan+refund tidak lagi dihitung pendapatan
         "delivery_mode": {"$ne": "rumah"},  # revenue StreetBarber (panggilan rumah) mandiri, bukan milik toko
         "created_at": {"$gte": month_start}
-    }, {"_id": 0, "total_price": 1}).to_list(2000)
-    revenue = sum(b["total_price"] for b in paid_this_month)
+    }, {"_id": 0, "total_price": 1, "amount_barber_net": 1}).to_list(2000)
+    revenue = sum(b.get("amount_barber_net", b["total_price"]) for b in paid_this_month)
     barbers_active = await db.barbers.count_documents({"shop_id": shop["id"], "status": "active"})
     latest = await db.bookings.find({"shop_id": shop["id"]}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
     for b in latest:
@@ -1882,9 +1882,9 @@ async def karyawan_earnings(user=Depends(require_role("karyawan"))):
     paid = await db.bookings.find(
         {"barber_id": {"$in": barber_ids}, "payment_status": "paid",
          "fund_state": {"$ne": "refunded"}, "created_at": {"$gte": month_start}},
-        {"_id": 0, "total_price": 1},
+        {"_id": 0, "total_price": 1, "amount_barber_net": 1},
     ).to_list(2000)
-    return {"monthly_revenue": sum(b["total_price"] for b in paid), "completed_count": len(paid)}
+    return {"monthly_revenue": sum(b.get("amount_barber_net", b["total_price"]) for b in paid), "completed_count": len(paid)}
 
 
 @api.post("/karyawan/location")
@@ -2017,14 +2017,22 @@ async def admin_dashboard(user=Depends(require_role("admin"))):
     pending = await db.barbershops.count_documents({"verification_status": "pending"})
     customers = await db.profiles.count_documents({"role": "customer"})
     today = datetime.now(WITA).date().isoformat()
-    paid_today = await db.bookings.find({"payment_status": "paid", "fund_state": {"$ne": "refunded"}, "booking_date": today}, {"_id": 0, "total_price": 1}).to_list(2000)
+    paid_today = await db.bookings.find(
+        {"payment_status": "paid", "fund_state": {"$ne": "refunded"}, "booking_date": today},
+        {"_id": 0, "total_price": 1, "amount_platform_commission": 1},
+    ).to_list(2000)
     revenue_today = sum(b["total_price"] for b in paid_today)
+    # GMV (revenue_today di atas) != pendapatan platform sesungguhnya — itu total nilai
+    # transaksi yang lewat, bukan yang jadi milik platform. Booking lama sebelum alur
+    # wallet/ledger tidak punya field ini, fallback ke 0 (bukan ke total_price — beda arti).
+    platform_revenue_today = sum(b.get("amount_platform_commission", 0) for b in paid_today)
     return {
         "stats": {
             "total_shops": total_shops,
             "pending_verifications": pending,
             "total_customers": customers,
             "revenue_today": revenue_today,
+            "platform_revenue_today": platform_revenue_today,
         }
     }
 
@@ -2199,6 +2207,68 @@ async def admin_force_release(bid: str, user=Depends(require_role("admin"))):
         released = await session.with_transaction(_txn)
     if not released:
         raise HTTPException(400, f"Tidak bisa dilepas — fund_state saat ini: {b.get('fund_state', 'unpaid')}")
+    return {"ok": True}
+
+
+@api.get("/admin/bookings/held")
+async def admin_held_bookings(user=Depends(require_role("admin"))):
+    """Daftar booking yang dananya masih tertahan di wallet platform (fund_state 'held'),
+    paling lama dulu — tanpa ini admin tidak punya cara tahu booking mana yang perlu
+    di-force-release (auto-release macet/sengketa, README §4)."""
+    bookings = await db.bookings.find({"fund_state": "held"}, {"_id": 0}).sort(
+        [("booking_date", 1), ("booking_time", 1)]
+    ).to_list(500)
+    now = datetime.now(WITA)
+    for b in bookings:
+        b["shop"] = await db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0, "name": 1})
+        b["barber"] = await db.barbers.find_one({"id": b["barber_id"]}, {"_id": 0, "name": 1})
+        b["customer"] = await db.profiles.find_one({"id": b["user_id"]}, {"_id": 0, "name": 1})
+        try:
+            dt = datetime.strptime(f"{b['booking_date']} {b['booking_time']}", "%Y-%m-%d %H:%M").replace(tzinfo=WITA)
+            b["held_hours"] = round((now - dt).total_seconds() / 3600, 1)
+        except Exception:
+            b["held_hours"] = None
+    return {"bookings": bookings}
+
+
+async def _resolve_wallet_owner_name(wallet: dict) -> Optional[str]:
+    if wallet["owner_type"] == "shop":
+        shop = await db.barbershops.find_one({"id": wallet["owner_id"]}, {"_id": 0, "name": 1})
+        return shop["name"] if shop else None
+    if wallet["owner_type"] == "karyawan":
+        app_ = await db.karyawan.find_one({"id": wallet["owner_id"]}, {"_id": 0, "profile_id": 1})
+        if not app_:
+            return None
+        prof = await db.profiles.find_one({"id": app_["profile_id"]}, {"_id": 0, "name": 1})
+        return prof["name"] if prof else None
+    return None
+
+
+@api.get("/admin/payouts")
+async def admin_list_payouts(status: str = "requested", user=Depends(require_role("admin"))):
+    """Antrian permintaan tarik saldo (README §1.5) — request_payout() cuma menyimpan status
+    'requested' dan tidak pernah ada proses lanjutan otomatis, jadi ini satu-satunya cara admin
+    tahu ada permintaan yang perlu ditransfer manual di luar sistem."""
+    payouts = await db.payouts.find({"status": status}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    for p in payouts:
+        wallet = await db.wallets.find_one({"id": p["wallet_id"]}, {"_id": 0, "owner_type": 1, "owner_id": 1})
+        p["owner_type"] = wallet["owner_type"] if wallet else None
+        p["owner_id"] = wallet["owner_id"] if wallet else None
+        p["owner_name"] = await _resolve_wallet_owner_name(wallet) if wallet else None
+    return {"payouts": payouts}
+
+
+@api.post("/admin/payouts/{payout_id}/mark-paid")
+async def admin_mark_payout_paid(payout_id: str, user=Depends(require_role("admin"))):
+    """BUKAN transfer bank sungguhan — cuma pencatatan bahwa admin sudah mentransfer dana ini
+    secara manual di luar sistem. Saldo sudah dipotong dari wallet saat request_payout()
+    dipanggil; endpoint ini cuma mengubah status jadi 'paid' untuk pembukuan."""
+    p = await db.payouts.find_one({"id": payout_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(404, "Permintaan penarikan tidak ditemukan")
+    if p["status"] != "requested":
+        raise HTTPException(400, f"Status permintaan ini sudah '{p['status']}', bukan 'requested'")
+    await db.payouts.update_one({"id": payout_id}, {"$set": {"status": "paid", "paid_at": now_utc().isoformat()}})
     return {"ok": True}
 
 
@@ -2844,9 +2914,9 @@ async def analytics_owner(user=Depends(require_role("owner"))):
     paid_this_month = await db.bookings.find(
         {"shop_id": sid, "payment_status": "paid", "fund_state": {"$ne": "refunded"},
          "delivery_mode": {"$ne": "rumah"}, "created_at": {"$gte": month_start}},
-        {"_id": 0, "total_price": 1},
+        {"_id": 0, "total_price": 1, "amount_barber_net": 1},
     ).to_list(5000)
-    monthly_revenue = sum(b["total_price"] for b in paid_this_month)
+    monthly_revenue = sum(b.get("amount_barber_net", b["total_price"]) for b in paid_this_month)
     last_7 = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": week_ago}})
     prev_7 = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": prev_week, "$lt": week_ago}})
     growth = 0.0
@@ -2940,11 +3010,25 @@ async def analytics_admin(user=Depends(require_role("admin"))):
 
     today = now.date().isoformat()
     yesterday = (now - timedelta(days=1)).date().isoformat()
-    today_paid = await db.bookings.find({"payment_status": "paid", "fund_state": {"$ne": "refunded"}, "booking_date": today}, {"_id": 0, "total_price": 1}).to_list(5000)
-    yst_paid = await db.bookings.find({"payment_status": "paid", "fund_state": {"$ne": "refunded"}, "booking_date": yesterday}, {"_id": 0, "total_price": 1}).to_list(5000)
+    today_paid = await db.bookings.find(
+        {"payment_status": "paid", "fund_state": {"$ne": "refunded"}, "booking_date": today},
+        {"_id": 0, "total_price": 1, "amount_platform_commission": 1},
+    ).to_list(5000)
+    yst_paid = await db.bookings.find(
+        {"payment_status": "paid", "fund_state": {"$ne": "refunded"}, "booking_date": yesterday},
+        {"_id": 0, "total_price": 1, "amount_platform_commission": 1},
+    ).to_list(5000)
     today_rev = sum(b["total_price"] for b in today_paid)
     yst_rev = sum(b["total_price"] for b in yst_paid)
     rev_growth = round(((today_rev - yst_rev) / yst_rev) * 100, 1) if yst_rev else (100.0 if today_rev else 0.0)
+    # Pendapatan platform sesungguhnya (komisi) — beda dari GMV di atas. Booking lama tanpa
+    # field ini fallback ke 0, bukan ke total_price (0 = "belum tercatat", bukan "GMV penuh").
+    today_platform_rev = sum(b.get("amount_platform_commission", 0) for b in today_paid)
+    yst_platform_rev = sum(b.get("amount_platform_commission", 0) for b in yst_paid)
+    platform_rev_growth = (
+        round(((today_platform_rev - yst_platform_rev) / yst_platform_rev) * 100, 1)
+        if yst_platform_rev else (100.0 if today_platform_rev else 0.0)
+    )
 
     # avg rating + warning shops
     shops = await db.barbershops.find({"is_verified": True}, {"_id": 0}).to_list(1000)
@@ -2972,6 +3056,7 @@ async def analytics_admin(user=Depends(require_role("admin"))):
             "pending": pending,
             "total_customers": customers, "customer_growth_pct": cust_growth,
             "revenue_today": today_rev, "revenue_growth_pct": rev_growth,
+            "platform_revenue_today": today_platform_rev, "platform_revenue_growth_pct": platform_rev_growth,
         },
         "health": {"avg_rating": avg_rating, "warning_shops": warning_shops[:5]},
         "distribution": donut,

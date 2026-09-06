@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, RefreshControl } from "react-native";
+import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -7,15 +7,74 @@ import { useFocusEffect } from "expo-router";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
 import Donut from "@/src/components/Donut";
 import Skeleton from "@/src/components/Skeleton";
+import PressableScale from "@/src/components/PressableScale";
+
+const PLATFORM_GRAD: [string, string, string] = ["#007A56", "#00B27A", "#4DD8AA"];
 
 export default function AdminDashboard() {
   const [d, setD] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [heldBookings, setHeldBookings] = useState<any[]>([]);
+  const [payouts, setPayouts] = useState<any[]>([]);
+  const [reconciling, setReconciling] = useState(false);
+  const [reconcileResult, setReconcileResult] = useState<any>(null);
+  const [releasingId, setReleasingId] = useState<string | null>(null);
+  const [markingId, setMarkingId] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
-    try { const r = await api.get("/analytics/admin"); setD(r); } catch {} finally { setLoading(false); }
+    try {
+      const [analytics, held, payoutsRes] = await Promise.all([
+        api.get("/analytics/admin"),
+        api.get("/admin/bookings/held").catch(() => ({ bookings: [] })),
+        api.get("/admin/payouts?status=requested").catch(() => ({ payouts: [] })),
+      ]);
+      setD(analytics);
+      setHeldBookings(held.bookings || []);
+      setPayouts(payoutsRes.payouts || []);
+    } catch {} finally { setLoading(false); }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const runReconcile = async () => {
+    setReconciling(true);
+    try {
+      const r = await api.post("/admin/wallets/reconcile");
+      setReconcileResult(r);
+    } catch (e: any) {
+      Alert.alert("Rekonsiliasi Gagal", e.message);
+    } finally { setReconciling(false); }
+  };
+
+  const doForceRelease = (bid: string, label: string) => {
+    Alert.alert("Force Release Dana", `Lepas paksa dana booking ${label || "ini"} ke wallet pemangkas?`, [
+      { text: "Batal", style: "cancel" },
+      { text: "Lepas Dana", style: "destructive", onPress: async () => {
+          setReleasingId(bid);
+          try {
+            await api.post(`/admin/bookings/${bid}/force-release`);
+            const held = await api.get("/admin/bookings/held").catch(() => ({ bookings: [] }));
+            setHeldBookings(held.bookings || []);
+            Alert.alert("Berhasil", "Dana sudah dilepas ke wallet pemangkas.");
+          } catch (e: any) { Alert.alert("Gagal", e.message); } finally { setReleasingId(null); }
+        } },
+    ]);
+  };
+
+  const doMarkPaid = (payoutId: string, label: string) => {
+    Alert.alert("Tandai Sudah Ditransfer", `Konfirmasi bahwa dana untuk ${label || "permintaan ini"} sudah ditransfer manual di luar sistem?`, [
+      { text: "Batal", style: "cancel" },
+      { text: "Sudah Ditransfer", onPress: async () => {
+          setMarkingId(payoutId);
+          try {
+            await api.post(`/admin/payouts/${payoutId}/mark-paid`);
+            const r = await api.get("/admin/payouts?status=requested").catch(() => ({ payouts: [] }));
+            setPayouts(r.payouts || []);
+            Alert.alert("Berhasil", "Permintaan penarikan ditandai sudah ditransfer.");
+          } catch (e: any) { Alert.alert("Gagal", e.message); } finally { setMarkingId(null); }
+        } },
+    ]);
+  };
 
   if (loading || !d) return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -33,6 +92,7 @@ export default function AdminDashboard() {
   const k = d.kpi;
   const custUp = k.customer_growth_pct >= 0;
   const revUp = k.revenue_growth_pct >= 0;
+  const platformRevUp = (k.platform_revenue_growth_pct ?? 0) >= 0;
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -56,6 +116,40 @@ export default function AdminDashboard() {
           <Kpi icon="people" label="Total Pelanggan" value={k.total_customers.toLocaleString("id-ID")} trend={`${custUp ? "+" : ""}${k.customer_growth_pct}% mingguan`} up={custUp} />
         </View>
 
+        {/* Rekonsiliasi Wallet — wajib dijalankan sebelum demo investor */}
+        <View style={styles.card}>
+          <View style={styles.rowB}>
+            <Text style={styles.cardTitle}>Rekonsiliasi Wallet</Text>
+            <PressableScale onPress={runReconcile} disabled={reconciling} style={[styles.reconcileBtn, reconciling && { opacity: 0.6 }]} haptic>
+              {reconciling ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Text style={styles.reconcileBtnText}>Jalankan Rekonsiliasi</Text>}
+            </PressableScale>
+          </View>
+          {!reconcileResult && !reconciling && (
+            <Text style={styles.hintText}>Jalankan sebelum demo — pastikan saldo tiap wallet cocok dengan catatan ledger.</Text>
+          )}
+          {reconcileResult && (
+            reconcileResult.ok ? (
+              <View style={styles.okRow}>
+                <View style={styles.okIcon}><Ionicons name="checkmark" size={14} color={COLORS.success} /></View>
+                <Text style={styles.emptyMsg}>Semua wallet cocok ({reconcileResult.checked} dicek)</Text>
+              </View>
+            ) : (
+              <View>
+                <View style={styles.warnHead}>
+                  <View style={styles.warnIcon}><Ionicons name="warning" size={14} color={COLORS.error} /></View>
+                  <Text style={styles.warnHeadText}>{reconcileResult.mismatches.length} dari {reconcileResult.checked} wallet tidak cocok:</Text>
+                </View>
+                {reconcileResult.mismatches.map((m: any) => (
+                  <View key={m.wallet_id} style={styles.warnItem}>
+                    <Text style={styles.warnName}>{m.owner_type} · {m.owner_id}</Text>
+                    <Text style={styles.warnDrop}>selisih {rupiah(m.diff)}</Text>
+                  </View>
+                ))}
+              </View>
+            )
+          )}
+        </View>
+
         <LinearGradient
           colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
           start={{ x: 0, y: 0 }}
@@ -65,7 +159,7 @@ export default function AdminDashboard() {
           <View pointerEvents="none" style={styles.bigDeco} />
           <View style={styles.bigIcon}><Ionicons name="cash" size={22} color="#FFFFFF" /></View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.bigLabel}>Transaksi Hari Ini</Text>
+            <Text style={styles.bigLabel}>Total Transaksi (GMV)</Text>
             <Text style={styles.bigValue}>{rupiah(k.revenue_today)}</Text>
             <View style={styles.trendRow}>
               <Ionicons name={revUp ? "arrow-up" : "arrow-down"} size={14} color={revUp ? "#00FFB0" : "#FFB4B4"} />
@@ -73,6 +167,78 @@ export default function AdminDashboard() {
             </View>
           </View>
         </LinearGradient>
+
+        <LinearGradient
+          colors={PLATFORM_GRAD}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.bigCard, { marginTop: 12 }]}
+        >
+          <View pointerEvents="none" style={styles.bigDeco} />
+          <View style={styles.bigIcon}><Ionicons name="wallet" size={22} color="#FFFFFF" /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.bigLabel}>Pendapatan Platform (Komisi)</Text>
+            <Text style={styles.bigValue}>{rupiah(k.platform_revenue_today)}</Text>
+            <View style={styles.trendRow}>
+              <Ionicons name={platformRevUp ? "arrow-up" : "arrow-down"} size={14} color={platformRevUp ? "#00FFB0" : "#FFB4B4"} />
+              <Text style={[styles.trendText, { color: platformRevUp ? "#00FFB0" : "#FFB4B4" }]}>{Math.abs(k.platform_revenue_growth_pct ?? 0)}% dari kemarin</Text>
+            </View>
+          </View>
+        </LinearGradient>
+
+        {/* Dana Tertahan */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Dana Tertahan ({heldBookings.length})</Text>
+          {heldBookings.length === 0 ? (
+            <View style={styles.okRow}>
+              <View style={styles.okIcon}><Ionicons name="checkmark" size={14} color={COLORS.success} /></View>
+              <Text style={styles.emptyMsg}>Tidak ada dana yang tertahan</Text>
+            </View>
+          ) : heldBookings.map((b: any) => (
+            <View key={b.id} style={styles.actionRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.actionTitle}>{b.shop?.name || "-"} · {b.customer?.name || "-"}</Text>
+                <Text style={styles.actionMeta}>
+                  {b.booking_date} {b.booking_time} · tertahan {b.held_hours != null ? `${b.held_hours} jam` : "-"}
+                </Text>
+                <Text style={styles.actionAmount}>{rupiah(b.amount_service)}</Text>
+              </View>
+              <PressableScale
+                style={[styles.actionBtn, releasingId === b.id && { opacity: 0.5 }]}
+                disabled={releasingId === b.id}
+                onPress={() => doForceRelease(b.id, b.shop?.name)}
+              >
+                <Text style={styles.actionBtnText}>{releasingId === b.id ? "..." : "Force Release"}</Text>
+              </PressableScale>
+            </View>
+          ))}
+        </View>
+
+        {/* Permintaan Penarikan */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Permintaan Penarikan ({payouts.length})</Text>
+          {payouts.length === 0 ? (
+            <View style={styles.okRow}>
+              <View style={styles.okIcon}><Ionicons name="checkmark" size={14} color={COLORS.success} /></View>
+              <Text style={styles.emptyMsg}>Tidak ada permintaan menunggu</Text>
+            </View>
+          ) : payouts.map((p: any) => (
+            <View key={p.id} style={styles.actionRow}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.actionTitle}>{p.owner_name || "-"} · {p.owner_type === "shop" ? "Toko" : "StreetBarber"}</Text>
+                <Text style={styles.actionMeta}>{new Date(p.created_at).toLocaleString("id-ID")}</Text>
+                <Text style={styles.actionAmount}>{rupiah(p.amount)}</Text>
+              </View>
+              <PressableScale
+                style={[styles.actionBtn, markingId === p.id && { opacity: 0.5 }]}
+                disabled={markingId === p.id}
+                onPress={() => doMarkPaid(p.id, p.owner_name)}
+              >
+                <Text style={styles.actionBtnText}>{markingId === p.id ? "..." : "Tandai Ditransfer"}</Text>
+              </PressableScale>
+            </View>
+          ))}
+        </View>
 
         {/* Health */}
         <View style={styles.card}>
@@ -181,4 +347,15 @@ const styles = StyleSheet.create({
   okRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#ECFDF5", padding: 10, borderRadius: 12, marginTop: 8 },
   okIcon: { width: 28, height: 28, borderRadius: 9, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
   emptyMsg: { color: COLORS.success, fontFamily: FONT.semibold, fontSize: 13 },
+  hintText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, marginTop: 10, lineHeight: 17 },
+  reconcileBtn: { backgroundColor: COLORS.brand, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 12, minWidth: 90, alignItems: "center", justifyContent: "center" },
+  reconcileBtnText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 11 },
+  actionRow: {
+    flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  actionTitle: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
+  actionMeta: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 2 },
+  actionAmount: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 14, marginTop: 4 },
+  actionBtn: { backgroundColor: COLORS.sidebar, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 12 },
+  actionBtnText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 11 },
 });
