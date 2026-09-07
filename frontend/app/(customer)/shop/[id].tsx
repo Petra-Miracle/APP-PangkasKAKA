@@ -23,6 +23,7 @@ export default function ShopDetail() {
   const [date, setDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [slots, setSlots] = useState<any[]>([]);
+  const [showAllSlots, setShowAllSlots] = useState(false);
   const [slotTime, setSlotTime] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [payModal, setPayModal] = useState<any>(null);
@@ -71,6 +72,7 @@ export default function ShopDetail() {
       (async () => {
         const r = await api.get(`/shops/${id}/slots?barber_id=${barber.id}&date=${date}&service_id=${service.id}`);
         setSlots(r.slots);
+        setShowAllSlots(false);
       })();
     }
   }, [step, service, barber, date, id]);
@@ -367,7 +369,7 @@ export default function ShopDetail() {
 
               <View style={styles.slotList}>
                 {slots.length === 0 && <Text style={styles.empty}>Toko tutup atau tidak ada slot.</Text>}
-                {slots.map((sl) => {
+                {(showAllSlots ? slots : slots.slice(0, 5)).map((sl) => {
                   const selected = slotTime === sl.time;
                   return (
                     <PressableScale
@@ -396,6 +398,12 @@ export default function ShopDetail() {
                     </PressableScale>
                   );
                 })}
+                {!showAllSlots && slots.length > 5 && (
+                  <PressableScale testID="slots-see-more" style={styles.seeMoreBtn} onPress={() => setShowAllSlots(true)} scaleTo={0.97}>
+                    <Text style={styles.seeMoreText}>Lihat Lebih Banyak</Text>
+                    <Ionicons name="chevron-down" size={16} color={COLORS.brand} />
+                  </PressableScale>
+                )}
               </View>
             </View>
           )}
@@ -432,12 +440,22 @@ export default function ShopDetail() {
                 <SummaryRow label="Jam" value={`${slotTime} WITA`} />
                 <SummaryRow label="Metode" value={deliveryMode === "rumah" ? "Barber ke Rumah" : "Datang ke Toko"} />
                 <View style={styles.divider} />
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>Total Pembayaran</Text>
-                  <Text style={styles.totalValue}>
-                    {rupiah((service?.price || 0) + (deliveryMode === "rumah" ? (shop.home_service_fee || 0) : 0))}
-                  </Text>
-                </View>
+                {(() => {
+                  // Estimasi tampilan sebelum booking dibuat — angka final selalu dihitung ulang
+                  // di server saat POST /bookings. 0.007 harus sinkron dengan PAYMENT_FEE_RATE_QRIS backend.
+                  const servicePrice = (service?.price || 0) + (deliveryMode === "rumah" ? (shop.home_service_fee || 0) : 0);
+                  const adminFeeEst = Math.round(servicePrice * 0.007);
+                  return (
+                    <>
+                      <SummaryRow label="Harga Layanan" value={rupiah(servicePrice)} />
+                      <SummaryRow label="Biaya Admin (estimasi)" value={rupiah(adminFeeEst)} />
+                      <View style={styles.totalRow}>
+                        <Text style={styles.totalLabel}>Total Pembayaran</Text>
+                        <Text style={styles.totalValue}>{rupiah(servicePrice + adminFeeEst)}</Text>
+                      </View>
+                    </>
+                  );
+                })()}
               </View>
             </View>
           )}
@@ -475,7 +493,9 @@ export default function ShopDetail() {
                   end={{ x: 1, y: 1 }}
                   style={styles.navPriGrad}
                 >
-                  <Text style={styles.navPriText}>{creating ? "..." : "BAYAR SEKARANG"}</Text>
+                  <Text style={[styles.navPriText, styles.navPriTextPay]} numberOfLines={1} adjustsFontSizeToFit>
+                    {creating ? "..." : "BAYAR SEKARANG"}
+                  </Text>
                   <Ionicons name="wallet" size={16} color="#FFFFFF" />
                 </LinearGradient>
               </PressableScale>
@@ -509,7 +529,15 @@ export default function ShopDetail() {
               <Ionicons name="qr-code" size={140} color={COLORS.text} />
               <Text style={styles.qrCode}>{payModal?.qris_code}</Text>
             </View>
-            <Text style={styles.payTotal}>{rupiah(payModal?.total_price)}</Text>
+            {payModal?.amount_total_charged != null ? (
+              <View style={styles.payBreakdown}>
+                <SummaryRow label="Harga Layanan" value={rupiah(payModal.amount_service)} />
+                <SummaryRow label="Biaya Admin" value={rupiah(payModal.amount_admin_fee)} />
+                <Text style={styles.payTotal}>{rupiah(payModal.amount_total_charged)}</Text>
+              </View>
+            ) : (
+              <Text style={styles.payTotal}>{rupiah(payModal?.total_price)}</Text>
+            )}
             <PressableScale style={styles.payBtn} onPress={doPay} testID="mock-pay" haptic>
               <LinearGradient
                 colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
@@ -620,6 +648,8 @@ const styles = StyleSheet.create({
   slotBadgeText: { color: COLORS.success, fontFamily: FONT.bold, fontSize: 12 },
   slotBookedText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12 },
   empty: { color: COLORS.textDim, marginVertical: 20, textAlign: "center", width: "100%", fontFamily: FONT.medium },
+  seeMoreBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 14, backgroundColor: COLORS.brandDim, marginTop: 2 },
+  seeMoreText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 13 },
 
   modeRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
   modeChip: {
@@ -646,8 +676,9 @@ const styles = StyleSheet.create({
 
   navRow: { flexDirection: "row", gap: 12, marginTop: 24 },
   navPri: { flex: 1, borderRadius: 16, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.25, shadowRadius: 14, elevation: 5 },
-  navPriGrad: { flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16 },
+  navPriGrad: { flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingVertical: 16, paddingHorizontal: 8 },
   navPriText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 13 },
+  navPriTextPay: { letterSpacing: 0.2, fontSize: 12, flexShrink: 1 },
   navSec: { flex: 1, padding: 16, borderRadius: 16, alignItems: "center", borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
   navSecText: { color: COLORS.textMuted, fontFamily: FONT.bold, letterSpacing: 0.8, fontSize: 13 },
 
@@ -663,6 +694,7 @@ const styles = StyleSheet.create({
   timerLabel: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.medium },
   qrBox: { backgroundColor: "#FFFFFF", padding: 32, borderRadius: 20, alignItems: "center", marginBottom: 16, borderWidth: 2, borderColor: COLORS.border, borderStyle: "dashed" },
   qrCode: { color: COLORS.text, fontSize: 11, marginTop: 12, letterSpacing: 1, fontFamily: FONT.bold },
+  payBreakdown: { width: "100%", paddingHorizontal: 8 },
   payTotal: { color: COLORS.text, fontSize: 26, fontFamily: FONT.extrabold, textAlign: "center", marginBottom: 20 },
   payBtn: { borderRadius: 16, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 14, elevation: 5 },
   payBtnGrad: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, paddingVertical: 16 },

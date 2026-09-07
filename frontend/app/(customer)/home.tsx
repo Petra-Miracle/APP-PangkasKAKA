@@ -25,6 +25,7 @@ export default function Home() {
   const [analytics, setAnalytics] = useState<any>(null);
   const [nearbyBarbers, setNearbyBarbers] = useState<any[]>([]);
   const [hairstyles, setHairstyles] = useState<Hairstyle[]>([]);
+  const [catalog, setCatalog] = useState<any[]>([]);
 
   const loadShops = useCallback(async (c: { lat: number; lng: number } | null) => {
     let url = `/shops?sort=terpopuler`;
@@ -33,6 +34,7 @@ export default function Home() {
     setPopularShops((res.shops || []).slice(0, 8));
     try { const a = await api.get("/analytics/customer"); setAnalytics(a); } catch {}
     try { const h = await api.get("/hairstyles"); setHairstyles((h.hairstyles || []).slice(0, 8)); } catch {}
+    try { const p = await api.get("/products/catalog"); setCatalog(p.products || []); } catch {}
   }, []);
 
   const loadNearbyBarbers = useCallback(async (c: { lat: number; lng: number } | null) => {
@@ -126,6 +128,38 @@ export default function Home() {
           </LinearGradient>
         </PressableScale>
 
+        {catalog.length > 0 && (
+          <View>
+            <Text style={styles.sectionTitle}>Katalog Produk</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
+              {catalog.map((item: any) => (
+                <PressableScale
+                  key={item.id}
+                  testID={`catalog-product-${item.id}`}
+                  style={styles.productCard}
+                  onPress={() => { if (item.shop_id) router.push(`/(customer)/shop/${item.shop_id}` as any); }}
+                  scaleTo={0.95}
+                >
+                  {item.image ? (
+                    <Image source={{ uri: item.image }} style={styles.productImg} contentFit="cover" />
+                  ) : (
+                    <View style={[styles.productImg, styles.productImgFallback]}>
+                      <Ionicons name="bag-handle" size={22} color={COLORS.brand} />
+                    </View>
+                  )}
+                  {item.shop_name && (
+                    <View style={styles.productShopBadge}>
+                      <Text style={styles.productShopBadgeText} numberOfLines={1}>{item.shop_name}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.productName} numberOfLines={1}>{item.name}</Text>
+                  <Text style={styles.productPrice}>{rupiah(item.price)}</Text>
+                </PressableScale>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
         {nearbyBarbers.length > 0 && (
           <View>
             <View style={styles.nearbyHeaderRow}>
@@ -146,6 +180,12 @@ export default function Home() {
                     <Ionicons name="navigate" size={11} color={COLORS.brand} />
                     <Text style={styles.barberDist}>{formatJarak(b.distance_km)}</Text>
                   </View>
+                  {b.eta_minutes != null && (
+                    <View style={styles.barberDistRow}>
+                      <Ionicons name="time-outline" size={11} color={COLORS.textDim} />
+                      <Text style={styles.barberEta}>~{b.eta_minutes} menit</Text>
+                    </View>
+                  )}
                 </PressableScale>
               ))}
             </ScrollView>
@@ -327,6 +367,17 @@ const styles = StyleSheet.create({
   aiIconBox: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.22)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)" },
   aiTitle: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 15 },
   aiSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontFamily: FONT.medium, marginTop: 2 },
+  productCard: {
+    width: 124, backgroundColor: COLORS.surface, borderRadius: 18,
+    borderWidth: 1, borderColor: COLORS.border, padding: 10,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 12, elevation: 3,
+  },
+  productImg: { width: "100%", height: 92, borderRadius: 12, backgroundColor: COLORS.surface2 },
+  productImgFallback: { alignItems: "center", justifyContent: "center" },
+  productShopBadge: { position: "absolute", top: 16, left: 16, backgroundColor: "rgba(10,37,64,0.55)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, maxWidth: 96 },
+  productShopBadgeText: { color: "#FFFFFF", fontSize: 8, fontFamily: FONT.bold },
+  productName: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 12, marginTop: 8 },
+  productPrice: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 12, marginTop: 2 },
   aiChevron: { width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
   sectionTitle: { color: COLORS.text, fontSize: 16, fontFamily: FONT.bold, marginTop: 20, marginBottom: 8 },
   nearbyHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 20, marginBottom: 8 },
@@ -344,6 +395,7 @@ const styles = StyleSheet.create({
   barberShop: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 10, marginTop: 1 },
   barberDistRow: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 6 },
   barberDist: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 11 },
+  barberEta: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 10 },
   card: {
     backgroundColor: COLORS.surface, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden",
     shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 1, shadowRadius: 18, elevation: 4,

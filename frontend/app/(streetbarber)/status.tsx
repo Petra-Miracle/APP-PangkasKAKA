@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, TextInput, Modal, Switch, KeyboardAvoidingView, Platform } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, TextInput, Modal, Switch, KeyboardAvoidingView, Platform, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -22,6 +22,22 @@ const STATUS_META: Record<string, { color: string; bg: string; label: string }> 
   pending: { color: COLORS.warning, bg: "#FFF7ED", label: "MENUNGGU VALIDASI" },
   seleksi_berkas_lolos: { color: COLORS.info, bg: "#EFF8FF", label: "BERKAS LOLOS" },
   menunggu_tes: { color: COLORS.info, bg: "#EFF8FF", label: "MENUNGGU TES" },
+};
+
+const FUND_STATE_META: Record<string, { color: string; bg: string; label: string }> = {
+  unpaid: { color: COLORS.textDim, bg: COLORS.border, label: "Belum Dibayar" },
+  held: { color: COLORS.warning, bg: "#FFF7ED", label: "Dana Ditahan Platform" },
+  released: { color: COLORS.success, bg: "#ECFDF5", label: "Dana Sudah Cair" },
+  refunded: { color: COLORS.error, bg: "#FEF2F2", label: "Dikembalikan ke Customer" },
+};
+
+const LEDGER_LABEL: Record<string, string> = {
+  payment_in: "Pembayaran Masuk (Ditahan)",
+  platform_commission: "Komisi Platform",
+  barber_payout: "Dana Cair ke Dompet",
+  payment_fee: "Biaya Pembayaran",
+  refund: "Pengembalian Dana",
+  withdrawal: "Penarikan Saldo",
 };
 
 export default function KaryawanStatus() {
@@ -80,6 +96,12 @@ export default function KaryawanStatus() {
 
   const [myBookings, setMyBookings] = useState<any[]>([]);
   const [earnings, setEarnings] = useState<{ monthly_revenue: number; completed_count: number } | null>(null);
+  const [completingId, setCompletingId] = useState<string | null>(null);
+  const [wallet, setWallet] = useState<any>(null);
+  const [walletModal, setWalletModal] = useState(false);
+  const [ledger, setLedger] = useState<any[]>([]);
+  const [loadingLedger, setLoadingLedger] = useState(false);
+  const [payingOut, setPayingOut] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -89,9 +111,35 @@ export default function KaryawanStatus() {
       setApps(my.applications); setShops(sh.shops);
       try { const bk = await api.get("/karyawan/bookings"); setMyBookings(bk.bookings); } catch { setMyBookings([]); }
       try { setEarnings(await api.get("/karyawan/earnings")); } catch { setEarnings(null); }
+      try { const w = await api.get("/wallets/me"); setWallet(w.wallet); } catch { setWallet(null); }
     } catch {} finally { setLoading(false); }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const completeBooking = async (id: string) => {
+    setCompletingId(id);
+    try {
+      await api.post(`/karyawan/bookings/${id}/complete`);
+      await load();
+    } catch (e: any) { Alert.alert("Gagal", e.message || "Gagal menyelesaikan pesanan"); } finally { setCompletingId(null); }
+  };
+
+  const openWallet = async () => {
+    setWalletModal(true);
+    setLoadingLedger(true);
+    try { const r = await api.get("/wallets/me/ledger"); setLedger(r.entries || []); } catch {} finally { setLoadingLedger(false); }
+  };
+
+  const doPayout = async () => {
+    setPayingOut(true);
+    try {
+      const r = await api.post("/payouts");
+      Alert.alert("Penarikan Diajukan", `${rupiah(r.amount)} akan diproses tim secara manual (belum ada transfer otomatis).`);
+      try { const w = await api.get("/wallets/me"); setWallet(w.wallet); } catch {}
+      setLedger([]);
+      setWalletModal(false);
+    } catch (e: any) { Alert.alert("Penarikan Gagal", e.message); } finally { setPayingOut(false); }
+  };
 
   const pickPhoto = async (target: "ktp" | "diploma") => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -202,6 +250,25 @@ export default function KaryawanStatus() {
           </LinearGradient>
         )}
 
+        {apps.some((a) => a.status === "active") && wallet && (
+          <PressableScale onPress={openWallet} scaleTo={0.98} testID="open-wallet">
+            <LinearGradient
+              colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.earningsCard}
+            >
+              <View pointerEvents="none" style={styles.earningsDeco} />
+              <View style={styles.earningsIcon}><Ionicons name="wallet" size={20} color="#FFFFFF" /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.earningsLabel}>Dompet Saya</Text>
+                <Text style={styles.earningsValue}>{rupiah(wallet.balance_available || 0)}</Text>
+                <Text style={styles.earningsHint}>{rupiah(wallet.balance_pending || 0)} masih ditahan platform · Ketuk untuk detail</Text>
+              </View>
+            </LinearGradient>
+          </PressableScale>
+        )}
+
         {apps.some((a) => a.status === "active") && (
           <View style={[styles.locCard, sharingLocation && styles.locCardActive]}>
             <View style={[styles.locIcon, sharingLocation && { backgroundColor: COLORS.brand }]}>
@@ -232,6 +299,11 @@ export default function KaryawanStatus() {
                     <Text style={styles.cMeta}>{b.service?.name} · {b.shop?.name}</Text>
                     <Text style={styles.cMeta}>{tanggal(b.booking_date)} · {b.booking_time} WITA</Text>
                   </View>
+                  {b.fund_state && FUND_STATE_META[b.fund_state] && (
+                    <View style={[styles.badge, { backgroundColor: FUND_STATE_META[b.fund_state].bg }]}>
+                      <Text style={[styles.badgeText, { color: FUND_STATE_META[b.fund_state].color }]}>{FUND_STATE_META[b.fund_state].label}</Text>
+                    </View>
+                  )}
                 </View>
                 <PressableScale style={styles.chatBtnWrap} onPress={() => router.push(`/chat/booking/${b.id}` as any)} testID={`booking-chat-${b.id}`} scaleTo={0.96}>
                   <LinearGradient
@@ -244,6 +316,20 @@ export default function KaryawanStatus() {
                     <Text style={styles.chatBtnText}>CHAT DENGAN PELANGGAN</Text>
                   </LinearGradient>
                 </PressableScale>
+                {b.delivery_mode === "rumah" && b.status === "confirmed" && (
+                  <PressableScale
+                    style={[styles.chatBtnWrap, completingId === b.id && { opacity: 0.6 }]}
+                    onPress={() => completeBooking(b.id)}
+                    disabled={completingId === b.id}
+                    testID={`booking-complete-${b.id}`}
+                    scaleTo={0.96}
+                  >
+                    <LinearGradient colors={["#16A34A", "#22C55E"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.chatBtn}>
+                      <Ionicons name="checkmark-done" size={14} color="#FFFFFF" />
+                      <Text style={styles.chatBtnText}>{completingId === b.id ? "..." : "SELESAI"}</Text>
+                    </LinearGradient>
+                  </PressableScale>
+                )}
               </View>
             ))}
           </>
@@ -394,6 +480,59 @@ export default function KaryawanStatus() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal visible={walletModal} transparent animationType="slide" onRequestClose={() => setWalletModal(false)}>
+        <View style={styles.modalBg}>
+          <View style={[styles.modal, { maxHeight: "85%" }]}>
+            <View style={styles.grabber} />
+            <Text style={styles.sec}>DOMPET SAYA</Text>
+            <View style={styles.walletBalRow}>
+              <View style={styles.walletBalBox}>
+                <Text style={styles.walletBalLabel}>Ditahan Platform</Text>
+                <Text style={styles.walletBalValue}>{rupiah(wallet?.balance_pending || 0)}</Text>
+              </View>
+              <View style={styles.walletBalBox}>
+                <Text style={styles.walletBalLabel}>Bisa Ditarik</Text>
+                <Text style={styles.walletBalValue}>{rupiah(wallet?.balance_available || 0)}</Text>
+              </View>
+            </View>
+            <PressableScale
+              style={[styles.btnWrap, styles.payoutBtn, (payingOut || (wallet?.balance_available || 0) < 50000) && { opacity: 0.5 }]}
+              onPress={doPayout}
+              disabled={payingOut || (wallet?.balance_available || 0) < 50000}
+              testID="request-payout"
+            >
+              <LinearGradient colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.btn}>
+                <Text style={styles.btnText}>{payingOut ? "..." : "TARIK SALDO"}</Text>
+              </LinearGradient>
+            </PressableScale>
+            {(wallet?.balance_available || 0) < 50000 && (
+              <Text style={styles.walletMinHint}>Minimum penarikan Rp50.000</Text>
+            )}
+            <Text style={[styles.sec, { marginTop: 16 }]}>RIWAYAT DOMPET</Text>
+            <ScrollView style={{ maxHeight: 260 }}>
+              {loadingLedger ? (
+                <Skeleton style={{ height: 60 }} />
+              ) : ledger.length === 0 ? (
+                <Text style={styles.walletEmpty}>Belum ada riwayat</Text>
+              ) : ledger.map((l: any) => (
+                <View key={l.id} style={styles.ledgerRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.ledgerMemo}>{LEDGER_LABEL[l.entry_type] || l.entry_type}</Text>
+                    <Text style={styles.ledgerDate}>{new Date(l.created_at).toLocaleString("id-ID")}</Text>
+                  </View>
+                  <Text style={[styles.ledgerAmount, { color: l.direction === "credit" ? COLORS.success : COLORS.error }]}>
+                    {l.direction === "credit" ? "+" : "-"}{rupiah(l.amount)}
+                  </Text>
+                </View>
+              ))}
+            </ScrollView>
+            <PressableScale style={styles.cancelBtn} onPress={() => setWalletModal(false)}>
+              <Text style={styles.cancelText}>Tutup</Text>
+            </PressableScale>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -488,4 +627,16 @@ const styles = StyleSheet.create({
   applyErrText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium, fontSize: 12 },
   cancelBtn: { padding: 12, alignItems: "center", marginTop: 4 },
   cancelText: { color: COLORS.textDim, fontFamily: FONT.medium },
+
+  walletBalRow: { flexDirection: "row", gap: 10 },
+  walletBalBox: { flex: 1, backgroundColor: COLORS.surface2, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: COLORS.border },
+  walletBalLabel: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11 },
+  walletBalValue: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 16, marginTop: 4 },
+  payoutBtn: { marginTop: 14 },
+  walletMinHint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, textAlign: "center", marginTop: 6 },
+  walletEmpty: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, paddingVertical: 10 },
+  ledgerRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border, gap: 10 },
+  ledgerMemo: { color: COLORS.text, fontFamily: FONT.semibold, fontSize: 13 },
+  ledgerDate: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 2 },
+  ledgerAmount: { fontFamily: FONT.extrabold, fontSize: 13 },
 });

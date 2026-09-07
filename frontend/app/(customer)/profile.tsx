@@ -8,7 +8,7 @@ import { COLORS, FONT } from "@/src/lib/api";
 import PressableScale from "@/src/components/PressableScale";
 
 const ROLE_LABEL: Record<string, string> = {
-  customer: "Pelanggan", owner: "Pemilik Toko", admin: "Administrator", karyawan: "StreetBarber",
+  customer: "Pelanggan", owner: "Pemilik Toko", admin: "Admin", superadmin: "Super Admin", streetbarber: "StreetBarber",
 };
 
 export default function Profile() {
@@ -47,9 +47,9 @@ export default function Profile() {
             <MenuItem icon="grid-outline" label="Dashboard Toko" onPress={() => router.push("/(owner)/dashboard" as any)} />
             <MenuItem icon="construct-outline" label="Kelola Toko" onPress={() => router.push("/(owner)/manage" as any)} />
           </>}
-          {user?.role === "admin" && <>
-            <MenuItem icon="shield-checkmark-outline" label="Verifikasi Toko" onPress={() => router.push("/(admin)/verification" as any)} />
-            <MenuItem icon="people-outline" label="Pengguna" onPress={() => router.push("/(admin)/users" as any)} />
+          {user?.role === "superadmin" && <>
+            <MenuItem icon="shield-checkmark-outline" label="Verifikasi Toko" onPress={() => router.push("/(superadmin)/verification" as any)} />
+            <MenuItem icon="people-outline" label="Pengguna" onPress={() => router.push("/(superadmin)/users" as any)} />
           </>}
           <MenuItem icon="log-out-outline" label="Keluar" onPress={doLogout} danger testID="logout-btn" />
         </View>

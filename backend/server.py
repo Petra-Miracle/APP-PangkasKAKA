@@ -219,6 +219,12 @@ def verify_pw(pw: str, hashed: str) -> bool:
         return False
 
 
+def _gen_password() -> str:
+    """Password acak untuk akun yang dibuatkan sistem (Owner via approval toko, Admin via
+    superadmin) — ditampilkan plaintext SEKALI ke pembuatnya, tidak pernah disimpan mentah."""
+    return secrets.token_urlsafe(9)
+
+
 def make_token(uid: str, role: str) -> str:
     payload = {
         "sub": uid,
@@ -415,7 +421,10 @@ class RegisterIn(BaseModel):
     password: str
     name: str
     phone: str
-    role: Literal["customer", "owner", "admin", "karyawan"] = "customer"
+    # owner/admin/superadmin TIDAK boleh self-register — owner hanya lahir dari approval
+    # pengajuan toko (lihat submit_shop_application/admin_verify), admin/superadmin dibuat
+    # manual oleh superadmin (lihat create_admin).
+    role: Literal["customer", "streetbarber"] = "customer"
     address: Optional[str] = None
     lat: Optional[float] = None
     lng: Optional[float] = None
@@ -463,6 +472,14 @@ class ShopRegisterIn(BaseModel):
     doc_toko: Optional[str] = None
 
 
+class ShopApplicationIn(ShopRegisterIn):
+    """Pengajuan toko publik — TANPA akun. Akun Owner baru dibuat otomatis oleh sistem
+    saat pengajuan ini disetujui (lihat _provision_owner_account)."""
+    applicant_name: str
+    applicant_email: EmailStr
+    applicant_phone: str
+
+
 class DocReviewIn(BaseModel):
     status: Literal["valid", "invalid", "needs_revision"]
     note: Optional[str] = None
@@ -489,11 +506,22 @@ class SuspendUserIn(BaseModel):
 
 
 class UpdateUserRoleIn(BaseModel):
-    role: Literal["customer", "owner", "karyawan", "admin"]
+    role: Literal["customer", "owner", "streetbarber", "admin", "superadmin"]
 
 
 class SetUserPasswordIn(BaseModel):
     new_password: str
+
+
+class CreateAdminIn(BaseModel):
+    name: str
+    email: EmailStr
+    phone: str
+    managed_shop_ids: List[str] = []
+
+
+class UpdateAdminScopeIn(BaseModel):
+    managed_shop_ids: List[str]
 
 
 class BarberIn(BaseModel):
@@ -507,6 +535,13 @@ class ServiceIn(BaseModel):
     name: str
     duration: int  # minutes
     price: int
+
+
+class ProductIn(BaseModel):
+    name: str
+    price: int
+    description: str = ""
+    photo: str = ""  # data-URL base64 dari ImagePicker, atau "" kalau tidak ganti foto
 
 
 FACE_SHAPES = ("oval", "round", "square", "oblong", "heart")
@@ -648,18 +683,61 @@ class NotifyIn(BaseModel):
     type: str = "info"
 
 
+class PushTokenIn(BaseModel):
+    token: str = Field(min_length=1)
+    platform: Literal["android", "ios", "web"] = "android"
+    device_id: Optional[str] = None
+
+
 # ---------- Helper: Notifications ----------
-async def send_notif(user_id: str, title: str, message: str, type: str = "info"):
+async def _send_expo_push(user_id: str, title: str, message: str, type: str, data: Optional[dict] = None):
+    tokens = await db.device_push_tokens.find(
+        {"user_id": user_id, "is_active": True}, {"_id": 0, "token": 1}
+    ).to_list(100)
+    if not tokens:
+        return
+
+    payloads = [
+        {
+            "to": row["token"],
+            "title": title,
+            "body": message,
+            "sound": "default",
+            "data": {"type": type, **(data or {})},
+        }
+        for row in tokens
+    ]
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            response = await http.post(
+                "https://exp.host/--/api/v2/push/send",
+                headers={"content-type": "application/json"},
+                json=payloads,
+            )
+            response.raise_for_status()
+            receipts = response.json().get("data", [])
+        for row, receipt in zip(tokens, receipts):
+            if receipt.get("status") == "error" and receipt.get("details", {}).get("error") == "DeviceNotRegistered":
+                await db.device_push_tokens.update_one(
+                    {"user_id": user_id, "token": row["token"]}, {"$set": {"is_active": False}}
+                )
+    except Exception:
+        log.exception("Gagal mengirim push notification ke user %s", user_id)
+
+
+async def send_notif(user_id: str, title: str, message: str, type: str = "info", data: Optional[dict] = None):
     doc = {
         "id": new_id(),
         "user_id": user_id,
         "title": title,
         "message": message,
         "type": type,
+        "data": data or {},
         "is_read": False,
         "created_at": now_utc().isoformat(),
     }
     await db.notifications.insert_one(doc)
+    asyncio.create_task(_send_expo_push(user_id, title, message, type, data))
 
 
 async def send_email(to: str, subject: str, html: str) -> bool:
@@ -806,11 +884,6 @@ async def register(body: RegisterIn, request: Request):
         "created_at": now_utc().isoformat(),
     }
     await db.profiles.insert_one(profile)
-    if body.role == "owner":
-        await db.owners.insert_one({
-            "id": uid, "name": body.name, "phone": body.phone,
-            "email": body.email.lower(), "address": ""
-        })
     token = make_token(uid, body.role)
     return {"token": token, "user": clean(profile)}
 
@@ -881,6 +954,20 @@ async def update_profile(body: UpdateProfileIn, user=Depends(get_current_user)):
         await db.profiles.update_one({"id": user["id"]}, {"$set": updates})
     fresh = await db.profiles.find_one({"id": user["id"]}, {"_id": 0, "password": 0})
     return {"user": fresh}
+
+
+# ============================================================
+# PRODUCT CATALOG (CUSTOMER — publik)
+# ============================================================
+@api.get("/products/catalog")
+async def products_catalog():
+    products = await db.products.find({"is_active": True}, {"_id": 0}).sort("created_at", -1).limit(30).to_list(30)
+    shop_ids = list({p["shop_id"] for p in products if p.get("shop_id")})
+    shops = await db.barbershops.find({"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(shop_ids)) if shop_ids else []
+    shop_names = {s["id"]: s["name"] for s in shops}
+    for p in products:
+        p["shop_name"] = shop_names.get(p.get("shop_id"))
+    return {"products": products}
 
 
 # ============================================================
@@ -1149,7 +1236,7 @@ async def get_booking(bid: str, user=Depends(get_current_user)):
     b = await db.bookings.find_one({"id": bid}, {"_id": 0})
     if not b:
         raise HTTPException(404, "Tidak ditemukan")
-    if b["user_id"] != user["id"] and user["role"] != "admin":
+    if b["user_id"] != user["id"] and user["role"] != "superadmin":
         # owner can view own shop bookings
         shop = await db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0, "owner_id": 1})
         if not (user["role"] == "owner" and shop and shop["owner_id"] == user["id"]):
@@ -1307,10 +1394,101 @@ async def register_shop(body: ShopRegisterIn, user=Depends(require_role("owner")
         "created_at": existing["created_at"] if existing else now_utc().isoformat(),
     }
     await db.barbershops.replace_one({"id": sid}, doc, upsert=True)
-    admins = await db.profiles.find({"role": "admin"}, {"_id": 0, "id": 1}).to_list(50)
+    admins = await db.profiles.find({"role": "superadmin"}, {"_id": 0, "id": 1}).to_list(50)
     for a in admins:
         await send_notif(a["id"], "Pengajuan Toko Baru", f"{body.name} menunggu verifikasi.", "system")
     return {"shop": clean(doc)}
+
+
+async def _provision_owner_account(shop: dict) -> Optional[str]:
+    """Kalau `shop` ini hasil pengajuan publik (belum punya owner_id — lihat
+    submit_shop_application), buat akun Owner baru sekarang dan kembalikan password
+    plaintext-nya (SEKALI pakai, tidak pernah disimpan mentah di mana pun). Kalau shop
+    sudah punya owner (mis. edit/resubmit dokumen toko lama), tidak melakukan apa-apa
+    dan mengembalikan None."""
+    if shop.get("owner_id"):
+        return None
+    uid = new_id()
+    password = _gen_password()
+    profile = {
+        "id": uid,
+        "email": shop["applicant_email"],
+        "password": hash_pw(password),
+        "name": shop["applicant_name"],
+        "phone": shop["applicant_phone"],
+        "role": "owner",
+        "address": "", "lat": None, "lng": None, "photo": "",
+        "created_at": now_utc().isoformat(),
+    }
+    await db.profiles.insert_one(profile)
+    await db.owners.insert_one({
+        "id": uid, "name": shop["applicant_name"], "phone": shop["applicant_phone"],
+        "email": shop["applicant_email"], "address": "",
+    })
+    await db.barbershops.update_one({"id": shop["id"]}, {"$set": {"owner_id": uid}})
+    return password
+
+
+@api.post("/shop-applications")
+async def submit_shop_application(body: ShopApplicationIn, request: Request):
+    """Pengajuan toko PUBLIK — tanpa autentikasi, tanpa akun. Akun Owner baru dibuat
+    otomatis oleh sistem hanya saat pengajuan ini disetujui SuperAdmin (lihat
+    _provision_owner_account, dipanggil dari admin_verify & admin_review_doc)."""
+    rate_limit(f"shop-apply:{request.client.host}", max_requests=5, window_seconds=3600)
+    if await db.profiles.find_one({"email": body.applicant_email.lower()}):
+        raise HTTPException(400, "Email sudah terdaftar sebagai akun lain")
+    sid = new_id()
+    doc_ktp = await upload_to_r2(body.doc_ktp, f"shops/{sid}/docs")
+    doc_nib = await upload_to_r2(body.doc_nib, f"shops/{sid}/docs")
+    doc_npwp = await upload_to_r2(body.doc_npwp, f"shops/{sid}/docs")
+    doc_surat_usaha = await upload_to_r2(body.doc_surat_usaha, f"shops/{sid}/docs")
+    doc_toko = await upload_to_r2(body.doc_toko, f"shops/{sid}/docs")
+    shop_image = await upload_to_r2(body.image, f"shops/{sid}")
+
+    def _doc(url):
+        return {"url": url or "", "status": "pending" if url else "missing", "note": "", "reviewed_at": None, "reviewed_by": None}
+    docs = {
+        "ktp": _doc(doc_ktp), "nib": _doc(doc_nib), "npwp": _doc(doc_npwp),
+        "surat_usaha": _doc(doc_surat_usaha), "toko": _doc(doc_toko),
+    }
+    doc = {
+        "id": sid,
+        "owner_id": None,  # belum ada akun — diisi _provision_owner_account saat approve
+        "applicant_name": body.applicant_name,
+        "applicant_email": body.applicant_email.lower(),
+        "applicant_phone": body.applicant_phone,
+        "name": body.name,
+        "category": body.category,
+        "address": body.address,
+        "latitude": body.latitude,
+        "longitude": body.longitude,
+        "price_range": body.price_range,
+        "image": shop_image,
+        "rating": 0.0,
+        "reviews_count": 0,
+        "is_verified": False,
+        "verification_status": "pending",
+        "verification_note": "",
+        "bank_name": body.bank_name or "",
+        "account_number": body.account_number or "",
+        "account_holder": body.account_holder or "",
+        "is_open": True,
+        "home_service_fee": 0,
+        "doc_ktp": doc_ktp, "doc_nib": doc_nib, "doc_npwp": doc_npwp,
+        "doc_surat_usaha": doc_surat_usaha, "doc_toko": doc_toko,
+        "docs": docs,
+        "revision_count": 0,
+        "last_reviewed_by": None,
+        "last_reviewed_at": None,
+        "chat_closed": False,
+        "docs_submitted_at": now_utc().isoformat(),
+        "created_at": now_utc().isoformat(),
+    }
+    await db.barbershops.insert_one(doc)
+    admins = await db.profiles.find({"role": "superadmin"}, {"_id": 0, "id": 1}).to_list(50)
+    for a in admins:
+        await send_notif(a["id"], "Pengajuan Toko Baru", f"{body.name} (pengajuan baru) menunggu verifikasi.", "system")
+    return {"ok": True, "shop_id": sid}
 
 
 @api.put("/owner/shop/documents")
@@ -1340,14 +1518,14 @@ async def replace_document(body: DocReplaceIn, user=Depends(require_role("owner"
         }},
     )
     # notify admins
-    admins = await db.profiles.find({"role": "admin"}, {"_id": 0, "id": 1}).to_list(50)
+    admins = await db.profiles.find({"role": "superadmin"}, {"_id": 0, "id": 1}).to_list(50)
     for a in admins:
         await send_notif(a["id"], "Revisi dokumen", f"{shop['name']} mengunggah ulang dokumen {key.upper()}.", "system")
     return {"ok": True, "revision_count": revision_count}
 
 
 @api.post("/admin/shops/{shop_id}/documents/{doc_key}/review")
-async def admin_review_doc(shop_id: str, doc_key: str, body: DocReviewIn, user=Depends(require_role("admin"))):
+async def admin_review_doc(shop_id: str, doc_key: str, body: DocReviewIn, user=Depends(require_role("superadmin"))):
     if doc_key not in ("ktp", "nib", "npwp", "surat_usaha", "toko"):
         raise HTTPException(400, "Doc key tidak valid")
     shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0})
@@ -1373,9 +1551,15 @@ async def admin_review_doc(shop_id: str, doc_key: str, body: DocReviewIn, user=D
         "last_reviewed_by": user["id"],
         "last_reviewed_at": now_utc().isoformat(),
     }
+    owner_password = None
     if all_valid:
         updates.update({"is_verified": True, "verification_status": "approved", "verified_at": now_utc().isoformat(), "verification_note": ""})
-        await send_notif(shop["owner_id"], "Toko disetujui!", "Semua dokumen valid. Toko Anda kini aktif.", "system")
+        await db.barbershops.update_one({"id": shop_id}, {"$set": updates})
+        # Pengajuan publik (belum punya akun) -> buat akun Owner sekarang. Toko lama yang
+        # cuma resubmit dokumen sudah punya owner_id, jadi ini no-op untuk mereka.
+        owner_password = await _provision_owner_account(shop)
+        if shop.get("owner_id"):
+            await send_notif(shop["owner_id"], "Toko disetujui!", "Semua dokumen valid. Toko Anda kini aktif.", "system")
     else:
         # keep verification_status pending; if any invalid, set rejected soft flag
         if any(docs.get(k, {}).get("status") == "invalid" for k in required):
@@ -1383,15 +1567,19 @@ async def admin_review_doc(shop_id: str, doc_key: str, body: DocReviewIn, user=D
             updates["is_verified"] = False
         else:
             updates["verification_status"] = "pending"
-        # Send per-doc notification
-        if body.status == "invalid":
-            await send_notif(shop["owner_id"], f"Dokumen {DOC_LABELS[doc_key]} ditolak", body.note or "Silakan hubungi admin.", "system")
-        elif body.status == "needs_revision":
-            await send_notif(shop["owner_id"], f"Perlu revisi: {DOC_LABELS[doc_key]}", body.note or "Silakan unggah ulang.", "system")
-        elif body.status == "valid":
-            await send_notif(shop["owner_id"], f"Dokumen {DOC_LABELS[doc_key]} valid ✓", "Menunggu dokumen lainnya diverifikasi.", "system")
-    await db.barbershops.update_one({"id": shop_id}, {"$set": updates})
-    return {"ok": True, "docs": docs, "all_valid": all_valid}
+        # Send per-doc notification — pengajuan publik belum punya akun untuk dinotifikasi
+        if shop.get("owner_id"):
+            if body.status == "invalid":
+                await send_notif(shop["owner_id"], f"Dokumen {DOC_LABELS[doc_key]} ditolak", body.note or "Silakan hubungi admin.", "system")
+            elif body.status == "needs_revision":
+                await send_notif(shop["owner_id"], f"Perlu revisi: {DOC_LABELS[doc_key]}", body.note or "Silakan unggah ulang.", "system")
+            elif body.status == "valid":
+                await send_notif(shop["owner_id"], f"Dokumen {DOC_LABELS[doc_key]} valid ✓", "Menunggu dokumen lainnya diverifikasi.", "system")
+        await db.barbershops.update_one({"id": shop_id}, {"$set": updates})
+    resp = {"ok": True, "docs": docs, "all_valid": all_valid}
+    if owner_password:
+        resp["owner_password"] = owner_password
+    return resp
 
 
 def _parse_document_data_uri(value: str):
@@ -1451,7 +1639,7 @@ DOC_AI_GUIDANCE = {
 
 
 @api.post("/admin/shops/{shop_id}/documents/{doc_key}/ai-review")
-async def admin_ai_review_doc(shop_id: str, doc_key: str, user=Depends(require_role("admin"))):
+async def admin_ai_review_doc(shop_id: str, doc_key: str, user=Depends(require_role("superadmin"))):
     """Advisory-only: asks Gemini Vision to describe what it reads in the
     document and flag anything inconsistent with a genuine one, to help the
     admin's own review. Never decides valid/invalid itself, and never writes
@@ -1660,6 +1848,51 @@ async def delete_service(sid: str, user=Depends(require_role("owner"))):
     return {"ok": True}
 
 
+@api.get("/owner/products")
+async def list_own_products(user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    products = await db.products.find({"shop_id": shop["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return {"products": products}
+
+
+@api.post("/owner/products")
+async def add_product(body: ProductIn, user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    image = await upload_to_r2(body.photo, f"shops/{shop['id']}/products")
+    doc = {
+        "id": new_id(), "shop_id": shop["id"], "name": body.name, "price": body.price,
+        "description": body.description, "image": image, "created_by": "owner",
+        "is_active": True, "created_at": now_utc().isoformat(),
+    }
+    await db.products.insert_one(doc)
+    return {"product": clean(doc)}
+
+
+@api.put("/owner/products/{pid}")
+async def update_product(pid: str, body: ProductIn, user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    update = {"name": body.name, "price": body.price, "description": body.description}
+    if body.photo:
+        update["image"] = await upload_to_r2(body.photo, f"shops/{shop['id']}/products")
+    r = await db.products.update_one({"id": pid, "shop_id": shop["id"]}, {"$set": update})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Produk tidak ditemukan")
+    return {"ok": True}
+
+
+@api.delete("/owner/products/{pid}")
+async def delete_product(pid: str, user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    await db.products.delete_one({"id": pid, "shop_id": shop["id"]})
+    return {"ok": True}
+
+
 @api.get("/owner/schedules")
 async def get_own_schedules(user=Depends(require_role("owner"))):
     shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
@@ -1764,21 +1997,22 @@ async def delete_schedule_override(date: str, user=Depends(require_role("owner")
     return {"ok": True}
 
 
-@api.get("/owner/karyawan")
-async def owner_list_karyawan(user=Depends(require_role("owner"))):
-    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
-    if not shop:
+@api.get("/shop-admin/karyawan")
+async def admin_list_karyawan(user=Depends(require_role("admin"))):
+    shop_ids = user.get("managed_shop_ids", [])
+    if not shop_ids:
         return {"karyawan": []}
-    rows = await db.karyawan.find({"shop_id": shop["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    rows = await db.karyawan.find({"shop_id": {"$in": shop_ids}}, {"_id": 0}).sort("created_at", -1).to_list(500)
     return {"karyawan": rows}
 
 
-@api.post("/owner/karyawan/{kid}/evaluate")
-async def evaluate_karyawan(kid: str, body: EvaluateKaryawanIn, user=Depends(require_role("owner"))):
-    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
-    k = await db.karyawan.find_one({"id": kid, "shop_id": shop["id"]}, {"_id": 0})
+@api.post("/shop-admin/karyawan/{kid}/evaluate")
+async def evaluate_karyawan(kid: str, body: EvaluateKaryawanIn, user=Depends(require_role("admin"))):
+    k = await db.karyawan.find_one({"id": kid}, {"_id": 0})
     if not k:
         raise HTTPException(404, "Pelamar tidak ditemukan")
+    if k["shop_id"] not in user.get("managed_shop_ids", []):
+        raise HTTPException(403, "Bukan toko yang Anda kelola")
     # Wajib sudah tahap menunggu_tes (setelah lolos berkas + koordinasi tes)
     if k["status"] not in ("menunggu_tes", "seleksi_berkas_lolos"):
         raise HTTPException(400, f"Pelamar harus lolos seleksi berkas dulu (status saat ini: {k['status']})")
@@ -1791,7 +2025,7 @@ async def evaluate_karyawan(kid: str, body: EvaluateKaryawanIn, user=Depends(req
     if status == "active":
         skill = "Senior" if total >= 85 else ("Standar" if total >= 70 else "Junior")
         await db.barbers.insert_one({
-            "id": new_id(), "shop_id": shop["id"], "karyawan_id": kid,
+            "id": new_id(), "shop_id": k["shop_id"], "karyawan_id": kid,
             "name": k["name"], "photo": k.get("diploma_photo") or k.get("tools_photo") or "",
             "specialization": "", "skill_level": skill, "rating": 0.0,
             "status": "active", "created_at": now_utc().isoformat(),
@@ -1808,7 +2042,7 @@ async def evaluate_karyawan(kid: str, body: EvaluateKaryawanIn, user=Depends(req
 # KARYAWAN
 # ============================================================
 @api.post("/karyawan/apply")
-async def karyawan_apply(body: KaryawanApplyIn, user=Depends(require_role("karyawan"))):
+async def karyawan_apply(body: KaryawanApplyIn, user=Depends(require_role("streetbarber"))):
     # Validasi berkas WAJIB
     if not body.ktp_photo or len(body.ktp_photo) < 20:
         raise HTTPException(400, "Foto KTP wajib diunggah")
@@ -1852,15 +2086,15 @@ async def karyawan_apply(body: KaryawanApplyIn, user=Depends(require_role("karya
         "created_at": now_utc().isoformat(),
     }
     await db.karyawan.insert_one(doc)
-    shop = await db.barbershops.find_one({"id": body.shop_id}, {"_id": 0, "owner_id": 1, "name": 1})
-    if shop:
-        await send_notif(shop["owner_id"], "Lamaran StreetBarber baru masuk",
-                         f"{user['name']} melamar sebagai StreetBarber dan memilih toko Anda sebagai validator dokumen & tes keterampilan.", "system")
+    admins = await db.profiles.find({"role": "admin", "managed_shop_ids": body.shop_id}, {"_id": 0, "id": 1}).to_list(50)
+    for a in admins:
+        await send_notif(a["id"], "Lamaran StreetBarber baru masuk",
+                         f"{user['name']} melamar sebagai StreetBarber dan memilih toko yang Anda kelola sebagai validator dokumen & tes keterampilan.", "system")
     return {"application": clean(doc)}
 
 
 @api.get("/karyawan/my")
-async def karyawan_my(user=Depends(require_role("karyawan"))):
+async def karyawan_my(user=Depends(require_role("streetbarber"))):
     rows = await db.karyawan.find({"profile_id": user["id"]}, {"_id": 0}).to_list(50)
     for r in rows:
         s = await db.barbershops.find_one({"id": r["shop_id"]}, {"_id": 0, "name": 1, "image": 1})
@@ -1869,7 +2103,7 @@ async def karyawan_my(user=Depends(require_role("karyawan"))):
 
 
 @api.get("/karyawan/earnings")
-async def karyawan_earnings(user=Depends(require_role("karyawan"))):
+async def karyawan_earnings(user=Depends(require_role("streetbarber"))):
     """Pendapatan bulan ini dari booking yang sudah dibayar, untuk barber yang statusnya active."""
     apps = await db.karyawan.find({"profile_id": user["id"], "status": "active"}, {"_id": 0, "id": 1}).to_list(20)
     if not apps:
@@ -1888,7 +2122,7 @@ async def karyawan_earnings(user=Depends(require_role("karyawan"))):
 
 
 @api.post("/karyawan/location")
-async def update_karyawan_location(body: KaryawanLocationIn, user=Depends(require_role("karyawan"))):
+async def update_karyawan_location(body: KaryawanLocationIn, user=Depends(require_role("streetbarber"))):
     rate_limit(f"karyawan_location:{user['id']}", max_requests=20, window_seconds=60)
     active = await db.karyawan.find_one({"profile_id": user["id"], "status": "active"}, {"_id": 0, "id": 1})
     if not active:
@@ -1903,7 +2137,7 @@ async def update_karyawan_location(body: KaryawanLocationIn, user=Depends(requir
 
 
 @api.get("/karyawan/bookings")
-async def karyawan_bookings(user=Depends(require_role("karyawan"))):
+async def karyawan_bookings(user=Depends(require_role("streetbarber"))):
     apps = await db.karyawan.find({"profile_id": user["id"], "status": "active"}, {"_id": 0, "id": 1}).to_list(20)
     if not apps:
         return {"bookings": []}
@@ -1922,7 +2156,7 @@ async def karyawan_bookings(user=Depends(require_role("karyawan"))):
 
 
 @api.post("/karyawan/bookings/{bid}/complete")
-async def karyawan_complete_booking(bid: str, user=Depends(require_role("karyawan"))):
+async def karyawan_complete_booking(bid: str, user=Depends(require_role("streetbarber"))):
     """Trigger 2 untuk booking panggilan ke rumah — StreetBarber sendiri yang menekan
     'Selesai' (bukan owner), dana dilepas ke wallet karyawan itu sendiri, bukan wallet toko
     (README_ALUR_TRANSAKSI.md, keputusan pembagian trigger)."""
@@ -1957,22 +2191,22 @@ async def _resolve_own_wallet(user: dict) -> dict:
         if not shop:
             raise HTTPException(400, "Daftarkan toko terlebih dulu")
         return await get_or_create_wallet("shop", shop["id"])
-    if user["role"] == "karyawan":
+    if user["role"] == "streetbarber":
         app_ = await db.karyawan.find_one({"profile_id": user["id"], "status": "active"}, {"_id": 0, "id": 1})
         if not app_:
             raise HTTPException(400, "Anda belum menjadi StreetBarber aktif di toko manapun")
         return await get_or_create_wallet("karyawan", app_["id"])
-    raise HTTPException(403, "Hanya owner atau karyawan yang punya wallet")
+    raise HTTPException(403, "Hanya owner atau streetbarber yang punya wallet")
 
 
 @api.get("/wallets/me")
-async def wallet_me(user=Depends(require_role("owner", "karyawan"))):
+async def wallet_me(user=Depends(require_role("owner", "streetbarber"))):
     w = await _resolve_own_wallet(user)
     return {"wallet": clean(w)}
 
 
 @api.get("/wallets/me/ledger")
-async def wallet_me_ledger(page: int = 1, size: int = 20, user=Depends(require_role("owner", "karyawan"))):
+async def wallet_me_ledger(page: int = 1, size: int = 20, user=Depends(require_role("owner", "streetbarber"))):
     w = await _resolve_own_wallet(user)
     skip = max(0, (page - 1) * size)
     rows = await db.ledger_entries.find({"wallet_id": w["id"]}, {"_id": 0}).sort("created_at", -1).skip(skip).limit(size).to_list(size)
@@ -1981,7 +2215,7 @@ async def wallet_me_ledger(page: int = 1, size: int = 20, user=Depends(require_r
 
 
 @api.post("/payouts")
-async def request_payout(user=Depends(require_role("owner", "karyawan"))):
+async def request_payout(user=Depends(require_role("owner", "streetbarber"))):
     """Prototipe: tidak ada transfer bank sungguhan (README — 'jangan pernah memproses uang
     nyata dengan kode ini'), cuma catatan pengajuan + saldo tersedia langsung dipotong."""
     w = await _resolve_own_wallet(user)
@@ -2012,7 +2246,7 @@ async def request_payout(user=Depends(require_role("owner", "karyawan"))):
 # ADMIN
 # ============================================================
 @api.get("/admin/dashboard")
-async def admin_dashboard(user=Depends(require_role("admin"))):
+async def admin_dashboard(user=Depends(require_role("superadmin"))):
     total_shops = await db.barbershops.count_documents({})
     pending = await db.barbershops.count_documents({"verification_status": "pending"})
     customers = await db.profiles.count_documents({"role": "customer"})
@@ -2038,16 +2272,19 @@ async def admin_dashboard(user=Depends(require_role("admin"))):
 
 
 @api.get("/admin/pending-shops")
-async def admin_pending(user=Depends(require_role("admin"))):
+async def admin_pending(user=Depends(require_role("superadmin"))):
     shops = await db.barbershops.find({"verification_status": "pending"}, {"_id": 0}).sort("docs_submitted_at", -1).to_list(200)
     for s in shops:
-        o = await db.profiles.find_one({"id": s["owner_id"]}, {"_id": 0, "name": 1, "email": 1, "phone": 1})
-        s["owner"] = o
+        if s.get("owner_id"):
+            s["owner"] = await db.profiles.find_one({"id": s["owner_id"]}, {"_id": 0, "name": 1, "email": 1, "phone": 1})
+        else:
+            # Pengajuan publik belum punya akun — pakai data pemohon apa adanya.
+            s["owner"] = {"name": s.get("applicant_name"), "email": s.get("applicant_email"), "phone": s.get("applicant_phone")}
     return {"shops": shops}
 
 
 @api.post("/admin/shops/{shop_id}/verify")
-async def admin_verify(shop_id: str, body: VerifyShopIn, user=Depends(require_role("admin"))):
+async def admin_verify(shop_id: str, body: VerifyShopIn, user=Depends(require_role("superadmin"))):
     shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0})
     if not shop:
         raise HTTPException(404, "Toko tidak ditemukan")
@@ -2056,7 +2293,14 @@ async def admin_verify(shop_id: str, body: VerifyShopIn, user=Depends(require_ro
             "is_verified": True, "verification_status": "approved",
             "verified_at": now_utc().isoformat(), "verification_note": ""
         }})
-        await send_notif(shop["owner_id"], "Toko disetujui!", "Selamat, toko Anda telah lolos verifikasi.", "system")
+        # Pengajuan publik (belum punya akun) -> buat akun Owner sekarang.
+        owner_password = await _provision_owner_account(shop)
+        if shop.get("owner_id"):
+            await send_notif(shop["owner_id"], "Toko disetujui!", "Selamat, toko Anda telah lolos verifikasi.", "system")
+        resp = {"ok": True}
+        if owner_password:
+            resp["owner_password"] = owner_password
+        return resp
     else:
         if not body.note:
             raise HTTPException(400, "Alasan penolakan wajib diisi")
@@ -2064,12 +2308,13 @@ async def admin_verify(shop_id: str, body: VerifyShopIn, user=Depends(require_ro
             "is_verified": False, "verification_status": "rejected",
             "verification_note": body.note
         }})
-        await send_notif(shop["owner_id"], "Toko ditolak", body.note, "system")
-    return {"ok": True}
+        if shop.get("owner_id"):
+            await send_notif(shop["owner_id"], "Toko ditolak", body.note, "system")
+        return {"ok": True}
 
 
 @api.post("/admin/shops/{shop_id}/suspend")
-async def admin_suspend(shop_id: str, payload: dict = Body(...), user=Depends(require_role("admin"))):
+async def admin_suspend(shop_id: str, payload: dict = Body(...), user=Depends(require_role("superadmin"))):
     reason = payload.get("reason", "Pelanggaran kebijakan")
     shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0})
     if not shop:
@@ -2085,7 +2330,7 @@ async def admin_suspend(shop_id: str, payload: dict = Body(...), user=Depends(re
 
 
 @api.get("/admin/users")
-async def admin_users(role: str = "customer", search: str = "", page: int = 1, size: int = 20, user=Depends(require_role("admin"))):
+async def admin_users(role: str = "customer", search: str = "", page: int = 1, size: int = 20, user=Depends(require_role("superadmin"))):
     q = {"role": role}
     if search:
         q["name"] = {"$regex": search, "$options": "i"}
@@ -2096,13 +2341,13 @@ async def admin_users(role: str = "customer", search: str = "", page: int = 1, s
 
 
 @api.post("/admin/users/{user_id}/suspend")
-async def admin_suspend_user(user_id: str, body: SuspendUserIn, user=Depends(require_role("admin"))):
+async def admin_suspend_user(user_id: str, body: SuspendUserIn, user=Depends(require_role("superadmin"))):
     if user_id == user["id"]:
         raise HTTPException(400, "Tidak bisa menangguhkan akun sendiri")
     target = await db.profiles.find_one({"id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(404, "User tidak ditemukan")
-    if target["role"] == "admin":
+    if target["role"] == "superadmin":
         raise HTTPException(400, "Tidak bisa menangguhkan akun admin")
     await db.profiles.update_one({"id": user_id}, {"$set": {
         "is_suspended": True,
@@ -2115,7 +2360,7 @@ async def admin_suspend_user(user_id: str, body: SuspendUserIn, user=Depends(req
 
 
 @api.post("/admin/users/{user_id}/activate")
-async def admin_activate_user(user_id: str, user=Depends(require_role("admin"))):
+async def admin_activate_user(user_id: str, user=Depends(require_role("superadmin"))):
     target = await db.profiles.find_one({"id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(404, "User tidak ditemukan")
@@ -2127,7 +2372,7 @@ async def admin_activate_user(user_id: str, user=Depends(require_role("admin")))
 
 
 @api.put("/admin/users/{user_id}/role")
-async def admin_update_user_role(user_id: str, body: UpdateUserRoleIn, user=Depends(require_role("admin"))):
+async def admin_update_user_role(user_id: str, body: UpdateUserRoleIn, user=Depends(require_role("superadmin"))):
     if user_id == user["id"]:
         raise HTTPException(400, "Tidak bisa mengubah role akun sendiri")
     target = await db.profiles.find_one({"id": user_id}, {"_id": 0})
@@ -2139,18 +2384,18 @@ async def admin_update_user_role(user_id: str, body: UpdateUserRoleIn, user=Depe
 
 
 @api.delete("/admin/users/{user_id}")
-async def admin_delete_user(user_id: str, user=Depends(require_role("admin"))):
+async def admin_delete_user(user_id: str, user=Depends(require_role("superadmin"))):
     if user_id == user["id"]:
         raise HTTPException(400, "Tidak bisa menghapus akun sendiri")
     target = await db.profiles.find_one({"id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(404, "User tidak ditemukan")
-    if target["role"] == "admin":
+    if target["role"] == "superadmin":
         raise HTTPException(400, "Tidak bisa menghapus akun admin")
     if target["role"] == "owner" and await db.barbershops.find_one({"owner_id": user_id}):
         raise HTTPException(400, "Pemilik ini masih punya toko terdaftar — hapus atau alihkan tokonya dulu sebelum menghapus akun")
     await db.profiles.delete_one({"id": user_id})
-    if target["role"] == "karyawan":
+    if target["role"] == "streetbarber":
         karyawan_rows = await db.karyawan.find({"profile_id": user_id}, {"_id": 0, "id": 1}).to_list(50)
         karyawan_ids = [k["id"] for k in karyawan_rows]
         await db.karyawan.delete_many({"profile_id": user_id})
@@ -2160,7 +2405,7 @@ async def admin_delete_user(user_id: str, user=Depends(require_role("admin"))):
 
 
 @api.put("/admin/users/{user_id}/set-password")
-async def admin_set_user_password(user_id: str, body: SetUserPasswordIn, user=Depends(require_role("admin"))):
+async def admin_set_user_password(user_id: str, body: SetUserPasswordIn, user=Depends(require_role("superadmin"))):
     if len(body.new_password) < 8:
         raise HTTPException(400, "Password minimal 8 karakter")
     target = await db.profiles.find_one({"id": user_id}, {"_id": 0})
@@ -2171,8 +2416,107 @@ async def admin_set_user_password(user_id: str, body: SetUserPasswordIn, user=De
     return {"ok": True}
 
 
+# ============================================================
+# SUPERADMIN — kelola akun Admin (mengelola sekumpulan StreetBarber per toko)
+# ============================================================
+@api.post("/superadmin/admins")
+async def create_admin(body: CreateAdminIn, user=Depends(require_role("superadmin"))):
+    if await db.profiles.find_one({"email": body.email.lower()}):
+        raise HTTPException(400, "Email sudah terdaftar")
+    if body.managed_shop_ids:
+        valid = await db.barbershops.count_documents({"id": {"$in": body.managed_shop_ids}})
+        if valid != len(set(body.managed_shop_ids)):
+            raise HTTPException(400, "Ada shop_id yang tidak valid")
+    uid = new_id()
+    password = _gen_password()
+    profile = {
+        "id": uid,
+        "email": body.email.lower(),
+        "password": hash_pw(password),
+        "name": body.name,
+        "phone": body.phone,
+        "role": "admin",
+        "managed_shop_ids": body.managed_shop_ids,
+        "address": "", "lat": None, "lng": None, "photo": "",
+        "created_at": now_utc().isoformat(),
+        "created_by": user["id"],
+    }
+    await db.profiles.insert_one(profile)
+    return {"admin": clean(profile), "password": password}
+
+
+@api.get("/superadmin/admins")
+async def list_admins(user=Depends(require_role("superadmin"))):
+    rows = await db.profiles.find({"role": "admin"}, {"_id": 0, "password": 0}).sort("created_at", -1).to_list(200)
+    shop_ids = {sid for r in rows for sid in r.get("managed_shop_ids", [])}
+    shops = await db.barbershops.find({"id": {"$in": list(shop_ids)}}, {"_id": 0, "id": 1, "name": 1}).to_list(500)
+    shop_name = {s["id"]: s["name"] for s in shops}
+    for r in rows:
+        r["managed_shops"] = [{"id": sid, "name": shop_name.get(sid, "?")} for sid in r.get("managed_shop_ids", [])]
+    return {"admins": rows}
+
+
+@api.put("/superadmin/admins/{admin_id}")
+async def update_admin_scope(admin_id: str, body: UpdateAdminScopeIn, user=Depends(require_role("superadmin"))):
+    target = await db.profiles.find_one({"id": admin_id, "role": "admin"}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "Admin tidak ditemukan")
+    if body.managed_shop_ids:
+        valid = await db.barbershops.count_documents({"id": {"$in": body.managed_shop_ids}})
+        if valid != len(set(body.managed_shop_ids)):
+            raise HTTPException(400, "Ada shop_id yang tidak valid")
+    await db.profiles.update_one({"id": admin_id}, {"$set": {"managed_shop_ids": body.managed_shop_ids}})
+    await send_notif(admin_id, "Cakupan toko diperbarui", "SuperAdmin memperbarui daftar toko yang Anda kelola.", "system")
+    return {"ok": True}
+
+
+@api.post("/superadmin/admins/{admin_id}/reset-password")
+async def reset_admin_password(admin_id: str, user=Depends(require_role("superadmin"))):
+    target = await db.profiles.find_one({"id": admin_id, "role": "admin"}, {"_id": 0})
+    if not target:
+        raise HTTPException(404, "Admin tidak ditemukan")
+    password = _gen_password()
+    await db.profiles.update_one({"id": admin_id}, {"$set": {"password": hash_pw(password)}})
+    return {"ok": True, "password": password}
+
+
+@api.get("/admin/products")
+async def list_admin_products(user=Depends(require_role("superadmin"))):
+    products = await db.products.find({"created_by": "superadmin"}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return {"products": products}
+
+
+@api.post("/admin/products")
+async def add_admin_product(body: ProductIn, user=Depends(require_role("superadmin"))):
+    image = await upload_to_r2(body.photo, "admin/products")
+    doc = {
+        "id": new_id(), "shop_id": None, "name": body.name, "price": body.price,
+        "description": body.description, "image": image, "created_by": "superadmin",
+        "is_active": True, "created_at": now_utc().isoformat(),
+    }
+    await db.products.insert_one(doc)
+    return {"product": clean(doc)}
+
+
+@api.put("/admin/products/{pid}")
+async def update_admin_product(pid: str, body: ProductIn, user=Depends(require_role("superadmin"))):
+    update = {"name": body.name, "price": body.price, "description": body.description}
+    if body.photo:
+        update["image"] = await upload_to_r2(body.photo, "admin/products")
+    r = await db.products.update_one({"id": pid, "created_by": "superadmin"}, {"$set": update})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Produk tidak ditemukan")
+    return {"ok": True}
+
+
+@api.delete("/admin/products/{pid}")
+async def delete_admin_product(pid: str, user=Depends(require_role("superadmin"))):
+    await db.products.delete_one({"id": pid, "created_by": "superadmin"})
+    return {"ok": True}
+
+
 @api.post("/admin/wallets/reconcile")
-async def admin_reconcile_wallets(user=Depends(require_role("admin"))):
+async def admin_reconcile_wallets(user=Depends(require_role("superadmin"))):
     """README §1.6 — jalankan sebelum demo: SUM(credit) - SUM(debit) per wallet harus sama
     dengan total saldo tersimpan (balance_pending + balance_available). Kalau tidak cocok,
     ada bug yang harus diselesaikan sebelum apa pun ditampilkan ke juri."""
@@ -2191,7 +2535,7 @@ async def admin_reconcile_wallets(user=Depends(require_role("admin"))):
 
 
 @api.post("/admin/bookings/{bid}/force-release")
-async def admin_force_release(bid: str, user=Depends(require_role("admin"))):
+async def admin_force_release(bid: str, user=Depends(require_role("superadmin"))):
     """Intervensi manual (README §4) — dipakai kalau auto-release belum sempat jalan atau
     ada sengketa yang perlu superadmin selesaikan segera."""
     b = await db.bookings.find_one({"id": bid}, {"_id": 0})
@@ -2211,7 +2555,7 @@ async def admin_force_release(bid: str, user=Depends(require_role("admin"))):
 
 
 @api.get("/admin/bookings/held")
-async def admin_held_bookings(user=Depends(require_role("admin"))):
+async def admin_held_bookings(user=Depends(require_role("superadmin"))):
     """Daftar booking yang dananya masih tertahan di wallet platform (fund_state 'held'),
     paling lama dulu — tanpa ini admin tidak punya cara tahu booking mana yang perlu
     di-force-release (auto-release macet/sengketa, README §4)."""
@@ -2245,7 +2589,7 @@ async def _resolve_wallet_owner_name(wallet: dict) -> Optional[str]:
 
 
 @api.get("/admin/payouts")
-async def admin_list_payouts(status: str = "requested", user=Depends(require_role("admin"))):
+async def admin_list_payouts(status: str = "requested", user=Depends(require_role("superadmin"))):
     """Antrian permintaan tarik saldo (README §1.5) — request_payout() cuma menyimpan status
     'requested' dan tidak pernah ada proses lanjutan otomatis, jadi ini satu-satunya cara admin
     tahu ada permintaan yang perlu ditransfer manual di luar sistem."""
@@ -2259,7 +2603,7 @@ async def admin_list_payouts(status: str = "requested", user=Depends(require_rol
 
 
 @api.post("/admin/payouts/{payout_id}/mark-paid")
-async def admin_mark_payout_paid(payout_id: str, user=Depends(require_role("admin"))):
+async def admin_mark_payout_paid(payout_id: str, user=Depends(require_role("superadmin"))):
     """BUKAN transfer bank sungguhan — cuma pencatatan bahwa admin sudah mentransfer dana ini
     secara manual di luar sistem. Saldo sudah dipotong dari wallet saat request_payout()
     dipanggil; endpoint ini cuma mengubah status jadi 'paid' untuk pembukuan."""
@@ -2275,6 +2619,34 @@ async def admin_mark_payout_paid(payout_id: str, user=Depends(require_role("admi
 # ============================================================
 # NOTIFICATIONS
 # ============================================================
+@api.post("/devices/push-token")
+async def register_push_token(body: PushTokenIn, user=Depends(get_current_user)):
+    await db.device_push_tokens.update_one(
+        {"token": body.token},
+        {"$set": {
+            "user_id": user["id"],
+            "platform": body.platform,
+            "device_id": body.device_id,
+            "is_active": True,
+            "updated_at": now_utc().isoformat(),
+        }, "$setOnInsert": {
+            "id": new_id(),
+            "created_at": now_utc().isoformat(),
+        }},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.post("/devices/push-token/remove")
+async def remove_push_token(body: PushTokenIn, user=Depends(get_current_user)):
+    await db.device_push_tokens.update_one(
+        {"token": body.token, "user_id": user["id"]},
+        {"$set": {"is_active": False, "updated_at": now_utc().isoformat()}},
+    )
+    return {"ok": True}
+
+
 @api.get("/notifications")
 async def list_notif(user=Depends(get_current_user)):
     rows = await db.notifications.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).limit(50).to_list(50)
@@ -2311,13 +2683,13 @@ async def list_hairstyles(shape: Optional[str] = None):
 # ---- Admin CRUD for the hairstyle catalog (used by the superadmin dashboard
 # to expand AI Face Scan's recommendation data without redeploying a seed script) ----
 @api.get("/admin/hairstyles")
-async def admin_list_hairstyles(user=Depends(require_role("admin"))):
+async def admin_list_hairstyles(user=Depends(require_role("superadmin"))):
     rows = await db.hairstyles.find({}, {"_id": 0}).sort("name", 1).to_list(500)
     return {"hairstyles": rows}
 
 
 @api.post("/admin/hairstyles")
-async def admin_add_hairstyle(body: HairstyleIn, user=Depends(require_role("admin"))):
+async def admin_add_hairstyle(body: HairstyleIn, user=Depends(require_role("superadmin"))):
     doc = {
         "id": new_id(), "name": body.name, "image_url": body.image_url, "description": body.description,
         "suitable_shapes": list(body.match_score_map.keys()), "match_score_map": body.match_score_map,
@@ -2328,7 +2700,7 @@ async def admin_add_hairstyle(body: HairstyleIn, user=Depends(require_role("admi
 
 
 @api.put("/admin/hairstyles/{hid}")
-async def admin_update_hairstyle(hid: str, body: HairstyleIn, user=Depends(require_role("admin"))):
+async def admin_update_hairstyle(hid: str, body: HairstyleIn, user=Depends(require_role("superadmin"))):
     r = await db.hairstyles.update_one(
         {"id": hid},
         {"$set": {
@@ -2342,7 +2714,7 @@ async def admin_update_hairstyle(hid: str, body: HairstyleIn, user=Depends(requi
 
 
 @api.delete("/admin/hairstyles/{hid}")
-async def admin_delete_hairstyle(hid: str, user=Depends(require_role("admin"))):
+async def admin_delete_hairstyle(hid: str, user=Depends(require_role("superadmin"))):
     await db.hairstyles.delete_one({"id": hid})
     return {"ok": True}
 
@@ -2354,20 +2726,20 @@ async def admin_delete_hairstyle(hid: str, user=Depends(require_role("admin"))):
 # recalibrating the client thresholds from an updated dataset is a separate
 # manual step, exactly like it was done for the initial 30-row import. ----
 @api.get("/admin/face-references")
-async def admin_list_face_references(user=Depends(require_role("admin"))):
+async def admin_list_face_references(user=Depends(require_role("superadmin"))):
     rows = await db.face_references.find({}, {"_id": 0}).sort("reference_code", 1).to_list(1000)
     return {"references": rows}
 
 
 @api.post("/admin/face-references")
-async def admin_add_face_reference(body: FaceReferenceIn, user=Depends(require_role("admin"))):
+async def admin_add_face_reference(body: FaceReferenceIn, user=Depends(require_role("superadmin"))):
     doc = {"id": new_id(), **body.dict(), "created_at": now_utc().isoformat()}
     await db.face_references.insert_one(doc)
     return {"reference": clean(doc)}
 
 
 @api.put("/admin/face-references/{rid}")
-async def admin_update_face_reference(rid: str, body: FaceReferenceIn, user=Depends(require_role("admin"))):
+async def admin_update_face_reference(rid: str, body: FaceReferenceIn, user=Depends(require_role("superadmin"))):
     r = await db.face_references.update_one({"id": rid}, {"$set": body.dict()})
     if r.matched_count == 0:
         raise HTTPException(404, "Data referensi tidak ditemukan")
@@ -2375,7 +2747,7 @@ async def admin_update_face_reference(rid: str, body: FaceReferenceIn, user=Depe
 
 
 @api.delete("/admin/face-references/{rid}")
-async def admin_delete_face_reference(rid: str, user=Depends(require_role("admin"))):
+async def admin_delete_face_reference(rid: str, user=Depends(require_role("superadmin"))):
     await db.face_references.delete_one({"id": rid})
     return {"ok": True}
 
@@ -2535,10 +2907,10 @@ async def seed_all():
         })
         return uid
 
-    admin_id = await upsert_user("admin@pangkaskaka.id", "Admin PangkasKAKA", "081234567890", "admin", "Admin123!")
+    admin_id = await upsert_user("admin@pangkaskaka.id", "Admin PangkasKAKA", "081234567890", "superadmin", "Admin123!")
     owner_id = await upsert_user("owner@pangkaskaka.id", "Bapak Yosua", "081234567891", "owner", "Owner123!")
     customer_id = await upsert_user("customer@pangkaskaka.id", "Andi Cust", "081234567892", "customer", "Customer123!")
-    karyawan_id = await upsert_user("karyawan@pangkaskaka.id", "Marchel Tuka", "081234567893", "karyawan", "Karyawan123!")
+    karyawan_id = await upsert_user("karyawan@pangkaskaka.id", "Marchel Tuka", "081234567893", "streetbarber", "Karyawan123!")
 
     if not await db.owners.find_one({"id": owner_id}):
         await db.owners.insert_one({"id": owner_id, "name": "Bapak Yosua", "phone": "081234567891",
@@ -2613,9 +2985,9 @@ async def seed_all():
         })
         # Seed chat messages for demo
         msgs_seed = [
-            (admin_id, "admin", "Halo, saya sudah cek dokumen Anda. Foto NPWP terlihat sedikit buram.", "npwp"),
+            (admin_id, "superadmin", "Halo, saya sudah cek dokumen Anda. Foto NPWP terlihat sedikit buram.", "npwp"),
             (owner_id, "owner", "Terima kasih infonya. Saya akan foto ulang dan upload segera.", "npwp"),
-            (admin_id, "admin", "Baik, ditunggu. Sementara dokumen KTP dan NIB sudah saya validasi ✓", ""),
+            (admin_id, "superadmin", "Baik, ditunggu. Sementara dokumen KTP dan NIB sudah saya validasi ✓", ""),
             (owner_id, "owner", "Siap admin, mohon dibantu prosesnya.", ""),
         ]
         base_time = now_utc()
@@ -2648,7 +3020,7 @@ async def seed_all():
 
 
 @api.post("/seed")
-async def do_seed(user=Depends(require_role("admin"))):
+async def do_seed(user=Depends(require_role("superadmin"))):
     if ENVIRONMENT == "production":
         raise HTTPException(403, "Seeding dinonaktifkan di production")
     await seed_all()
@@ -2675,7 +3047,7 @@ async def _shop_access(shop_id: str, user: dict):
     shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0})
     if not shop:
         raise HTTPException(404, "Toko tidak ditemukan")
-    if user["role"] == "admin":
+    if user["role"] == "superadmin":
         return shop
     if user["role"] == "owner" and shop["owner_id"] == user["id"]:
         return shop
@@ -2684,7 +3056,7 @@ async def _shop_access(shop_id: str, user: dict):
 
 @api.get("/chat/threads")
 async def list_threads(user=Depends(get_current_user)):
-    if user["role"] == "admin":
+    if user["role"] == "superadmin":
         shops = await db.barbershops.find({}, {"_id": 0}).to_list(500)
     elif user["role"] == "owner":
         shops = await db.barbershops.find({"owner_id": user["id"]}, {"_id": 0}).to_list(50)
@@ -2737,7 +3109,7 @@ async def send_msg(shop_id: str, body: ChatSendIn, user=Depends(get_current_user
     await db.chat_messages.insert_one(msg)
     # notify other side
     if user["role"] == "owner":
-        admins = await db.profiles.find({"role": "admin"}, {"_id": 0, "id": 1}).to_list(50)
+        admins = await db.profiles.find({"role": "superadmin"}, {"_id": 0, "id": 1}).to_list(50)
         for a in admins:
             await send_notif(a["id"], "Pesan baru dari owner", f"{shop['name']}: {body.text or '📎 Lampiran'}", "system")
     else:
@@ -2754,7 +3126,7 @@ async def mark_thread_read(shop_id: str, user=Depends(get_current_user)):
 
 
 @api.post("/chat/threads/{shop_id}/close")
-async def close_thread(shop_id: str, user=Depends(require_role("admin"))):
+async def close_thread(shop_id: str, user=Depends(require_role("superadmin"))):
     shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0})
     if not shop:
         raise HTTPException(404, "Toko tidak ditemukan")
@@ -2780,15 +3152,15 @@ async def _resolve_barber_profile_id(barber_id: str) -> Optional[str]:
 
 
 async def _booking_chat_access(booking: dict, user: dict) -> str:
-    """Returns the caller's role in the customer<->barber thread ('customer'/'karyawan').
+    """Returns the caller's role in the customer<->barber thread ('customer'/'streetbarber').
     Owner has their own separate thread (see _owner_chat_access) so they're not
     included here — keeps the two conversations from bleeding into each other."""
     if user["role"] == "customer" and booking["user_id"] == user["id"]:
         return "customer"
-    if user["role"] == "karyawan":
+    if user["role"] == "streetbarber":
         barber_profile_id = await _resolve_barber_profile_id(booking["barber_id"])
         if barber_profile_id and barber_profile_id == user["id"]:
-            return "karyawan"
+            return "streetbarber"
     raise HTTPException(403, "Akses ditolak")
 
 
@@ -2837,7 +3209,7 @@ async def send_booking_message(bid: str, body: ServiceChatSendIn, user=Depends(g
         barber_profile_id = await _resolve_barber_profile_id(booking["barber_id"])
         if barber_profile_id:
             await send_notif(barber_profile_id, "Pesan baru dari pelanggan", body.text or "📎 Lampiran", "system")
-    elif role_in_thread == "karyawan":
+    elif role_in_thread == "streetbarber":
         await send_notif(booking["user_id"], "Pesan baru dari barber", body.text or "📎 Lampiran", "system")
     m = dict(msg); m.pop("_id", None); m["sender_name"] = user["name"]
     return {"message": m}
@@ -2995,7 +3367,7 @@ async def owner_appointments(date: str, user=Depends(require_role("owner"))):
 
 
 @api.get("/analytics/admin")
-async def analytics_admin(user=Depends(require_role("admin"))):
+async def analytics_admin(user=Depends(require_role("superadmin"))):
     now = datetime.now(WITA)
     total_shops = await db.barbershops.count_documents({})
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
@@ -3662,7 +4034,7 @@ from kupang_seed_data import build_seed_records, DEFAULT_SERVICES, DEFAULT_SCHED
 
 
 @api.post("/seed/kupang-shops")
-async def seed_kupang_shops(user=Depends(require_role("admin"))):
+async def seed_kupang_shops(user=Depends(require_role("superadmin"))):
     """
     Bulk seed 120 barbershop akun dari data Kupang Excel.
     Idempotent: cek by email; skip yang sudah ada.
@@ -3787,7 +4159,7 @@ async def get_recruitment_criteria(user=Depends(get_current_user)):
 
 
 @api.put("/admin/recruitment/criteria")
-async def update_recruitment_criteria(body: UpdateCriteriaIn, user=Depends(require_role("admin"))):
+async def update_recruitment_criteria(body: UpdateCriteriaIn, user=Depends(require_role("superadmin"))):
     if not body.items or len(body.items) < 1:
         raise HTTPException(400, "Minimal 1 kriteria")
     await db.recruitment_criteria.update_one(
@@ -3798,19 +4170,18 @@ async def update_recruitment_criteria(body: UpdateCriteriaIn, user=Depends(requi
     return {"ok": True, "count": len(body.items)}
 
 
-@api.post("/owner/karyawan/{kid}/berkas-decision")
-async def berkas_decision(kid: str, body: BerkasDecisionIn, user=Depends(require_role("owner"))):
+@api.post("/shop-admin/karyawan/{kid}/berkas-decision")
+async def berkas_decision(kid: str, body: BerkasDecisionIn, user=Depends(require_role("admin"))):
     """
-    Tahap 1: Owner memutuskan berkas pelamar lolos atau ditolak.
+    Tahap 1: Admin (validator toko) memutuskan berkas pelamar lolos atau ditolak.
     - lolos → status seleksi_berkas_lolos (langsung siap koordinasi tes via chat)
     - tolak → status rejected dengan alasan
     """
-    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
-    if not shop:
-        raise HTTPException(404, "Toko tidak ditemukan")
-    k = await db.karyawan.find_one({"id": kid, "shop_id": shop["id"]}, {"_id": 0})
+    k = await db.karyawan.find_one({"id": kid}, {"_id": 0})
     if not k:
         raise HTTPException(404, "Pelamar tidak ditemukan")
+    if k["shop_id"] not in user.get("managed_shop_ids", []):
+        raise HTTPException(403, "Bukan toko yang Anda kelola")
     if k["status"] != "pending":
         raise HTTPException(400, f"Berkas pelamar sudah diproses (status: {k['status']})")
 
@@ -3841,7 +4212,7 @@ async def berkas_decision(kid: str, body: BerkasDecisionIn, user=Depends(require
             "id": new_id(),
             "karyawan_id": kid,
             "sender_id": user["id"],
-            "sender_role": "owner",
+            "sender_role": "admin",
             "text": f"Selamat, berkas Anda lolos seleksi! Sebagai validator, kami akan menjadwalkan tes keterampilan StreetBarber Anda di sini. Kapan Anda bisa datang?",
             "is_read": False,
             "created_at": now_utc().isoformat(),
@@ -3852,21 +4223,20 @@ async def berkas_decision(kid: str, body: BerkasDecisionIn, user=Depends(require
 @api.get("/recruitment/{kid}/messages")
 async def get_recruitment_messages(kid: str, user=Depends(get_current_user)):
     """
-    Chat rekrutmen antara owner & pelamar.
-    Akses: pemilik toko atau pelamar itu sendiri.
+    Chat rekrutmen antara Admin (validator) & pelamar StreetBarber.
+    Akses: Admin yang toko-nya tercantum di managed_shop_ids, atau pelamar itu sendiri.
     """
     k = await db.karyawan.find_one({"id": kid}, {"_id": 0})
     if not k:
         raise HTTPException(404, "Pelamar tidak ditemukan")
     # Akses check
-    if user["role"] == "karyawan":
+    if user["role"] == "streetbarber":
         if k["profile_id"] != user["id"]:
             raise HTTPException(403, "Akses ditolak")
-    elif user["role"] == "owner":
-        shop = await db.barbershops.find_one({"id": k["shop_id"]}, {"_id": 0, "owner_id": 1})
-        if not shop or shop["owner_id"] != user["id"]:
-            raise HTTPException(403, "Bukan toko Anda")
-    elif user["role"] != "admin":
+    elif user["role"] == "admin":
+        if k["shop_id"] not in user.get("managed_shop_ids", []):
+            raise HTTPException(403, "Bukan toko yang Anda kelola")
+    elif user["role"] != "superadmin":
         raise HTTPException(403, "Akses ditolak")
 
     msgs = await db.recruitment_messages.find({"karyawan_id": kid}, {"_id": 0}).sort("created_at", 1).to_list(500)
@@ -3887,12 +4257,10 @@ async def send_recruitment_message(kid: str, body: RecruitmentMessageIn, user=De
         raise HTTPException(400, "Chat tidak tersedia pada tahap ini")
 
     # Access
-    if user["role"] == "karyawan" and k["profile_id"] != user["id"]:
+    if user["role"] == "streetbarber" and k["profile_id"] != user["id"]:
         raise HTTPException(403, "Akses ditolak")
-    if user["role"] == "owner":
-        shop = await db.barbershops.find_one({"id": k["shop_id"]}, {"_id": 0, "owner_id": 1})
-        if not shop or shop["owner_id"] != user["id"]:
-            raise HTTPException(403, "Bukan toko Anda")
+    if user["role"] == "admin" and k["shop_id"] not in user.get("managed_shop_ids", []):
+        raise HTTPException(403, "Bukan toko yang Anda kelola")
 
     text = (body.text or "").strip()
     if not text and not body.attachment:
@@ -3913,10 +4281,11 @@ async def send_recruitment_message(kid: str, body: RecruitmentMessageIn, user=De
     await db.recruitment_messages.insert_one(msg)
 
     # Notifikasi lawan bicara
-    recipient_id = k["profile_id"] if user["role"] == "owner" else None
-    if not recipient_id:
-        shop = await db.barbershops.find_one({"id": k["shop_id"]}, {"_id": 0, "owner_id": 1})
-        recipient_id = (shop or {}).get("owner_id")
+    if user["role"] == "streetbarber":
+        admin_acct = await db.profiles.find_one({"role": "admin", "managed_shop_ids": k["shop_id"]}, {"_id": 0, "id": 1})
+        recipient_id = admin_acct["id"] if admin_acct else None
+    else:
+        recipient_id = k["profile_id"]
     if recipient_id:
         await send_notif(recipient_id, "Pesan Rekrutmen Baru",
                          f"{user['name']}: {body.text[:80]}", "system")
@@ -3925,7 +4294,7 @@ async def send_recruitment_message(kid: str, body: RecruitmentMessageIn, user=De
 
 
 @api.get("/karyawan/progress")
-async def karyawan_progress(user=Depends(require_role("karyawan"))):
+async def karyawan_progress(user=Depends(require_role("streetbarber"))):
     """Timeline pemantauan progres rekrutmen untuk karyawan."""
     apps = await db.karyawan.find({"profile_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(50)
     result = []
@@ -4005,11 +4374,15 @@ async def ensure_indexes():
     await db.recruitment_messages.create_index("karyawan_id")
     await db.service_messages.create_index("booking_id")
     await db.password_resets.create_index([("email", 1), ("code", 1)])
+    await db.device_push_tokens.create_index("token", unique=True)
+    await db.device_push_tokens.create_index("user_id")
     await db.wallets.create_index([("owner_type", 1), ("owner_id", 1)], unique=True)
     await db.ledger_entries.create_index("idempotency_key", unique=True)
     await db.ledger_entries.create_index([("order_id", 1), ("created_at", 1)])
     await db.ledger_entries.create_index([("wallet_id", 1), ("created_at", -1)])
     await db.bookings.create_index("fund_state")
+    await db.products.create_index([("is_active", 1), ("created_at", -1)])
+    await db.products.create_index("shop_id")
 
 
 async def _auto_release_loop():

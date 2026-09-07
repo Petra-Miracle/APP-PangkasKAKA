@@ -17,6 +17,13 @@ const STATUS_META: Record<string, { color: string; bg: string; label: string }> 
   cancelled: { color: COLORS.error, bg: "#FEF2F2", label: "Dibatalkan" },
 };
 
+const FUND_STATE_META: Record<string, { color: string; bg: string; label: string }> = {
+  unpaid: { color: COLORS.textDim, bg: COLORS.border, label: "Belum Dibayar" },
+  held: { color: COLORS.warning, bg: "#FFF7ED", label: "Dana Ditahan Platform" },
+  released: { color: COLORS.success, bg: "#ECFDF5", label: "Dana Sudah Cair" },
+  refunded: { color: COLORS.error, bg: "#FEF2F2", label: "Dikembalikan ke Customer" },
+};
+
 export default function OwnerOrders() {
   const router = useRouter();
   const [orders, setOrders] = useState<any[]>([]);
@@ -115,7 +122,7 @@ export default function OwnerOrders() {
                 )}
               </View>
               <View style={styles.rowBottom}>
-                <Text style={styles.price}>{rupiah(o.total_price)}</Text>
+                <Text style={styles.price}>{rupiah(o.amount_total_charged ?? o.total_price)}</Text>
                 <View style={styles.tapHint}>
                   <Text style={styles.tapHintText}>Detail</Text>
                   <Ionicons name="chevron-forward" size={14} color={COLORS.brand} />
@@ -145,6 +152,11 @@ export default function OwnerOrders() {
                     <Text style={[styles.mBadgeText, { color: STATUS_META[detail.status]?.color }]}>{STATUS_META[detail.status]?.label}</Text>
                   </View>
                 )}
+                {detail?.fund_state && FUND_STATE_META[detail.fund_state] && (
+                  <View style={[styles.mBadge, { backgroundColor: FUND_STATE_META[detail.fund_state].bg, marginTop: 6 }]}>
+                    <Text style={[styles.mBadgeText, { color: FUND_STATE_META[detail.fund_state].color }]}>{FUND_STATE_META[detail.fund_state].label}</Text>
+                  </View>
+                )}
               </View>
 
               <View style={styles.mSection}>
@@ -168,8 +180,27 @@ export default function OwnerOrders() {
                 end={{ x: 1, y: 1 }}
                 style={styles.mTotalCard}
               >
-                <Text style={styles.mTotalLabel}>Total Pembayaran</Text>
-                <Text style={styles.mTotalValue}>{rupiah(detail?.total_price || 0)}</Text>
+                {detail?.amount_barber_net != null ? (
+                  <View style={{ width: "100%" }}>
+                    <View style={styles.mTotalBreakRow}>
+                      <Text style={styles.mTotalBreakLabel}>Harga Layanan</Text>
+                      <Text style={styles.mTotalBreakVal}>{rupiah(detail.amount_service)}</Text>
+                    </View>
+                    <View style={styles.mTotalBreakRow}>
+                      <Text style={styles.mTotalBreakLabel}>Komisi Platform</Text>
+                      <Text style={styles.mTotalBreakVal}>-{rupiah(detail.amount_platform_commission)}</Text>
+                    </View>
+                    <View style={[styles.mTotalBreakRow, { marginTop: 6 }]}>
+                      <Text style={styles.mTotalLabel}>Pendapatan Bersih</Text>
+                      <Text style={styles.mTotalValue}>{rupiah(detail.amount_barber_net)}</Text>
+                    </View>
+                  </View>
+                ) : (
+                  <>
+                    <Text style={styles.mTotalLabel}>Total Pembayaran</Text>
+                    <Text style={styles.mTotalValue}>{rupiah(detail?.total_price || 0)}</Text>
+                  </>
+                )}
               </LinearGradient>
 
               {/* Contact actions */}
@@ -307,6 +338,9 @@ const styles = StyleSheet.create({
   },
   mTotalLabel: { color: "rgba(255,255,255,0.85)", fontFamily: FONT.semibold, fontSize: 13 },
   mTotalValue: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 22 },
+  mTotalBreakRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  mTotalBreakLabel: { color: "rgba(255,255,255,0.7)", fontFamily: FONT.medium, fontSize: 12 },
+  mTotalBreakVal: { color: "rgba(255,255,255,0.85)", fontFamily: FONT.semibold, fontSize: 12 },
 
   contactRow: { flexDirection: "row", gap: 10, marginTop: 16 },
   contactBtn: { flex: 1, borderRadius: 14, overflow: "hidden", shadowColor: "#16A34A", shadowOpacity: 0.25, shadowRadius: 10, elevation: 4 },

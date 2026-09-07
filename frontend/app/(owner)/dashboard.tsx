@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Switch, RefreshControl, TextInput, Keyboard } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Pressable, Switch, RefreshControl, TextInput, Keyboard, Modal, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -25,6 +25,11 @@ export default function OwnerDashboard() {
   const [homeFee, setHomeFee] = useState("0");
   const [savingFee, setSavingFee] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
+  const [wallet, setWallet] = useState<any>(null);
+  const [walletModal, setWalletModal] = useState(false);
+  const [ledger, setLedger] = useState<any[]>([]);
+  const [loadingLedger, setLoadingLedger] = useState(false);
+  const [payingOut, setPayingOut] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -37,8 +42,28 @@ export default function OwnerDashboard() {
       }
       const t = await api.get("/chat/threads").catch(() => ({ threads: [] }));
       setUnread((t.threads || []).reduce((a: number, x: any) => a + (x.unread || 0), 0));
+      const w = await api.get("/wallets/me").catch(() => null);
+      if (w) setWallet(w.wallet);
     } catch {} finally { setLoading(false); }
   }, []);
+
+  const openWallet = async () => {
+    setWalletModal(true);
+    setLoadingLedger(true);
+    try { const r = await api.get("/wallets/me/ledger"); setLedger(r.entries || []); } catch {} finally { setLoadingLedger(false); }
+  };
+
+  const doPayout = async () => {
+    setPayingOut(true);
+    try {
+      const r = await api.post("/payouts");
+      Alert.alert("Penarikan Diajukan", `${rupiah(r.amount)} akan diproses tim secara manual (belum ada transfer otomatis).`);
+      const w = await api.get("/wallets/me").catch(() => null);
+      if (w) setWallet(w.wallet);
+      setLedger([]);
+      setWalletModal(false);
+    } catch (e: any) { Alert.alert("Penarikan Gagal", e.message); } finally { setPayingOut(false); }
+  };
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -230,6 +255,24 @@ export default function OwnerDashboard() {
           </View>
         </LinearGradient>
 
+        {/* Dompet Toko */}
+        <PressableScale onPress={openWallet} scaleTo={0.98} testID="open-wallet">
+          <LinearGradient
+            colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.bigCard}
+          >
+            <View pointerEvents="none" style={styles.bigDeco} />
+            <View style={styles.bigIcon}><Ionicons name="wallet" size={22} color="#FFFFFF" /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bigLabel}>Dompet Toko</Text>
+              <Text style={styles.bigValue}>{rupiah(wallet?.balance_available || 0)}</Text>
+              <Text style={styles.trendTextDim}>{rupiah(wallet?.balance_pending || 0)} masih ditahan platform · Ketuk untuk detail</Text>
+            </View>
+          </LinearGradient>
+        </PressableScale>
+
         {/* Total Booking */}
         <LinearGradient
           colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
@@ -298,9 +341,69 @@ export default function OwnerDashboard() {
           </View>
         </View>
       </ScrollView>
+
+      <Modal visible={walletModal} animationType="slide" transparent onRequestClose={() => setWalletModal(false)}>
+        <View style={styles.modalBg}>
+          <View style={styles.modal}>
+            <View style={styles.grabber} />
+            <Text style={styles.mSectionTitle}>DOMPET TOKO</Text>
+            <View style={styles.walletBalRow}>
+              <View style={styles.walletBalBox}>
+                <Text style={styles.walletBalLabel}>Ditahan Platform</Text>
+                <Text style={styles.walletBalValue}>{rupiah(wallet?.balance_pending || 0)}</Text>
+              </View>
+              <View style={styles.walletBalBox}>
+                <Text style={styles.walletBalLabel}>Bisa Ditarik</Text>
+                <Text style={styles.walletBalValue}>{rupiah(wallet?.balance_available || 0)}</Text>
+              </View>
+            </View>
+            <PressableScale
+              style={[styles.feeSaveBtn, styles.payoutBtn, (payingOut || (wallet?.balance_available || 0) < 50000) && { opacity: 0.5 }]}
+              onPress={doPayout}
+              disabled={payingOut || (wallet?.balance_available || 0) < 50000}
+              testID="request-payout"
+            >
+              <Text style={styles.feeSaveText}>{payingOut ? "..." : "TARIK SALDO"}</Text>
+            </PressableScale>
+            {(wallet?.balance_available || 0) < 50000 && (
+              <Text style={styles.walletMinHint}>Minimum penarikan Rp50.000</Text>
+            )}
+            <Text style={[styles.mSectionTitle, { marginTop: 16 }]}>RIWAYAT DOMPET</Text>
+            <ScrollView style={{ maxHeight: 260 }}>
+              {loadingLedger ? (
+                <Skeleton style={{ height: 60 }} />
+              ) : ledger.length === 0 ? (
+                <Text style={styles.walletEmpty}>Belum ada riwayat</Text>
+              ) : ledger.map((l: any) => (
+                <View key={l.id} style={styles.ledgerRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.ledgerMemo}>{LEDGER_LABEL[l.entry_type] || l.entry_type}</Text>
+                    <Text style={styles.ledgerDate}>{new Date(l.created_at).toLocaleString("id-ID")}</Text>
+                  </View>
+                  <Text style={[styles.ledgerAmount, { color: l.direction === "credit" ? COLORS.success : COLORS.error }]}>
+                    {l.direction === "credit" ? "+" : "-"}{rupiah(l.amount)}
+                  </Text>
+                </View>
+              ))}
+            </ScrollView>
+            <PressableScale style={styles.closeBtn} onPress={() => setWalletModal(false)}>
+              <Text style={styles.closeText}>Tutup</Text>
+            </PressableScale>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
+
+const LEDGER_LABEL: Record<string, string> = {
+  payment_in: "Pembayaran Masuk (Ditahan)",
+  platform_commission: "Komisi Platform",
+  barber_payout: "Dana Cair ke Dompet",
+  payment_fee: "Biaya Pembayaran",
+  refund: "Pengembalian Dana",
+  withdrawal: "Penarikan Saldo",
+};
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
@@ -384,4 +487,23 @@ const styles = StyleSheet.create({
   hBar: { height: 8, backgroundColor: COLORS.surface2, borderRadius: 999, marginTop: 8, overflow: "hidden" },
   hFill: { height: "100%", borderRadius: 999 },
   metricHint: { color: COLORS.textDim, fontSize: 11, marginTop: 6, fontFamily: FONT.medium },
+
+  // Wallet modal
+  modalBg: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: "flex-end" },
+  modal: { backgroundColor: COLORS.surface, padding: 20, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: "85%", shadowColor: "#000", shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.12, shadowRadius: 24, elevation: 20 },
+  grabber: { width: 44, height: 5, borderRadius: 999, backgroundColor: COLORS.borderStrong, alignSelf: "center", marginBottom: 14 },
+  mSectionTitle: { color: COLORS.textDim, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8, marginBottom: 10 },
+  walletBalRow: { flexDirection: "row", gap: 10 },
+  walletBalBox: { flex: 1, backgroundColor: COLORS.surface2, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: COLORS.border },
+  walletBalLabel: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11 },
+  walletBalValue: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 16, marginTop: 4 },
+  payoutBtn: { alignSelf: "stretch", alignItems: "center", marginTop: 14 },
+  walletMinHint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, textAlign: "center", marginTop: 6 },
+  walletEmpty: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, paddingVertical: 10 },
+  ledgerRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border, gap: 10 },
+  ledgerMemo: { color: COLORS.text, fontFamily: FONT.semibold, fontSize: 13 },
+  ledgerDate: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 2 },
+  ledgerAmount: { fontFamily: FONT.extrabold, fontSize: 13 },
+  closeBtn: { alignItems: "center", padding: 12, marginTop: 4 },
+  closeText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13 },
 });

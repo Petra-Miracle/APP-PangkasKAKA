@@ -180,7 +180,7 @@ export default function Orders() {
                 </View>
                 <View style={styles.divider} />
                 <View style={styles.rowBottom}>
-                  <Text style={styles.price}>{rupiah(o.total_price)}</Text>
+                  <Text style={styles.price}>{rupiah(o.amount_total_charged ?? o.total_price)}</Text>
                   <View style={[styles.badge, { backgroundColor: meta.bg }]}>
                     <Text style={[styles.badgeText, { color: meta.color }]}>{meta.label}</Text>
                   </View>

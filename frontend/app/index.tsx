@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { View, StyleSheet, Text } from "react-native";
+import { View, StyleSheet, Text, Alert } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
@@ -24,7 +24,7 @@ function LoadingDot({ delay }: { delay: number }) {
 }
 
 export default function Index() {
-  const { user, loading } = useAuth();
+  const { user, loading, logout } = useAuth();
   const router = useRouter();
   const logoScale = useSharedValue(1);
 
@@ -42,11 +42,18 @@ export default function Index() {
   useEffect(() => {
     if (loading) return;
     if (!user) { router.replace("/(auth)/login"); return; }
-    if (user.role === "admin") router.replace("/(admin)/dashboard");
+    if (user.role === "admin") {
+      // Akun Admin (validator StreetBarber per-toko) hanya dipakai lewat website Admin
+      // terpisah, bukan di aplikasi mobile ini.
+      Alert.alert("Akun Admin", "Akun Admin hanya bisa diakses lewat website Admin, bukan aplikasi ini.");
+      logout();
+      router.replace("/(auth)/login");
+    }
+    else if (user.role === "superadmin") router.replace("/(superadmin)/dashboard");
     else if (user.role === "owner") router.replace("/(owner)/dashboard");
-    else if (user.role === "karyawan") router.replace("/(karyawan)/status");
+    else if (user.role === "streetbarber") router.replace("/(streetbarber)/status");
     else router.replace("/(customer)/home");
-  }, [user, loading, router]);
+  }, [user, loading, router, logout]);
 
   return (
     <View style={styles.center} testID="splash-view">

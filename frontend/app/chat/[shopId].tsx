@@ -108,7 +108,7 @@ export default function ChatScreen() {
           <Text style={styles.hTitle} numberOfLines={1}>{thread?.shop?.name}</Text>
           <Text style={styles.hSub}>{thread?.shop?.closed ? "Percakapan ditutup" : "Verifikasi dokumen"}</Text>
         </View>
-        {user?.role === "admin" && !thread?.shop?.closed && (
+        {user?.role === "superadmin" && !thread?.shop?.closed && (
           <Pressable onPress={closeThread} style={styles.iconBtn} testID="close-thread"><Ionicons name="lock-closed" size={18} color="#FFFFFF" /></Pressable>
         )}
       </View>

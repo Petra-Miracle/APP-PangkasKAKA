@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { LogBox, StatusBar, Text as RNText, TextInput as RNTextInput } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import * as Notifications from "expo-notifications";
 
 import { useIconFonts } from "@/src/hooks/use-icon-fonts";
 import { AuthProvider } from "@/src/lib/auth";
@@ -12,6 +13,15 @@ import { COLORS, FONT } from "@/src/lib/api";
 
 LogBox.ignoreAllLogs(true);
 SplashScreen.preventAutoHideAsync();
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowBanner: true,
+    shouldShowList: true,
+    shouldPlaySound: false,
+    shouldSetBadge: false,
+  }),
+});
 
 // Set default font family for all Text and TextInput
 const setDefaultFont = () => {

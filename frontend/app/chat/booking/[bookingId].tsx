@@ -11,7 +11,7 @@ export default function BookingChatScreen() {
 
   // Thread ini dipakai customer<->barber (toko maupun StreetBarber). Dari sisi
   // barber, lawan bicaranya adalah customer — bukan diri sendiri.
-  const isKaryawan = user?.role === "karyawan";
+  const isKaryawan = user?.role === "streetbarber";
   const other = isKaryawan ? customer : barber;
 
   return (

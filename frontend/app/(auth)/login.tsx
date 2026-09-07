@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Alert } from "react-native";
 import { useRouter, Link } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,7 +10,7 @@ import { useScrollToInput } from "@/src/lib/useScrollToInput";
 import PressableScale from "@/src/components/PressableScale";
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, logout } = useAuth();
   const router = useRouter();
   const { scrollRef, handleFocus } = useScrollToInput();
   const [email, setEmail] = useState("");
@@ -23,9 +23,13 @@ export default function Login() {
     setErr(null); setLoading(true);
     try {
       const u = await login(email.trim(), password);
-      if (u.role === "admin") router.replace("/(admin)/dashboard");
+      if (u.role === "admin") {
+        Alert.alert("Akun Admin", "Akun Admin hanya bisa diakses lewat website Admin, bukan aplikasi ini.");
+        await logout();
+      }
+      else if (u.role === "superadmin") router.replace("/(superadmin)/dashboard");
       else if (u.role === "owner") router.replace("/(owner)/dashboard");
-      else if (u.role === "karyawan") router.replace("/(karyawan)/status");
+      else if (u.role === "streetbarber") router.replace("/(streetbarber)/status");
       else router.replace("/(customer)/home");
     } catch (e: any) { setErr(e.message || "Login gagal"); }
     setLoading(false);

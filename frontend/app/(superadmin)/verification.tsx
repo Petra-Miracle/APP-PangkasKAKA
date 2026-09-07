@@ -56,7 +56,13 @@ export default function Verification() {
       setSelShop(updated || null);
       setShops(fresh.shops);
       setReviewDoc(null); setReviewNote(""); setReviewStatus("valid");
-      if (r.all_valid) alert("✓ Semua dokumen valid — toko OTOMATIS DISETUJUI");
+      if (r.all_valid) {
+        alert(
+          r.owner_password
+            ? `✓ Semua dokumen valid — toko OTOMATIS DISETUJUI\n\nAkun Owner baru dibuat:\nEmail: ${updated?.applicant_email || updated?.owner?.email}\nPassword: ${r.owner_password}\n\nSalin & sampaikan ke pemohon secara manual — password ini tidak akan ditampilkan lagi.`
+            : "✓ Semua dokumen valid — toko OTOMATIS DISETUJUI"
+        );
+      }
     } catch (e: any) { alert(e.message); }
   };
 

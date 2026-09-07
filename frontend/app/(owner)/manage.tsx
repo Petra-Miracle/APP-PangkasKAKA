@@ -1,55 +1,39 @@
-import { useCallback, useState, useMemo } from "react";
+import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Modal, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
-import Slider from "@react-native-community/slider";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
 import { useScrollToInput } from "@/src/lib/useScrollToInput";
 import PressableScale from "@/src/components/PressableScale";
 import EmptyState from "@/src/components/EmptyState";
 import Skeleton from "@/src/components/Skeleton";
 
-// 6 komponen evaluasi rekrutmen (masing-masing 0-20)
-const CRITERIA: { key: string; label: string; desc: string; icon: string; docKey: string; docLabel: string }[] = [
-  { key: "portfolio_weight",  label: "Portofolio",         desc: "Foto/link hasil cukur yang pernah dikerjakan", icon: "images",         docKey: "portfolio_url",   docLabel: "Portofolio" },
-  { key: "experience_weight", label: "Pengalaman Kerja",   desc: "Lama & riwayat pengalaman sebagai barber",     icon: "briefcase",      docKey: "work_experience", docLabel: "Pengalaman" },
-  { key: "tools_weight",      label: "Alat Kerja",         desc: "Kelengkapan alat cukur pribadi",               icon: "cut",            docKey: "tools_photo",     docLabel: "Foto Alat" },
-  { key: "bnsp_weight",       label: "Sertifikat BNSP",    desc: "Sertifikasi kompetensi resmi (nilai plus)",    icon: "ribbon",         docKey: "bnsp_cert",       docLabel: "BNSP" },
-  { key: "cert_weight",       label: "Sertifikat Lainnya", desc: "Pelatihan/kursus barber lain",                 icon: "document-text",  docKey: "certificates",    docLabel: "Sertifikat" },
-  { key: "diploma_weight",    label: "Ijazah",             desc: "Pendidikan formal",                            icon: "school",         docKey: "diploma_photo",   docLabel: "Ijazah" },
-];
-
-const initWeights = () => ({ portfolio_weight: 0, experience_weight: 0, tools_weight: 0, bnsp_weight: 0, cert_weight: 0, diploma_weight: 0 });
-
 export default function Manage() {
   const router = useRouter();
-  const [tab, setTab] = useState<"barbers" | "services" | "karyawan">("barbers");
+  const [tab, setTab] = useState<"barbers" | "services" | "products">("barbers");
   const [shop, setShop] = useState<any>(null);
-  const [karyawan, setKaryawan] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [b, setB] = useState({ name: "", specialization: "", skill_level: "Standar" });
   const [s, setS] = useState({ name: "", duration: "30", price: "35000" });
+  const [p, setP] = useState({ name: "", price: "35000", description: "", photo: "" });
   const [editingBarberId, setEditingBarberId] = useState<string | null>(null);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
-  const [evalTarget, setEvalTarget] = useState<any>(null);
-  const [weights, setWeights] = useState(initWeights());
-  const [saving, setSaving] = useState(false);
-  const [previewDoc, setPreviewDoc] = useState<{ title: string; uri: string } | null>(null);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [savingProduct, setSavingProduct] = useState(false);
   const { scrollRef, handleFocus } = useScrollToInput();
-
-  const total = useMemo(() => Object.values(weights).reduce((a, b) => a + Number(b || 0), 0), [weights]);
-  const predictedStatus = total >= 60 ? "active" : "rejected";
-  const predictedSkill = total >= 85 ? "Senior" : total >= 70 ? "Standar" : "Junior";
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const r = await api.get("/owner/shop");
       if (r.shop) { const d = await api.get(`/shops/${r.shop.id}`); setShop(d); }
-      const k = await api.get("/owner/karyawan"); setKaryawan(k.karyawan);
+      const pr = await api.get("/owner/products"); setProducts(pr.products);
     } catch {} finally { setLoading(false); }
   }, []);
 
@@ -110,46 +94,46 @@ export default function Manage() {
     ]);
   };
 
-  const openEvaluate = (k: any) => {
-    setWeights(initWeights());
-    setEvalTarget(k);
-  };
+  const resetProductForm = () => { setP({ name: "", price: "35000", description: "", photo: "" }); setEditingProductId(null); };
 
-  const confirmBerkas = (k: any, decision: "lolos" | "tolak") => {
-    const isApprove = decision === "lolos";
-    Alert.alert(
-      isApprove ? "Setujui Berkas" : "Tolak Berkas",
-      isApprove
-        ? `Berkas ${k.name} dinyatakan lolos dan lanjut ke tahap koordinasi uji tes kemampuan (via chat).`
-        : `Yakin ingin menolak lamaran StreetBarber ${k.name}? Aksi ini tidak bisa dibatalkan.`,
-      [
-        { text: "Batal", style: "cancel" },
-        {
-          text: isApprove ? "Setujui" : "Tolak", style: isApprove ? "default" : "destructive",
-          onPress: async () => {
-            try { await api.post(`/owner/karyawan/${k.id}/berkas-decision`, { decision }); await load(); }
-            catch (e: any) { alert(e.message); }
-          },
-        },
-      ]
+  const pickProductPhoto = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (perm.status !== "granted") { alert("Izin galeri ditolak"); return; }
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images });
+    if (res.canceled) return;
+    const resized = await ImageManipulator.manipulateAsync(
+      res.assets[0].uri,
+      [{ resize: { width: 800 } }],
+      { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG, base64: true }
     );
+    setP({ ...p, photo: `data:image/jpeg;base64,${resized.base64}` });
   };
 
-  const submitEvaluation = async () => {
-    if (!evalTarget) return;
-    setSaving(true);
+  const saveProduct = async () => {
+    if (!p.name) return;
+    setSavingProduct(true);
     try {
-      const r = await api.post(`/owner/karyawan/${evalTarget.id}/evaluate`, weights);
-      Alert.alert(
-        r.status === "active" ? "Pelamar Diterima" : "Pelamar Ditolak",
-        `Skor total: ${r.total_score}/120\nStatus: ${r.status === "active" ? "AKTIF — resmi jadi StreetBarber, melayani panggilan ke rumah secara mandiri" : "DITOLAK"}`
-      );
-      setEvalTarget(null);
+      const body = { name: p.name, price: parseInt(p.price || "0", 10), description: p.description, photo: p.photo };
+      if (editingProductId) await api.put(`/owner/products/${editingProductId}`, body);
+      else await api.post("/owner/products", body);
+      resetProductForm();
       await load();
-    } catch (e: any) { alert(e.message); } finally { setSaving(false); }
+    } catch (e: any) { alert(e.message); }
+    setSavingProduct(false);
   };
-
-  const isImageDoc = (val?: string) => !!val && (val.startsWith("data:image") || /\.(png|jpe?g|webp|gif|heic)$/i.test(val));
+  const startEditProduct = (pr: any) => {
+    setEditingProductId(pr.id);
+    setP({ name: pr.name, price: String(pr.price), description: pr.description || "", photo: "" });
+  };
+  const deleteProduct = (pr: any) => {
+    Alert.alert("Hapus Produk", `Yakin ingin menghapus ${pr.name}?`, [
+      { text: "Batal", style: "cancel" },
+      { text: "Hapus", style: "destructive", onPress: async () => {
+          try { if (editingProductId === pr.id) resetProductForm(); await api.del(`/owner/products/${pr.id}`); await load(); }
+          catch (e: any) { alert(e.message); }
+        } },
+    ]);
+  };
 
   if (loading) return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -186,7 +170,7 @@ export default function Manage() {
         <Text style={styles.headerSub}>{shop.name}</Text>
       </LinearGradient>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow} style={{ maxHeight: 60 }}>
-        {[["barbers", "Barber Toko", "cut"], ["services", "Layanan", "pricetag"], ["karyawan", "Pelamar StreetBarber", "people"]].map(([k, l, i]) => (
+        {[["barbers", "Barber Toko", "cut"], ["services", "Layanan", "pricetag"], ["products", "Produk", "bag-handle"]].map(([k, l, i]) => (
           <PressableScale key={k} testID={`tab-${k}`} onPress={() => setTab(k as any)} style={[styles.tab, tab === k && styles.tabActive]} scaleTo={0.94}>
             <Ionicons name={i as any} size={14} color={tab === k ? "#FFFFFF" : COLORS.textDim} />
             <Text style={[styles.tabText, tab === k && styles.tabTextActive]}>{l}</Text>
@@ -281,243 +265,65 @@ export default function Manage() {
             </View>
           </View>
         )}
-        {tab === "karyawan" && (
+        {tab === "products" && (
           <View>
-            {karyawan.length === 0 && (
-              <EmptyState
-                icon="people-outline"
-                title="Belum ada pelamar"
-                description="Pelamar StreetBarber yang memilih toko ini sebagai validator akan muncul di sini."
-              />
-            )}
-            {karyawan.map((k: any) => (
-              <View key={k.id} style={styles.applicantCard}>
-                <View style={styles.rowTop}>
-                  <View style={styles.avatar}><Ionicons name="person" size={18} color={COLORS.brand} /></View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.itemName}>{k.name}</Text>
-                    <Text style={styles.itemMeta}>{k.email}</Text>
-                  </View>
-                  <View style={[styles.statusBadge,
-                    k.status === "active" ? { backgroundColor: "#ECFDF5" } :
-                    k.status === "rejected" ? { backgroundColor: "#FEF2F2" } :
-                    ["menunggu_tes", "seleksi_berkas_lolos"].includes(k.status) ? { backgroundColor: "#EFF8FF" } : { backgroundColor: "#FFF7ED" }]}>
-                    <Text style={[styles.statusBadgeText,
-                      k.status === "active" ? { color: COLORS.success } :
-                      k.status === "rejected" ? { color: COLORS.error } :
-                      ["menunggu_tes", "seleksi_berkas_lolos"].includes(k.status) ? { color: COLORS.info } : { color: COLORS.warning }]}>
-                      {k.status === "active" ? "STREETBARBER AKTIF" :
-                       k.status === "rejected" ? "DITOLAK" :
-                       ["menunggu_tes", "seleksi_berkas_lolos"].includes(k.status) ? "TAHAP TES" : "MENUNGGU BERKAS"}
-                    </Text>
-                  </View>
-                </View>
-                {k.status !== "pending" && !["menunggu_tes", "seleksi_berkas_lolos"].includes(k.status) && (
-                  <View style={styles.scoreBar}>
-                    <View style={styles.scoreDot} />
-                    <Text style={styles.scoreText}>Skor: <Text style={{ color: COLORS.text, fontFamily: FONT.extrabold }}>{k.total_score}/120</Text></Text>
-                  </View>
-                )}
-                {k.status === "pending" ? (
-                  <View style={styles.berkasRow}>
-                    <PressableScale style={styles.berkasRejectBtn} onPress={() => confirmBerkas(k, "tolak")} testID={`berkas-tolak-${k.id}`} scaleTo={0.97}>
-                      <Ionicons name="close" size={16} color={COLORS.error} />
-                      <Text style={styles.berkasRejectText}>TOLAK BERKAS</Text>
-                    </PressableScale>
-                    <PressableScale style={styles.berkasApproveBtnWrap} onPress={() => confirmBerkas(k, "lolos")} testID={`berkas-lolos-${k.id}`} haptic>
-                      <LinearGradient
-                        colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.berkasApproveBtn}
-                      >
-                        <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                        <Text style={styles.berkasApproveText}>SETUJUI BERKAS</Text>
-                      </LinearGradient>
-                    </PressableScale>
-                  </View>
-                ) : ["menunggu_tes", "seleksi_berkas_lolos"].includes(k.status) ? (
-                  <PressableScale style={styles.evalBtnWrap} onPress={() => openEvaluate(k)} testID={`eval-${k.id}`} haptic>
-                    <LinearGradient
-                      colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.evalBtn}
-                    >
-                      <Ionicons name="clipboard" size={16} color="#FFFFFF" />
-                      <Text style={styles.evalBtnText}>EVALUASI PELAMAR</Text>
-                    </LinearGradient>
-                  </PressableScale>
+            {products.map((pr: any) => (
+              <View key={pr.id} style={styles.item} testID={`prod-${pr.id}`}>
+                {pr.image ? (
+                  <Image source={{ uri: pr.image }} style={styles.productThumb} contentFit="cover" />
                 ) : (
-                  <PressableScale style={styles.evalBtnGhost} onPress={() => openEvaluate(k)} scaleTo={0.97}>
-                    <Ionicons name="eye-outline" size={16} color={COLORS.brand} />
-                    <Text style={styles.evalBtnGhostText}>LIHAT DETAIL</Text>
-                  </PressableScale>
+                  <View style={styles.avatar}><Ionicons name="bag-handle" size={18} color={COLORS.brand} /></View>
                 )}
-                {["menunggu_tes", "seleksi_berkas_lolos", "active"].includes(k.status) && (
-                  <PressableScale style={styles.evalBtnGhost} onPress={() => router.push(`/chat/recruitment/${k.id}` as any)} testID={`chat-${k.id}`} scaleTo={0.97}>
-                    <Ionicons name="chatbubbles-outline" size={16} color={COLORS.brand} />
-                    <Text style={styles.evalBtnGhostText} numberOfLines={1}>Chat {k.name}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.itemName}>{pr.name}</Text>
+                  <Text style={styles.itemMeta} numberOfLines={1}>{pr.description || "-"}</Text>
+                </View>
+                <Text style={styles.itemPrice}>{rupiah(pr.price)}</Text>
+                <PressableScale style={styles.iconBtn} onPress={() => startEditProduct(pr)} testID={`edit-prod-${pr.id}`} scaleTo={0.9}>
+                  <Ionicons name="pencil" size={16} color={COLORS.brand} />
+                </PressableScale>
+                <PressableScale style={styles.iconBtn} onPress={() => deleteProduct(pr)} testID={`del-prod-${pr.id}`} scaleTo={0.9}>
+                  <Ionicons name="trash" size={16} color={COLORS.error} />
+                </PressableScale>
+              </View>
+            ))}
+            <View style={styles.card}>
+              <View style={styles.cardHeadRow}>
+                <Text style={styles.cardTitle}>{editingProductId ? "Edit Produk" : "Tambah Produk"}</Text>
+                {editingProductId && (
+                  <PressableScale onPress={resetProductForm} scaleTo={0.9}>
+                    <Text style={styles.cancelEditText}>Batal</Text>
                   </PressableScale>
                 )}
               </View>
-            ))}
+              <PressableScale style={styles.photoPick} onPress={pickProductPhoto} testID="pick-product-photo" scaleTo={0.99}>
+                {p.photo ? (
+                  <Image source={{ uri: p.photo }} style={styles.photoPreview} contentFit="cover" />
+                ) : (
+                  <>
+                    <View style={styles.photoIcon}><Ionicons name="camera-outline" size={20} color={COLORS.brand} /></View>
+                    <Text style={styles.photoPickText}>{editingProductId ? "Ganti foto produk (opsional)" : "Unggah foto produk"}</Text>
+                  </>
+                )}
+              </PressableScale>
+              <TextInput style={styles.input} value={p.name} onChangeText={(t) => setP({ ...p, name: t })} placeholder="Nama produk" placeholderTextColor={COLORS.textDim} testID="new-product-name" onFocus={handleFocus} />
+              <TextInput style={styles.input} value={p.price} onChangeText={(t) => setP({ ...p, price: t })} placeholder="Harga (Rp)" placeholderTextColor={COLORS.textDim} keyboardType="numeric" onFocus={handleFocus} />
+              <TextInput style={styles.input} value={p.description} onChangeText={(t) => setP({ ...p, description: t })} placeholder="Deskripsi singkat (opsional)" placeholderTextColor={COLORS.textDim} onFocus={handleFocus} />
+              <PressableScale style={[styles.btnWrap, savingProduct && { opacity: 0.6 }]} onPress={saveProduct} disabled={savingProduct} testID="add-product" haptic>
+                <LinearGradient
+                  colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.btn}
+                >
+                  <Text style={styles.btnText}>{savingProduct ? "..." : editingProductId ? "SIMPAN PERUBAHAN" : "TAMBAH PRODUK"}</Text>
+                </LinearGradient>
+              </PressableScale>
+            </View>
           </View>
         )}
       </ScrollView>
 
-      {/* ---------- Modal Evaluasi ---------- */}
-      <Modal visible={!!evalTarget} animationType="slide" transparent onRequestClose={() => setEvalTarget(null)}>
-        <View style={styles.modalBg}>
-          <View style={styles.modal}>
-            <View style={styles.grabber} />
-            <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
-              <View style={styles.mHeader}>
-                <View style={styles.mAvatar}><Text style={styles.mInitial}>{evalTarget?.name?.[0] || "?"}</Text></View>
-                <Text style={styles.mName}>{evalTarget?.name}</Text>
-                <Text style={styles.mEmail}>{evalTarget?.email} · {evalTarget?.phone}</Text>
-              </View>
-
-              {/* Berkas Pelamar */}
-              <Text style={styles.sec}>BERKAS PELAMAR</Text>
-              <View style={styles.docsGrid}>
-                {CRITERIA.map((c) => {
-                  const val = evalTarget?.[c.docKey];
-                  return (
-                    <Pressable key={c.docKey} style={styles.docChip}
-                      onPress={() => val && setPreviewDoc({ title: c.docLabel, uri: val })}
-                      disabled={!val}>
-                      <Ionicons name={c.icon as any} size={16} color={val ? COLORS.brand : COLORS.textDim} />
-                      <Text style={[styles.docChipText, !val && { color: COLORS.textDim }]} numberOfLines={1}>
-                        {c.docLabel}
-                      </Text>
-                      <Ionicons name={val ? "checkmark-circle" : "close-circle"} size={14} color={val ? COLORS.success : COLORS.textDim} />
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              {/* Penilaian */}
-              {["menunggu_tes", "seleksi_berkas_lolos"].includes(evalTarget?.status) ? (
-                <>
-                  <Text style={styles.sec}>PENILAIAN (0–20 per komponen)</Text>
-                  {CRITERIA.map((c) => (
-                    <View key={c.key} style={styles.critCard}>
-                      <View style={styles.critHead}>
-                        <View style={styles.critIco}><Ionicons name={c.icon as any} size={16} color={COLORS.brand} /></View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.critLabel}>{c.label}</Text>
-                          <Text style={styles.critDesc}>{c.desc}</Text>
-                        </View>
-                        <View style={styles.critScorePill}>
-                          <Text style={styles.critScoreText}>{(weights as any)[c.key]}</Text>
-                        </View>
-                      </View>
-                      <Slider
-                        style={{ height: 36, marginTop: 4 }}
-                        minimumValue={0} maximumValue={20} step={1}
-                        value={(weights as any)[c.key]}
-                        onValueChange={(v) => setWeights({ ...weights, [c.key]: Math.round(v) } as any)}
-                        minimumTrackTintColor={COLORS.brand}
-                        maximumTrackTintColor={COLORS.border}
-                        thumbTintColor={COLORS.brand}
-                      />
-                    </View>
-                  ))}
-
-                  {/* Live Total */}
-                  <LinearGradient
-                    colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.totalCard}
-                  >
-                    <View pointerEvents="none" style={styles.totalDeco} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.totalLabel}>Skor Total</Text>
-                      <Text style={styles.totalValue}>{total} <Text style={styles.totalMax}>/ 120</Text></Text>
-                      <View style={styles.totalBar}>
-                        <View style={[styles.totalFill, { width: `${Math.min(100, (total / 120) * 100)}%`, backgroundColor: predictedStatus === "active" ? COLORS.success : COLORS.warning }]} />
-                      </View>
-                    </View>
-                    <View style={styles.predictBox}>
-                      <Text style={styles.predictLabel}>Prediksi</Text>
-                      <Text style={[styles.predictStatus, { color: predictedStatus === "active" ? "#00FFB0" : "#FFB4B4" }]}>
-                        {predictedStatus === "active" ? "AKTIF" : "DITOLAK"}
-                      </Text>
-                      {predictedStatus === "active" && (
-                        <Text style={styles.predictSkill}>{predictedSkill}</Text>
-                      )}
-                    </View>
-                  </LinearGradient>
-
-                  <Text style={styles.hint}>
-                    Skor ≥ 60 → Aktif, otomatis jadi StreetBarber mandiri (bukan karyawan toko).{"\n"}
-                    Skor ≥ 85 = Senior · ≥ 70 = Standar · Lainnya = Junior.
-                  </Text>
-
-                  <PressableScale style={[styles.saveBtnWrap, total === 0 && { opacity: 0.5 }]} onPress={submitEvaluation} disabled={saving || total === 0} testID="save-evaluation" haptic>
-                    <LinearGradient
-                      colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.saveBtn}
-                    >
-                      <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
-                      <Text style={styles.saveBtnText}>{saving ? "MENYIMPAN..." : "SIMPAN EVALUASI"}</Text>
-                    </LinearGradient>
-                  </PressableScale>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.sec}>HASIL EVALUASI</Text>
-                  <View style={styles.critList}>
-                    {CRITERIA.map((c) => (
-                      <View key={c.key} style={styles.resultRow}>
-                        <View style={styles.resultIco}><Ionicons name={c.icon as any} size={14} color={COLORS.brand} /></View>
-                        <Text style={styles.resultLabel}>{c.label}</Text>
-                        <Text style={styles.resultVal}>{evalTarget?.[c.key] ?? 0}/20</Text>
-                      </View>
-                    ))}
-                    <View style={styles.resultTotalRow}>
-                      <Text style={styles.resultTotalLabel}>Skor Total</Text>
-                      <Text style={[styles.resultTotalVal, { color: evalTarget?.status === "active" ? COLORS.success : COLORS.error }]}>
-                        {evalTarget?.total_score}/120
-                      </Text>
-                    </View>
-                  </View>
-                </>
-              )}
-            </ScrollView>
-            <PressableScale style={styles.closeBtn} onPress={() => setEvalTarget(null)} scaleTo={0.97}>
-              <Text style={styles.closeText}>Tutup</Text>
-            </PressableScale>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ---------- Preview Berkas ---------- */}
-      <Modal visible={!!previewDoc} animationType="fade" transparent onRequestClose={() => setPreviewDoc(null)}>
-        <View style={styles.previewBg}>
-          <View style={styles.previewCard}>
-            <View style={styles.previewHead}>
-              <Text style={styles.previewTitle}>{previewDoc?.title}</Text>
-              <PressableScale onPress={() => setPreviewDoc(null)} scaleTo={0.9}>
-                <Ionicons name="close" size={22} color={COLORS.text} />
-              </PressableScale>
-            </View>
-            <ScrollView contentContainerStyle={{ padding: 16 }}>
-              {previewDoc && isImageDoc(previewDoc.uri) ? (
-                <Image source={{ uri: previewDoc.uri }} style={styles.previewImg} contentFit="contain" />
-              ) : (
-                <View style={styles.previewText}>
-                  <Text style={styles.previewTextContent} selectable>{previewDoc?.uri || "-"}</Text>
-                </View>
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -541,6 +347,14 @@ const styles = StyleSheet.create({
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 8, elevation: 2,
   },
   avatar: { width: 40, height: 40, borderRadius: 13, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
+  productThumb: { width: 40, height: 40, borderRadius: 13, backgroundColor: COLORS.surface2 },
+  photoPick: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.surface2,
+    borderWidth: 1, borderColor: COLORS.border, borderStyle: "dashed", borderRadius: 14, height: 90, overflow: "hidden", marginBottom: 12,
+  },
+  photoIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
+  photoPickText: { color: COLORS.textDim, fontFamily: FONT.semibold, fontSize: 12 },
+  photoPreview: { width: "100%", height: "100%" },
   itemName: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 14 },
   itemMeta: { color: COLORS.textDim, fontSize: 12, marginTop: 2, fontFamily: FONT.medium },
   itemPrice: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 14 },

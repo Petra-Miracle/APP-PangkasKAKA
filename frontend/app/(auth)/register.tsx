@@ -13,15 +13,14 @@ import PressableScale from "@/src/components/PressableScale";
 
 const ROLES = [
   { key: "customer", label: "Pelanggan", icon: "person", desc: "Cari & booking barbershop" },
-  { key: "owner", label: "Pemilik Toko", icon: "storefront", desc: "Daftarkan toko + kelola barber" },
-  { key: "karyawan", label: "StreetBarber", icon: "cut", desc: "Pangkas rambut panggilan ke rumah, divalidasi toko mitra" },
+  { key: "streetbarber", label: "StreetBarber", icon: "cut", desc: "Pangkas rambut panggilan ke rumah, divalidasi toko mitra" },
 ];
 
 export default function Register() {
   const { register } = useAuth();
   const router = useRouter();
   const [step, setStep] = useState(1);
-  const [role, setRole] = useState<"customer" | "owner" | "karyawan">("customer");
+  const [role, setRole] = useState<"customer" | "streetbarber">("customer");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -30,11 +29,6 @@ export default function Register() {
   const [regAddress, setRegAddress] = useState("");
   const [regCoords, setRegCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [regGpsLoading, setRegGpsLoading] = useState(false);
-  const [shopForm, setShopForm] = useState({
-    name: "", address: "", price_range: "Rp 25.000 - Rp 75.000",
-    bank_name: "", account_number: "", account_holder: "",
-    doc_ktp: "", doc_nib: "", doc_npwp: "", doc_surat_usaha: "", doc_toko: "",
-  });
   const [karyawanForm, setKaryawanForm] = useState({
     portfolio_url: "", work_experience: "", certificates: "",
     tools_photo: "", bnsp_cert: "", diploma_photo: "", ktp_photo: "", shop_id: "",
@@ -44,7 +38,7 @@ export default function Register() {
   const { scrollRef, handleFocus } = useScrollToInput();
 
   useEffect(() => {
-    if (role === "karyawan" && step === 2 && shops.length === 0) {
+    if (role === "streetbarber" && step === 2 && shops.length === 0) {
       api.get("/shops?sort=rating").then((r) => setShops(r.shops)).catch(() => {});
     }
   }, [role, step, shops.length]);
@@ -73,12 +67,6 @@ export default function Register() {
     if (!/^08/.test(basic.phone) || basic.phone.length < 10) return "Nomor HP harus format 08xx (min 10 digit)";
     return null;
   };
-  const validOwner = () => {
-    if (!shopForm.name || !shopForm.address) return "Nama & alamat toko wajib diisi";
-    if (!shopForm.doc_ktp || !shopForm.doc_nib || !shopForm.doc_npwp || !shopForm.doc_surat_usaha || !shopForm.doc_toko)
-      return "Kelima dokumen wajib di-upload (KTP, NIB, NPWP, Surat Usaha, Foto Toko)";
-    return null;
-  };
   const validKaryawan = () => {
     if (!karyawanForm.shop_id) return "Pilih toko tujuan lamaran";
     if (!karyawanForm.ktp_photo) return "Foto KTP wajib diunggah";
@@ -102,22 +90,11 @@ export default function Register() {
         ...basic, role,
         ...(role === "customer" ? { address: regAddress, lat: regCoords?.lat, lng: regCoords?.lng } : {}),
       });
-      if (u.role === "owner") {
-        const v = validOwner();
-        if (v) { setErr(v); setLoading(false); return; }
-        await api.post("/owner/shop", {
-          name: shopForm.name, address: shopForm.address, price_range: shopForm.price_range,
-          latitude: -10.1789 + (Math.random() - 0.5) * 0.05, longitude: 123.607 + (Math.random() - 0.5) * 0.05,
-          image: "https://images.unsplash.com/photo-1585747860715-2ba37e788b70?w=800",
-          bank_name: shopForm.bank_name, account_number: shopForm.account_number, account_holder: shopForm.account_holder,
-          doc_ktp: shopForm.doc_ktp, doc_nib: shopForm.doc_nib, doc_npwp: shopForm.doc_npwp, doc_surat_usaha: shopForm.doc_surat_usaha, doc_toko: shopForm.doc_toko,
-        });
-        router.replace("/(owner)/dashboard");
-      } else if (u.role === "karyawan") {
+      if (u.role === "streetbarber") {
         const v = validKaryawan();
         if (v) { setErr(v); setLoading(false); return; }
         await api.post("/karyawan/apply", { ...karyawanForm, criteria_agreed: karyawanCriteriaAgreed });
-        router.replace("/(karyawan)/status");
+        router.replace("/(streetbarber)/status");
       } else {
         router.replace("/(customer)/home");
       }
@@ -125,11 +102,10 @@ export default function Register() {
     setLoading(false);
   };
 
-  const submitOwner = () => { const v = validOwner(); if (v) return setErr(v); submit(); };
   const submitKaryawan = () => { const v = validKaryawan(); if (v) return setErr(v); submit(); };
 
-  const heroTitle = step === 1 ? "Buat Akun" : role === "owner" ? "Data Toko" : "Data StreetBarber";
-  const heroSub = step === 1 ? "Bergabunglah dengan PangkasKAKA" : role === "owner" ? "Toko diverifikasi admin sebelum aktif" : "Pilih toko + portofolio Anda";
+  const heroTitle = step === 1 ? "Buat Akun" : "Data StreetBarber";
+  const heroSub = step === 1 ? "Bergabunglah dengan PangkasKAKA" : "Pilih toko + portofolio Anda";
 
   return (
     <SafeAreaView style={styles.safe} edges={[]}>
@@ -208,43 +184,17 @@ export default function Register() {
                     <Text style={[styles.loginLinkText, { color: COLORS.brand, fontFamily: FONT.bold }]}>Masuk</Text>
                   </Pressable>
                 </Link>
+
+                <Link href="/(auth)/shop-apply" asChild>
+                  <Pressable testID="goto-shop-apply" style={styles.shopApplyLink}>
+                    <Ionicons name="storefront-outline" size={16} color={COLORS.brand} />
+                    <Text style={styles.shopApplyLinkText}>Punya toko? Daftarkan Toko Anda</Text>
+                  </Pressable>
+                </Link>
               </View>
             )}
 
-            {step === 2 && role === "owner" && (
-              <View>
-                <Text style={styles.sectionLabel}>INFORMASI TOKO</Text>
-                <Text style={styles.label}>Nama Toko</Text>
-                <FormInput icon="storefront-outline" value={shopForm.name} onChangeText={(t: string) => setShopForm({ ...shopForm, name: t })} placeholder="Barber Kupang Modern" testID="shop-name" onFocus={handleFocus} />
-                <Text style={styles.label}>Alamat Lengkap</Text>
-                <FormInput icon="location-outline" value={shopForm.address} onChangeText={(t: string) => setShopForm({ ...shopForm, address: t })} placeholder="Jl. Timor Raya No. 12, Kupang" testID="shop-address" onFocus={handleFocus} />
-                <Text style={styles.label}>Range Harga</Text>
-                <FormInput icon="pricetag-outline" value={shopForm.price_range} onChangeText={(t: string) => setShopForm({ ...shopForm, price_range: t })} placeholder="Rp 25.000 - Rp 75.000" onFocus={handleFocus} />
-
-                <View style={styles.divider} />
-                <Text style={styles.sectionLabel}>REKENING BANK</Text>
-                <Text style={styles.label}>Nama Bank</Text>
-                <FormInput icon="business-outline" value={shopForm.bank_name} onChangeText={(t: string) => setShopForm({ ...shopForm, bank_name: t })} placeholder="BNI / BCA / BRI / Mandiri" onFocus={handleFocus} />
-                <Text style={styles.label}>Nomor Rekening</Text>
-                <FormInput icon="card-outline" value={shopForm.account_number} onChangeText={(t: string) => setShopForm({ ...shopForm, account_number: t })} placeholder="123-456-7890" keyboardType="numeric" onFocus={handleFocus} />
-                <Text style={styles.label}>Atas Nama</Text>
-                <FormInput icon="person-outline" value={shopForm.account_holder} onChangeText={(t: string) => setShopForm({ ...shopForm, account_holder: t })} placeholder="Nama pemegang rekening" onFocus={handleFocus} />
-
-                <View style={styles.divider} />
-                <Text style={styles.sectionLabel}>DOKUMEN LEGAL (WAJIB)</Text>
-                <Text style={styles.hint}>Upload kelima dokumen dalam format gambar JPG/PNG (maks 2MB). Admin akan memverifikasi setiap dokumen satu per satu.</Text>
-                <DocPicker label="KTP Pemilik" testID="doc-ktp" value={shopForm.doc_ktp} onPick={() => pickDoc((v) => setShopForm({ ...shopForm, doc_ktp: v }))} />
-                <DocPicker label="NIB (Nomor Induk Berusaha)" testID="doc-nib" value={shopForm.doc_nib} onPick={() => pickDoc((v) => setShopForm({ ...shopForm, doc_nib: v }))} />
-                <DocPicker label="NPWP" testID="doc-npwp" value={shopForm.doc_npwp} onPick={() => pickDoc((v) => setShopForm({ ...shopForm, doc_npwp: v }))} />
-                <DocPicker label="Surat Izin Usaha" testID="doc-surat" value={shopForm.doc_surat_usaha} onPick={() => pickDoc((v) => setShopForm({ ...shopForm, doc_surat_usaha: v }))} />
-                <DocPicker label="Foto Toko (tampak depan)" testID="doc-toko" value={shopForm.doc_toko} onPick={() => pickDoc((v) => setShopForm({ ...shopForm, doc_toko: v }))} />
-
-                {err && <ErrorMsg msg={err} />}
-                <GradientButton testID="reg-submit-owner" label="KIRIM PENGAJUAN" icon="checkmark-circle" onPress={submitOwner} loading={loading} />
-              </View>
-            )}
-
-            {step === 2 && role === "karyawan" && (
+            {step === 2 && role === "streetbarber" && (
               <View>
                 <Text style={styles.sectionLabel}>PILIH TOKO VALIDATOR</Text>
                 <Text style={styles.hint}>Toko ini hanya memvalidasi dokumen & keterampilanmu — StreetBarber tidak bekerja di toko dan tidak menjadi karyawan toko manapun. Setelah lulus, kamu melayani panggilan ke rumah secara mandiri.</Text>
@@ -372,4 +322,6 @@ const styles = StyleSheet.create({
   errText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium, fontSize: 13 },
   loginLink: { flexDirection: "row", justifyContent: "center", marginTop: 20, padding: 8 },
   loginLinkText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13 },
+  shopApplyLink: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 4, padding: 8 },
+  shopApplyLinkText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 13 },
 });

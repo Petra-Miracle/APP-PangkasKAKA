@@ -20,6 +20,7 @@
       "favicon": "./assets/images/icon-app.png"
     },
     "android": {
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon-adaptive-fg.png",
         "backgroundColor": "#006FEE"
@@ -30,13 +31,14 @@
     },
     "plugins": [
       "expo-router",
+      "expo-notifications",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/icon-app.png",
-          "imageWidth": 180,
+          "image": "./assets/images/icon-splash.png",
+          "imageWidth": 210,
           "resizeMode": "contain",
-          "backgroundColor": "#006FEE"
+          "backgroundColor": "#0367DF"
         }
       ],
       [

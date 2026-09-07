@@ -1,8 +1,9 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "./api";
+import { registerPushToken, unregisterPushToken } from "./notifications";
 
-type User = { id: string; email: string; name: string; phone: string; role: "customer" | "owner" | "admin" | "karyawan"; address?: string; lat?: number; lng?: number; photo?: string; home_delivery_blocked?: boolean };
+type User = { id: string; email: string; name: string; phone: string; role: "customer" | "owner" | "streetbarber" | "admin" | "superadmin"; address?: string; lat?: number; lng?: number; photo?: string; home_delivery_blocked?: boolean };
 
 type AuthCtx = {
   user: User | null;
@@ -32,6 +33,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => { await refresh(); setLoading(false); })();
   }, [refresh]);
 
+  useEffect(() => {
+    if (user) registerPushToken().catch(() => {});
+  }, [user]);
+
   const login = async (email: string, password: string) => {
     const res = await api.post("/auth/login", { email, password });
     await AsyncStorage.setItem("token", res.token);
@@ -47,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    await unregisterPushToken().catch(() => {});
     await AsyncStorage.removeItem("token");
     setUser(null);
   };
