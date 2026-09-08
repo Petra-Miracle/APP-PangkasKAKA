@@ -717,10 +717,17 @@ async def _send_expo_push(user_id: str, title: str, message: str, type: str, dat
             response.raise_for_status()
             receipts = response.json().get("data", [])
         for row, receipt in zip(tokens, receipts):
-            if receipt.get("status") == "error" and receipt.get("details", {}).get("error") == "DeviceNotRegistered":
-                await db.device_push_tokens.update_one(
-                    {"user_id": user_id, "token": row["token"]}, {"$set": {"is_active": False}}
-                )
+            if receipt.get("status") == "error":
+                error_code = receipt.get("details", {}).get("error")
+                if error_code == "DeviceNotRegistered":
+                    await db.device_push_tokens.update_one(
+                        {"user_id": user_id, "token": row["token"]}, {"$set": {"is_active": False}}
+                    )
+                else:
+                    log.warning(
+                        "Expo push ditolak untuk user %s (error=%s): %s",
+                        user_id, error_code, receipt.get("message"),
+                    )
     except Exception:
         log.exception("Gagal mengirim push notification ke user %s", user_id)
 
@@ -834,10 +841,19 @@ async def compute_available_slots(shop_id: str, barber_id: str, date_str: str, s
 async def expire_stale_bookings():
     """Lazy cleanup: cancel unpaid pending bookings older than 15 min."""
     cutoff = (now_utc() - timedelta(minutes=15)).isoformat()
-    await db.bookings.update_many(
-        {"payment_status": "unpaid", "status": "pending", "created_at": {"$lt": cutoff}},
-        {"$set": {"status": "cancelled", "payment_status": "forfeited"}},
-    )
+    query = {"payment_status": "unpaid", "status": "pending", "created_at": {"$lt": cutoff}}
+    stale = await db.bookings.find(query, {"_id": 0, "id": 1, "user_id": 1}).to_list(200)
+    if not stale:
+        return
+    await db.bookings.update_many(query, {"$set": {"status": "cancelled", "payment_status": "forfeited"}})
+    for b in stale:
+        await send_notif(
+            b["user_id"],
+            "Pembayaran kadaluarsa",
+            "Booking Anda dibatalkan karena tidak dibayar dalam 15 menit. Silakan pesan ulang bila masih diperlukan.",
+            "payment",
+            {"booking_id": b["id"]},
+        )
 
 
 async def recalc_shop_rating(shop_id: str):
@@ -2756,11 +2772,11 @@ async def admin_delete_face_reference(rid: str, user=Depends(require_role("super
 # live camera landmarks — nothing here ever touches an image. Fallback sentences
 # used when GEMINI_API_KEY isn't set or the call fails, so a result is never blocked.
 FACE_SHAPE_FALLBACK_REASONING = {
-    "oval": "Wajah oval punya proporsi seimbang antara dahi, tulang pipi, dan rahang — cocok untuk hampir semua model rambut.",
-    "round": "Wajah bulat punya lebar dan panjang yang mirip dengan garis rahang lembut — model rambut dengan volume di atas bisa menambah kesan memanjang.",
-    "square": "Wajah kotak punya garis rahang tegas dengan lebar dahi dan rahang yang serupa — potongan rambut bertekstur bisa melunakkan sudutnya.",
-    "oblong": "Wajah oblong lebih panjang dari lebarnya — model rambut dengan volume di samping bisa menyeimbangkan proporsi wajah.",
-    "heart": "Wajah hati punya dahi lebih lebar dari rahang yang meruncing ke dagu — poni atau model berlapis bisa menonjolkan bentuk ini.",
+    "oval": "Sepertinya wajahmu cenderung oval, dengan proporsi yang relatif seimbang antara dahi, tulang pipi, dan rahang — biasanya cocok dengan banyak model rambut, tapi coba juga konsultasikan langsung ke barber ya.",
+    "round": "Sepertinya wajahmu cenderung bulat, dengan lebar dan panjang yang terlihat mirip serta garis rahang yang lembut — model rambut dengan volume di atas mungkin bisa jadi pertimbangan, tapi coba juga konsultasikan langsung ke barber ya.",
+    "square": "Sepertinya wajahmu cenderung kotak, dengan garis rahang yang cukup tegas dan lebar dahi-rahang yang mirip — potongan rambut bertekstur mungkin bisa jadi pertimbangan, tapi coba juga konsultasikan langsung ke barber ya.",
+    "oblong": "Sepertinya wajahmu cenderung oblong (lebih panjang dari lebarnya) — model rambut dengan volume di samping mungkin bisa jadi pertimbangan, tapi coba juga konsultasikan langsung ke barber ya.",
+    "heart": "Sepertinya wajahmu cenderung berbentuk hati, dengan dahi yang terlihat lebih lebar dari rahang yang meruncing ke dagu — poni atau model berlapis mungkin bisa jadi pertimbangan, tapi coba juga konsultasikan langsung ke barber ya.",
 }
 
 
@@ -2774,10 +2790,15 @@ async def face_scan(body: AIFaceScanIn, user=Depends(get_current_user)):
     reasoning = ""
     if _gemini_client:
         prompt = (
-            f"Bentuk wajah seseorang terdeteksi sebagai '{shape}' (tingkat keyakinan {conf}%) "
-            "berdasarkan pengukuran geometris real-time di perangkat (lebar dahi, tulang pipi, rahang, "
-            "dan panjang wajah). Tulis 1 kalimat pendek dalam Bahasa Indonesia, gaya seorang stylist "
-            f"profesional yang ramah, menjelaskan ciri khas bentuk wajah '{shape}'. Tanpa markdown, tanpa tanda kutip."
+            f"Sebuah algoritma geometris di perangkat memperkirakan bentuk wajah seseorang sebagai "
+            f"'{shape}' (tingkat keyakinan {conf}%), berdasarkan pengukuran lebar dahi, tulang pipi, "
+            "rahang, dan panjang wajah dari kamera. Perkiraan ini TIDAK pasti akurat — hasilnya masih "
+            "terbatas oleh kualitas dataset dan sudut kamera, dan bisa saja berbeda dari penilaian "
+            "seorang barber berpengalaman. Tulis 1 kalimat pendek dalam Bahasa Indonesia, gaya seorang "
+            f"stylist profesional yang ramah, menjelaskan ciri khas bentuk wajah '{shape}' sebagai "
+            "REKOMENDASI/SARAN, bukan pernyataan pasti — wajib mulai dengan kata seperti 'Sepertinya' "
+            "atau 'Kemungkinan', dan JANGAN gunakan frasa yang terdengar mutlak seperti 'wajah Anda "
+            "adalah' atau 'terdeteksi sebagai'. Tanpa markdown, tanpa tanda kutip."
         )
         try:
             resp = await asyncio.wait_for(
@@ -3625,6 +3646,25 @@ async def _load_booking_for_payment(booking_id: str, user: dict) -> dict:
     return b
 
 
+def _payment_fail_label(*hints: str) -> str:
+    combined = " ".join(hints).lower()
+    if "expired" in combined:
+        return "kadaluarsa"
+    if "cancel" in combined:
+        return "dibatalkan"
+    return "gagal"
+
+
+async def _notify_payment_failed(user_id: str, booking_id: str, label: str):
+    await send_notif(
+        user_id,
+        f"Pembayaran {label}",
+        "Booking Anda dibatalkan karena pembayaran tidak berhasil. Silakan pesan ulang bila masih diperlukan.",
+        "payment",
+        {"booking_id": booking_id},
+    )
+
+
 async def _mark_booking_paid(booking: dict, provider_ref: str, method: str = "durianpay"):
     """Idempotent: update booking + payment, tahan dana ke wallet platform (Trigger 1 —
     README_ALUR_TRANSAKSI.md §1.5), kirim notifikasi. Skips if already paid."""
@@ -3907,6 +3947,7 @@ async def durianpay_webhook(request: Request):
             {"$set": {"status": "failed", "last_event": event}}
         )
         log_entry["status"] = "processed"
+        await _notify_payment_failed(booking["user_id"], booking["id"], _payment_fail_label(event, status))
     else:
         log_entry["status"] = "ignored"
 
@@ -3997,6 +4038,7 @@ async def fallback_check(booking_id: str, user=Depends(get_current_user)):
             {"id": booking_id, "payment_status": {"$ne": "paid"}},
             {"$set": {"status": "cancelled", "payment_status": "forfeited"}}
         )
+        await _notify_payment_failed(user["id"], booking_id, _payment_fail_label(status))
         return {"ok": True, "paid": False, "status": status}
     return {"ok": True, "paid": False, "status": status or "pending"}
 

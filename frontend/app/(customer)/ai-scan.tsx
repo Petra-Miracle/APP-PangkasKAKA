@@ -282,16 +282,23 @@ export default function AIScan() {
               style={styles.resultCard}
             >
               <View pointerEvents="none" style={styles.resultDeco} />
-              <Text style={styles.resultLabel}>BENTUK WAJAH TERDETEKSI</Text>
+              <Text style={styles.resultLabel}>SEPERTINYA BENTUK WAJAHMU</Text>
               <Text style={styles.resultShape} testID="face-shape">{SHAPE_LABEL[result.faceShape] || result.faceShape}</Text>
               <View style={styles.confRow}>
                 <View style={styles.confBar}>
                   <View style={[styles.confFill, { width: `${result.confidence}%` }]} />
                 </View>
-                <Text style={styles.confText}>{result.confidence}%</Text>
+                <Text style={styles.confText}>{result.confidence}% kemiripan</Text>
               </View>
               <Text style={styles.resultReason}>{result.reasoning}</Text>
             </LinearGradient>
+
+            <View style={styles.disclaimerBox}>
+              <Ionicons name="information-circle" size={16} color={COLORS.textDim} />
+              <Text style={styles.disclaimerText}>
+                Ini perkiraan awal dari AI, bukan hasil yang pasti akurat — hasilnya masih bergantung pada kualitas dataset kami. Anggap sebagai rekomendasi, bukan keputusan final; tetap konsultasikan ke barber saat booking.
+              </Text>
+            </View>
 
             <Text style={styles.recsTitle}>INSPIRASI GAYA UNTUKMU</Text>
             <View style={styles.tipBox}>
@@ -395,6 +402,8 @@ const styles = StyleSheet.create({
   confFill: { height: "100%", backgroundColor: "#FFFFFF", borderRadius: 999 },
   confText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 13 },
   resultReason: { color: "rgba(255,255,255,0.9)", marginTop: 12, fontSize: 13, lineHeight: 20, fontFamily: FONT.medium },
+  disclaimerBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: COLORS.surface2, padding: 12, borderRadius: 14, marginTop: 14 },
+  disclaimerText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, flex: 1, lineHeight: 17 },
   recsTitle: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.bold, marginTop: 28, marginBottom: 12, letterSpacing: 0.8 },
   tipBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#FFF7ED", padding: 12, borderRadius: 14, marginBottom: 14 },
   tipText: { color: COLORS.textMuted, fontFamily: FONT.medium, fontSize: 12, flex: 1, lineHeight: 17 },

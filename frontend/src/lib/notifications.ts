@@ -31,7 +31,7 @@ export async function registerPushToken(): Promise<string | null> {
   await api.post("/devices/push-token", {
     token,
     platform: Platform.OS,
-    device_id: Constants.deviceId ?? null,
+    device_id: null,
   });
   await AsyncStorage.setItem(PUSH_TOKEN_KEY, token);
   return token;
