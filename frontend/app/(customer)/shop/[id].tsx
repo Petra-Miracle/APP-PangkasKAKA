@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal, Alert, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -44,9 +44,11 @@ export default function ShopDetail() {
   };
 
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const r = await api.get(`/shops/${id}`);
+        if (cancelled) return;
         setShop(r);
         // "Pesan ulang" datang dari Beranda dengan layanan+barber terakhir - langsung
         // pilihkan kalau masih tersedia di toko ini, biar user tinggal pilih jadwal.
@@ -63,8 +65,9 @@ export default function ShopDetail() {
           const brb = (r.barbers || []).find((b: any) => b.id === presetBarberId);
           if (brb) { setDeliveryMode("rumah"); setBarber(brb); }
         }
-      } catch {} finally { setLoading(false); }
+      } catch {} finally { if (!cancelled) setLoading(false); }
     })();
+    return () => { cancelled = true; };
   }, [id, rebookServiceId, rebookBarberId, presetBarberId]);
 
   useEffect(() => {

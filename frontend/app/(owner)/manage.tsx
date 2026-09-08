@@ -32,8 +32,14 @@ export default function Manage() {
     setLoading(true);
     try {
       const r = await api.get("/owner/shop");
-      if (r.shop) { const d = await api.get(`/shops/${r.shop.id}`); setShop(d); }
-      const pr = await api.get("/owner/products"); setProducts(pr.products);
+      if (r.shop) {
+        const [d, pr] = await Promise.allSettled([
+          api.get(`/shops/${r.shop.id}`),
+          api.get("/owner/products"),
+        ]);
+        if (d.status === "fulfilled") setShop(d.value);
+        if (pr.status === "fulfilled") setProducts(pr.value.products);
+      }
     } catch {} finally { setLoading(false); }
   }, []);
 

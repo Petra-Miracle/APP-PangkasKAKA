@@ -42,15 +42,17 @@ export default function OwnerSchedule() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const s = await api.get("/owner/schedules");
-      if (s.schedules?.length) {
+      const [s, o] = await Promise.allSettled([
+        api.get("/owner/schedules"),
+        api.get("/owner/schedule-overrides"),
+      ]);
+      if (s.status === "fulfilled" && s.value.schedules?.length) {
         setRows(DAYS.map((d) => {
-          const found = s.schedules.find((r: DayRow) => r.day_name === d.key);
+          const found = s.value.schedules.find((r: DayRow) => r.day_name === d.key);
           return found || { day_name: d.key, open_time: "09:00", close_time: "21:00", is_closed: false };
         }));
       }
-      const o = await api.get("/owner/schedule-overrides");
-      setOverrides(o.overrides || []);
+      if (o.status === "fulfilled") setOverrides(o.value.overrides || []);
     } catch {} finally { setLoading(false); }
   }, []);
 

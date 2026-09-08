@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, FlatList, Pressable, TextInput, Modal, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -100,9 +100,14 @@ export default function Explore() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.lat, user?.lng]);
 
-  const runSearch = async (text: string) => {
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const runSearch = (text: string) => {
     setSearch(text);
-    await load(coords, { sort, maxDistance, minRating, maxPrice, search: text });
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      load(coords, { sort, maxDistance, minRating, maxPrice, search: text });
+    }, 400);
   };
 
   const openFilter = () => { setDraft({ sort, maxDistance, minRating, maxPrice }); setShowFilter(true); };

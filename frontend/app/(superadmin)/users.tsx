@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TextInput, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,10 +22,24 @@ export default function Users() {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
 
-  const load = useCallback(async () => {
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [searchQ, setSearchQ] = useState("");
+
+  const load = useCallback(async (search?: string) => {
     setLoading(true);
-    try { const r = await api.get(`/admin/users?role=${tab}&search=${encodeURIComponent(q)}`); setUsers(r.users); } catch {} finally { setLoading(false); }
+    const query = search !== undefined ? search : q;
+    try { const r = await api.get(`/admin/users?role=${tab}&search=${encodeURIComponent(query)}`); setUsers(r.users); } catch {} finally { setLoading(false); }
   }, [tab, q]);
+
+  const onSearchChange = useCallback((text: string) => {
+    setSearchQ(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => { setQ(text); }, 400);
+  }, []);
+
+  useEffect(() => {
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -52,7 +66,7 @@ export default function Users() {
       <View style={{ paddingHorizontal: 20 }}>
         <View style={styles.searchWrap}>
           <Ionicons name="search" size={16} color={COLORS.textDim} />
-          <TextInput style={styles.input} placeholder="Cari berdasarkan nama..." placeholderTextColor={COLORS.textDim} value={q} onChangeText={setQ} onSubmitEditing={load} />
+          <TextInput style={styles.input} placeholder="Cari berdasarkan nama..." placeholderTextColor={COLORS.textDim} value={searchQ} onChangeText={onSearchChange} onSubmitEditing={() => load(searchQ)} />
         </View>
       </View>
       {loading ? (

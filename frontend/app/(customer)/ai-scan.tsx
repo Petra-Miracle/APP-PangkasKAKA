@@ -15,7 +15,9 @@ import PressableScale from "@/src/components/PressableScale";
 type ScanResult = { faceShape: string; confidence: number; reasoning: string; recommendations: any[] };
 
 const SHAPE_LABEL: Record<string, string> = { oval: "Oval", round: "Bulat", square: "Kotak", oblong: "Oblong", heart: "Hati" };
-const STABLE_FRAMES_REQUIRED = 15;
+const STABLE_FRAMES_REQUIRED = 8;
+const SCAN_INTERVAL_MS = 800;
+const DETECT_COOLDOWN_MS = 200;
 const RING_SIZE = 240;
 const RING_STROKE = 6;
 
@@ -35,11 +37,12 @@ export default function AIScan() {
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string>("");
+  const [statusText, setStatusText] = useState<string>("Posisikan wajah di dalam lingkaran");
 
   const lastShapeRef = useRef<FaceShapeResult["shape"] | null>(null);
   const stableCountRef = useRef(0);
   const triggeredRef = useRef(false);
+  const processingRef = useRef(false); // guard: only one detection at a time
 
   useEffect(() => {
     if (!hasPermission && canRequestPermission) requestPermission();
@@ -49,6 +52,7 @@ export default function AIScan() {
     setScanning(false);
     setAnalyzing(true);
     setErr(null);
+    setStatusText("Mengirim ke AI untuk analisis...");
     try {
       const r = await api.post("/ai/face-scan", {
         face_shape: classified.shape,
@@ -70,24 +74,24 @@ export default function AIScan() {
       stableCountRef.current = 0;
       lastShapeRef.current = null;
       setProgress(0);
-      setDebugInfo(`wajah: ${faces?.length ?? 0} terdeteksi${face ? ", tanpa contour" : ""}`);
+      setStatusText("Posisikan wajah di dalam lingkaran");
       return;
     }
     if (!isFrontalPose(face.pitchAngle, face.rollAngle, face.yawAngle)) {
       stableCountRef.current = 0;
       lastShapeRef.current = null;
       setProgress(0);
-      setDebugInfo(`pitch:${face.pitchAngle.toFixed(0)} roll:${face.rollAngle.toFixed(0)} yaw:${face.yawAngle.toFixed(0)}`);
+      setStatusText("Hadapkan wajah ke depan");
       return;
     }
     const classified = classifyFaceShape(points);
     if (!classified) {
       stableCountRef.current = 0;
       setProgress(0);
-      setDebugInfo(`contour: ${points.length} titik, gagal diklasifikasi`);
+      setStatusText("Mendeteksi wajah...");
       return;
     }
-    setDebugInfo(`stabil: ${classified.shape} (${stableCountRef.current + 1}/${STABLE_FRAMES_REQUIRED})`);
+    setStatusText(`Mendeteksi bentuk wajah... ${Math.round((stableCountRef.current / STABLE_FRAMES_REQUIRED) * 100)}%`);
     if (lastShapeRef.current === classified.shape) {
       stableCountRef.current += 1;
     } else {
@@ -107,25 +111,31 @@ export default function AIScan() {
     let timer: ReturnType<typeof setTimeout>;
 
     const loop = async () => {
-      if (cancelled) return;
+      if (cancelled || processingRef.current) {
+        if (!cancelled) timer = setTimeout(loop, DETECT_COOLDOWN_MS);
+        return;
+      }
+      processingRef.current = true;
       try {
         const cam = cameraRef.current;
         if (cam) {
           const snapshot = await cam.takeSnapshot();
           const path = await snapshot.saveToTemporaryFileAsync("jpg", 70);
+          if (cancelled) return;
           const faces = faceDetector.detectFaces(`file://${path}`);
           if (!cancelled) handleFacesDetected(faces);
         }
       } catch (e: any) {
-        // Surface capture/detect failures instead of failing silently forever —
-        // this is what used to make the scanner look "frozen" with no feedback.
-        if (!cancelled) setDebugInfo(`error: ${e?.message || String(e)}`);
+        if (!cancelled) setStatusText("Error: " + (e?.message || String(e)));
+      } finally {
+        processingRef.current = false;
       }
-      if (!cancelled) timer = setTimeout(loop, 350);
+      if (!cancelled) timer = setTimeout(loop, SCAN_INTERVAL_MS);
     };
-    timer = setTimeout(loop, 350);
+    timer = setTimeout(loop, 300);
     return () => {
       cancelled = true;
+      processingRef.current = false;
       clearTimeout(timer);
     };
   }, [scanning, device, hasPermission, faceDetector, handleFacesDetected]);
@@ -134,9 +144,11 @@ export default function AIScan() {
     setResult(null);
     setErr(null);
     setProgress(0);
+    setStatusText("Posisikan wajah di dalam lingkaran");
     stableCountRef.current = 0;
     lastShapeRef.current = null;
     triggeredRef.current = false;
+    processingRef.current = false;
     setScanning(true);
   };
 
@@ -230,18 +242,11 @@ export default function AIScan() {
                 <View style={styles.cornerBr} pointerEvents="none" />
                 <View style={styles.instructionBox} pointerEvents="none">
                   <Text style={styles.instructionText}>
-                    {progress > 0 ? "Tahan posisi wajahmu..." : "Posisikan wajah di dalam lingkaran"}
+                    {progress > 0 ? "Tahan posisi wajahmu..." : statusText}
                   </Text>
                 </View>
               </>
             )}
-          </View>
-        )}
-
-        {/* TODO: remove once AI Scan detection is confirmed stable on-device */}
-        {!result && !analyzing && !!debugInfo && (
-          <View style={styles.debugBox}>
-            <Text style={styles.debugText} numberOfLines={4}>{debugInfo}</Text>
           </View>
         )}
 
@@ -256,7 +261,7 @@ export default function AIScan() {
               <Ionicons name="scan" size={28} color="#FFFFFF" />
             </LinearGradient>
             <ActivityIndicator color={COLORS.brand} size="large" />
-            <Text style={styles.analyzingText}>Menganalisis bentuk wajah...</Text>
+            <Text style={styles.analyzingText}>{statusText}</Text>
           </View>
         )}
 
@@ -381,8 +386,6 @@ const styles = StyleSheet.create({
     shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4,
   },
   analyzingText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
-  debugBox: { backgroundColor: "#0A2540", borderRadius: 12, padding: 10, marginTop: 10 },
-  debugText: { color: "#8FA5BF", fontSize: 10, fontFamily: FONT.medium },
   permBox: { alignItems: "center", padding: 24, gap: 10 },
   permText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13, textAlign: "center" },
   permBtn: { borderRadius: 999, overflow: "hidden", marginTop: 4, shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 10, elevation: 4 },

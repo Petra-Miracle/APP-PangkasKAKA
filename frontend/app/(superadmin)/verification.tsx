@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -35,13 +35,21 @@ export default function Verification() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.get("/admin/pending-shops");
-      setShops(r.shops);
-      const t = await api.get("/chat/threads");
-      setThreads(t.threads);
+      const [r, t] = await Promise.allSettled([
+        api.get("/admin/pending-shops"),
+        api.get("/chat/threads"),
+      ]);
+      if (r.status === "fulfilled") setShops(r.value.shops);
+      if (t.status === "fulfilled") setThreads(t.value.threads);
     } catch {} finally { setLoading(false); }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const threadMap = useMemo(() => {
+    const map = new Map<string, any>();
+    for (const t of threads) map.set(t.shop_id, t);
+    return map;
+  }, [threads]);
 
   const submitReview = async () => {
     if (!selShop || !reviewDoc) return;
@@ -251,7 +259,7 @@ export default function Verification() {
           const docs = s.docs || {};
           const required = ["ktp", "nib", "npwp", "surat_usaha", "toko"];
           const validCount = required.filter((k) => docs[k]?.status === "valid").length;
-          const thread = threads.find((t) => t.shop_id === s.id);
+          const thread = threadMap.get(s.id);
           return (
             <PressableScale key={s.id} style={styles.card} testID={`pending-${s.id}`} onPress={() => setSelShop(s)} scaleTo={0.98}>
               <View style={styles.rowTop}>

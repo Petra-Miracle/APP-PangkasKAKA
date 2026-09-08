@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -21,6 +21,12 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false);
   const { scrollRef, handleFocus } = useScrollToInput();
 
+  useEffect(() => {
+    if (!ok) return;
+    const timer = setTimeout(() => router.replace("/(auth)/login"), 1500);
+    return () => clearTimeout(timer);
+  }, [ok, router]);
+
   const onSubmit = async () => {
     setErr(null);
     if (!email.trim() || !code.trim()) { setErr("Email dan kode wajib diisi"); return; }
@@ -30,7 +36,6 @@ export default function ResetPassword() {
     try {
       await api.post("/auth/reset-password", { email: email.trim(), code: code.trim(), new_password: newPassword });
       setOk(true);
-      setTimeout(() => router.replace("/(auth)/login"), 1500);
     } catch (e: any) { setErr(e.message || "Gagal reset password"); }
     setLoading(false);
   };

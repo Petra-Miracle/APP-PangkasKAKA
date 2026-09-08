@@ -34,16 +34,20 @@ export default function OwnerDashboard() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.get("/analytics/owner");
-      setData(r);
-      if (r.shop) {
-        setIsOpen(r.shop.is_open !== false);
-        setHomeFee(String(r.shop.home_service_fee ?? 0));
+      const [r, t, w] = await Promise.allSettled([
+        api.get("/analytics/owner"),
+        api.get("/chat/threads").catch(() => ({ threads: [] })),
+        api.get("/wallets/me").catch(() => null),
+      ]);
+      if (r.status === "fulfilled") {
+        setData(r.value);
+        if (r.value.shop) {
+          setIsOpen(r.value.shop.is_open !== false);
+          setHomeFee(String(r.value.shop.home_service_fee ?? 0));
+        }
       }
-      const t = await api.get("/chat/threads").catch(() => ({ threads: [] }));
-      setUnread((t.threads || []).reduce((a: number, x: any) => a + (x.unread || 0), 0));
-      const w = await api.get("/wallets/me").catch(() => null);
-      if (w) setWallet(w.wallet);
+      if (t.status === "fulfilled") setUnread((t.value.threads || []).reduce((a: number, x: any) => a + (x.unread || 0), 0));
+      if (w.status === "fulfilled" && w.value) setWallet(w.value.wallet);
     } catch {} finally { setLoading(false); }
   }, []);
 
