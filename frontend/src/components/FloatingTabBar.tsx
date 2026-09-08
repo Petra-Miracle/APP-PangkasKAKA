@@ -74,12 +74,12 @@ function TabItem({ route, descriptor, focused, navigation, light }: any) {
 
 export default function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  // Filter out hidden dynamic routes (href: null)
+  // Filter out hidden dynamic routes (href: null / tabBarButton: () => null)
   const visibleRoutes = state.routes.filter((r) => {
     const opts = descriptors[r.key]?.options as any;
-    // hide dynamic routes and explicit href:null
     if (r.name.includes("[")) return false;
     if (opts?.href === null) return false;
+    if (typeof opts?.tabBarButton === "function") return false;
     return true;
   });
 

@@ -17,6 +17,7 @@ export default function CustomerLayout() {
       <Tabs.Screen name="change-password" options={{ href: null }} />
       <Tabs.Screen name="payment-history" options={{ href: null }} />
       <Tabs.Screen name="shop/[id]" options={{ href: null }} />
+      <Tabs.Screen name="messages" options={{ href: null }} />
     </Tabs>
   );
 }

@@ -15,7 +15,7 @@ const LOC_POLL_INTERVAL = 7000;
 
 function LiveLocationCard({ bookingId, onPress }: { bookingId: string; onPress?: () => void }) {
   const [loc, setLoc] = useState<{ distance_km?: number; updated_at: string } | null>(null);
-  const [sharing, setSharing] = useState(true);
+  const [sharing, setSharing] = useState(false);
   const pollRef = useRef<any>(null);
 
   const fetchLoc = useCallback(async () => {

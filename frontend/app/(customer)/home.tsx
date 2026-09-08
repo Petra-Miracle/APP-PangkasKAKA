@@ -30,11 +30,16 @@ export default function Home() {
   const loadShops = useCallback(async (c: { lat: number; lng: number } | null) => {
     let url = `/shops?sort=terpopuler`;
     if (c) url += `&lat=${c.lat}&lng=${c.lng}`;
-    const res = await api.get(url);
-    setPopularShops((res.shops || []).slice(0, 8));
-    try { const a = await api.get("/analytics/customer"); setAnalytics(a); } catch {}
-    try { const h = await api.get("/hairstyles"); setHairstyles((h.hairstyles || []).slice(0, 8)); } catch {}
-    try { const p = await api.get("/products/catalog"); setCatalog(p.products || []); } catch {}
+    const [res, a, h, p] = await Promise.allSettled([
+      api.get(url),
+      api.get("/analytics/customer"),
+      api.get("/hairstyles"),
+      api.get("/products/catalog"),
+    ]);
+    if (res.status === "fulfilled") setPopularShops((res.value.shops || []).slice(0, 8));
+    if (a.status === "fulfilled") setAnalytics(a.value);
+    if (h.status === "fulfilled") setHairstyles((h.value.hairstyles || []).slice(0, 8));
+    if (p.status === "fulfilled") setCatalog(p.value.products || []);
   }, []);
 
   const loadNearbyBarbers = useCallback(async (c: { lat: number; lng: number } | null) => {
@@ -83,16 +88,21 @@ export default function Home() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.hi}>Halo, {user?.name?.split(" ")[0] || "Sobat"} 👋</Text>
+        <View style={{ flex: 1, marginRight: 12 }}>
+          <Text style={styles.hi} numberOfLines={1}>Halo, {user?.name?.split(" ")[0] || "Sobat"} 👋</Text>
           <View style={styles.locRow}>
             <Ionicons name="location" size={14} color={COLORS.brand} />
-            <Text style={styles.city} testID="city-name">Kupang · Nusa Tenggara Timur</Text>
+            <Text style={styles.city} numberOfLines={1} testID="city-name">Kupang · Nusa Tenggara Timur</Text>
           </View>
         </View>
-        <PressableScale testID="notif-btn" style={styles.iconBtn} onPress={() => router.push("/(customer)/profile")}>
-          <Ionicons name="notifications-outline" size={22} color={COLORS.text} />
-        </PressableScale>
+        <View style={styles.headerIcons}>
+          <PressableScale testID="messages-btn" style={styles.iconBtn} onPress={() => router.push("/(customer)/messages" as any)}>
+            <Ionicons name="chatbubble-ellipses-outline" size={21} color={COLORS.text} />
+          </PressableScale>
+          <PressableScale testID="notif-btn" style={styles.iconBtn} onPress={() => router.push("/(customer)/profile")}>
+            <Ionicons name="notifications-outline" size={22} color={COLORS.text} />
+          </PressableScale>
+        </View>
       </View>
 
       <ScrollView
@@ -332,6 +342,7 @@ const styles = StyleSheet.create({
   hi: { color: COLORS.textDim, fontSize: 13, fontFamily: FONT.medium },
   locRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
   city: { color: COLORS.text, fontSize: 18, fontFamily: FONT.extrabold, letterSpacing: -0.3 },
+  headerIcons: { flexDirection: "row", gap: 8, flexShrink: 0 },
   iconBtn: {
     width: 44, height: 44, borderRadius: 16, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center",
     borderWidth: 1, borderColor: COLORS.border,

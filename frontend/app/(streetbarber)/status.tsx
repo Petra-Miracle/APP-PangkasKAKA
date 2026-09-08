@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, TextInput, Modal, Switch, KeyboardAvoidingView, Platform, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -106,12 +106,20 @@ export default function KaryawanStatus() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const my = await api.get("/karyawan/my");
-      const sh = await api.get("/shops?sort=rating");
-      setApps(my.applications); setShops(sh.shops);
-      try { const bk = await api.get("/karyawan/bookings"); setMyBookings(bk.bookings); } catch { setMyBookings([]); }
-      try { setEarnings(await api.get("/karyawan/earnings")); } catch { setEarnings(null); }
-      try { const w = await api.get("/wallets/me"); setWallet(w.wallet); } catch { setWallet(null); }
+      const [my, sh] = await Promise.allSettled([
+        api.get("/karyawan/my"),
+        api.get("/shops?sort=rating"),
+      ]);
+      if (my.status === "fulfilled") setApps(my.value.applications);
+      if (sh.status === "fulfilled") setShops(sh.value.shops);
+      const [bk, earn, w] = await Promise.allSettled([
+        api.get("/karyawan/bookings"),
+        api.get("/karyawan/earnings"),
+        api.get("/wallets/me"),
+      ]);
+      if (bk.status === "fulfilled") setMyBookings(bk.value.bookings); else setMyBookings([]);
+      if (earn.status === "fulfilled") setEarnings(earn.value); else setEarnings(null);
+      if (w.status === "fulfilled") setWallet(w.value.wallet); else setWallet(null);
     } catch {} finally { setLoading(false); }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -170,6 +178,13 @@ export default function KaryawanStatus() {
   };
   const doLogout = async () => { await logout(); router.replace("/(auth)/login"); };
 
+  const appliedShopIds = useMemo(() => new Set(apps.map((a) => a.shop_id)), [apps]);
+  const availableShops = useMemo(() => shops.filter((s) => !appliedShopIds.has(s.id)), [shops, appliedShopIds]);
+
+  const hasActive = useMemo(() => apps.some((a) => a.status === "active"), [apps]);
+  const hasPendingTest = useMemo(() => apps.some((a) => ["menunggu_tes", "seleksi_berkas_lolos"].includes(a.status)), [apps]);
+  const hasPending = useMemo(() => apps.some((a) => a.status === "pending"), [apps]);
+
   if (loading) return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <LinearGradient colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.navyHeader}>
@@ -183,9 +198,6 @@ export default function KaryawanStatus() {
       </View>
     </SafeAreaView>
   );
-
-  const appliedShopIds = new Set(apps.map((a) => a.shop_id));
-  const availableShops = shops.filter((s) => !appliedShopIds.has(s.id));
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -210,7 +222,7 @@ export default function KaryawanStatus() {
       </LinearGradient>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
-        {!apps.some((a) => a.status === "active") && apps.some((a) => ["menunggu_tes", "seleksi_berkas_lolos"].includes(a.status)) && (
+        {!hasActive && hasPendingTest && (
           <View style={styles.pendingBanner}>
             <View style={styles.pendingIcon}>
               <Ionicons name="time-outline" size={20} color={COLORS.warning} />
@@ -221,7 +233,7 @@ export default function KaryawanStatus() {
             </View>
           </View>
         )}
-        {!apps.some((a) => a.status === "active") && !apps.some((a) => ["menunggu_tes", "seleksi_berkas_lolos"].includes(a.status)) && apps.some((a) => a.status === "pending") && (
+        {!hasActive && !hasPendingTest && hasPending && (
           <View style={styles.pendingBanner}>
             <View style={styles.pendingIcon}>
               <Ionicons name="time-outline" size={20} color={COLORS.warning} />
@@ -233,7 +245,7 @@ export default function KaryawanStatus() {
           </View>
         )}
 
-        {apps.some((a) => a.status === "active") && earnings && (
+        {hasActive && earnings && (
           <LinearGradient
             colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
             start={{ x: 0, y: 0 }}

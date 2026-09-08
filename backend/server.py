@@ -3291,6 +3291,65 @@ async def send_owner_message(bid: str, body: ServiceChatSendIn, user=Depends(get
     return {"message": m}
 
 
+# ============================================================
+# UNIFIED MESSAGE LIST (Customer — "Messages" entry point on home screen)
+# ============================================================
+@api.get("/messages/threads")
+async def list_message_threads(user=Depends(require_role("customer"))):
+    bookings = await db.bookings.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    shop_ids = list({b["shop_id"] for b in bookings})
+    shops = (
+        await db.barbershops.find({"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1, "image": 1}).to_list(len(shop_ids))
+        if shop_ids else []
+    )
+    shop_map = {s["id"]: s for s in shops}
+    barber_ids = list({b["barber_id"] for b in bookings if b.get("barber_id")})
+    barbers = (
+        await db.barbers.find({"id": {"$in": barber_ids}}, {"_id": 0, "id": 1, "name": 1, "photo": 1}).to_list(len(barber_ids))
+        if barber_ids else []
+    )
+    barber_map = {b["id"]: b for b in barbers}
+
+    threads = []
+    total_unread = 0
+    for b in bookings:
+        shop = shop_map.get(b["shop_id"], {})
+        barber = barber_map.get(b.get("barber_id"), {})
+
+        last_b = await db.service_messages.find({"booking_id": b["id"]}, {"_id": 0}).sort("created_at", -1).limit(1).to_list(1)
+        unread_b = await db.service_messages.count_documents({"booking_id": b["id"], "sender_id": {"$ne": user["id"]}, "is_read": False})
+        total_unread += unread_b
+        threads.append({
+            "type": "barber",
+            "booking_id": b["id"],
+            "title": barber.get("name") or "Barber",
+            "subtitle": shop.get("name") or "",
+            "image": barber.get("photo") or shop.get("image"),
+            "booking_status": b["status"],
+            "last_message": last_b[0] if last_b else None,
+            "unread": unread_b,
+            "updated_at": last_b[0]["created_at"] if last_b else b["created_at"],
+        })
+
+        last_o = await db.owner_messages.find({"booking_id": b["id"]}, {"_id": 0}).sort("created_at", -1).limit(1).to_list(1)
+        unread_o = await db.owner_messages.count_documents({"booking_id": b["id"], "sender_id": {"$ne": user["id"]}, "is_read": False})
+        total_unread += unread_o
+        threads.append({
+            "type": "owner",
+            "booking_id": b["id"],
+            "title": shop.get("name") or "Toko",
+            "subtitle": barber.get("name") or "",
+            "image": shop.get("image"),
+            "booking_status": b["status"],
+            "last_message": last_o[0] if last_o else None,
+            "unread": unread_o,
+            "updated_at": last_o[0]["created_at"] if last_o else b["created_at"],
+        })
+
+    threads.sort(key=lambda t: t["updated_at"], reverse=True)
+    return {"threads": threads, "total_unread": total_unread}
+
+
 @api.get("/")
 async def root():
     return {"app": "PangkasKAKA", "status": "ok"}
