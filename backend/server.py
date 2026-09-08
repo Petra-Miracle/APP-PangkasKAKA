@@ -2772,11 +2772,11 @@ async def admin_delete_face_reference(rid: str, user=Depends(require_role("super
 # live camera landmarks — nothing here ever touches an image. Fallback sentences
 # used when GEMINI_API_KEY isn't set or the call fails, so a result is never blocked.
 FACE_SHAPE_FALLBACK_REASONING = {
-    "oval": "Sepertinya wajahmu cenderung oval, dengan proporsi yang relatif seimbang antara dahi, tulang pipi, dan rahang — biasanya cocok dengan banyak model rambut, tapi coba juga konsultasikan langsung ke barber ya.",
-    "round": "Sepertinya wajahmu cenderung bulat, dengan lebar dan panjang yang terlihat mirip serta garis rahang yang lembut — model rambut dengan volume di atas mungkin bisa jadi pertimbangan, tapi coba juga konsultasikan langsung ke barber ya.",
-    "square": "Sepertinya wajahmu cenderung kotak, dengan garis rahang yang cukup tegas dan lebar dahi-rahang yang mirip — potongan rambut bertekstur mungkin bisa jadi pertimbangan, tapi coba juga konsultasikan langsung ke barber ya.",
-    "oblong": "Sepertinya wajahmu cenderung oblong (lebih panjang dari lebarnya) — model rambut dengan volume di samping mungkin bisa jadi pertimbangan, tapi coba juga konsultasikan langsung ke barber ya.",
-    "heart": "Sepertinya wajahmu cenderung berbentuk hati, dengan dahi yang terlihat lebih lebar dari rahang yang meruncing ke dagu — poni atau model berlapis mungkin bisa jadi pertimbangan, tapi coba juga konsultasikan langsung ke barber ya.",
+    "oval": "Sepertinya wajahmu oval — proporsinya seimbang, cocok buat hampir semua model rambut.",
+    "round": "Sepertinya wajahmu bulat — garis rahangnya lembut, cocok model dengan volume di atas.",
+    "square": "Sepertinya wajahmu kotak — garis rahangnya tegas, potongan bertekstur bisa melunakkannya.",
+    "oblong": "Sepertinya wajahmu oblong, lebih panjang dari lebar — cocok model dengan volume di samping.",
+    "heart": "Sepertinya wajahmu hati — dahi lebih lebar dari dagu, cocok pakai poni atau model berlapis.",
 }
 
 
@@ -2791,14 +2791,12 @@ async def face_scan(body: AIFaceScanIn, user=Depends(get_current_user)):
     if _gemini_client:
         prompt = (
             f"Sebuah algoritma geometris di perangkat memperkirakan bentuk wajah seseorang sebagai "
-            f"'{shape}' (tingkat keyakinan {conf}%), berdasarkan pengukuran lebar dahi, tulang pipi, "
-            "rahang, dan panjang wajah dari kamera. Perkiraan ini TIDAK pasti akurat — hasilnya masih "
-            "terbatas oleh kualitas dataset dan sudut kamera, dan bisa saja berbeda dari penilaian "
-            "seorang barber berpengalaman. Tulis 1 kalimat pendek dalam Bahasa Indonesia, gaya seorang "
-            f"stylist profesional yang ramah, menjelaskan ciri khas bentuk wajah '{shape}' sebagai "
-            "REKOMENDASI/SARAN, bukan pernyataan pasti — wajib mulai dengan kata seperti 'Sepertinya' "
-            "atau 'Kemungkinan', dan JANGAN gunakan frasa yang terdengar mutlak seperti 'wajah Anda "
-            "adalah' atau 'terdeteksi sebagai'. Tanpa markdown, tanpa tanda kutip."
+            f"'{shape}' (tingkat keyakinan {conf}%). Perkiraan ini TIDAK pasti akurat. Tulis SATU "
+            "kalimat PENDEK dan SEDERHANA dalam Bahasa Indonesia (maksimal 15 kata, bahasa sehari-hari, "
+            f"bukan bahasa formal panjang) yang menyebut 1 ciri khas bentuk wajah '{shape}' plus 1 saran "
+            "singkat model rambut. Wajib mulai dengan 'Sepertinya wajahmu...' — JANGAN pakai frasa mutlak "
+            "seperti 'wajah Anda adalah' atau 'terdeteksi sebagai', dan JANGAN bertele-tele. "
+            "Tanpa markdown, tanpa tanda kutip."
         )
         try:
             resp = await asyncio.wait_for(

@@ -296,7 +296,7 @@ export default function AIScan() {
             <View style={styles.disclaimerBox}>
               <Ionicons name="information-circle" size={16} color={COLORS.textDim} />
               <Text style={styles.disclaimerText}>
-                Ini perkiraan awal dari AI, bukan hasil yang pasti akurat — hasilnya masih bergantung pada kualitas dataset kami. Anggap sebagai rekomendasi, bukan keputusan final; tetap konsultasikan ke barber saat booking.
+                Ini perkiraan AI, bukan hasil pasti — anggap sebagai rekomendasi ya.
               </Text>
             </View>
 
@@ -304,7 +304,7 @@ export default function AIScan() {
             <View style={styles.tipBox}>
               <Ionicons name="bulb" size={16} color={COLORS.warning} />
               <Text style={styles.tipText}>
-                Ini referensi gaya, bukan daftar layanan pasti tersedia di semua toko. Tunjukkan foto & nama gaya ini ke barber saat booking — sebagian besar barber bisa menyesuaikan dari referensi.
+                Cuma referensi. Tunjukkan ke barber saat booking, ya.
               </Text>
             </View>
             {result.recommendations.map((h: any) => (
