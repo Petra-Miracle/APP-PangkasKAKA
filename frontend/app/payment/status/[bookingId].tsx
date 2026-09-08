@@ -171,8 +171,27 @@ export default function PaymentStatusScreen() {
             style={styles.totalCard}
           >
             <View pointerEvents="none" style={styles.totalDeco} />
-            <Text style={styles.totalLabel}>Total Pembayaran</Text>
-            <Text style={styles.totalValue}>{rupiah(data.booking?.total_price || 0)}</Text>
+            {data.booking?.amount_total_charged != null ? (
+              <View style={{ width: "100%" }}>
+                <View style={styles.totalBreakRow}>
+                  <Text style={styles.totalBreakLabel}>Harga Layanan</Text>
+                  <Text style={styles.totalBreakVal}>{rupiah(data.booking.amount_service)}</Text>
+                </View>
+                <View style={styles.totalBreakRow}>
+                  <Text style={styles.totalBreakLabel}>Biaya Admin</Text>
+                  <Text style={styles.totalBreakVal}>{rupiah(data.booking.amount_admin_fee)}</Text>
+                </View>
+                <View style={[styles.totalBreakRow, { marginTop: 6 }]}>
+                  <Text style={styles.totalLabel}>Total Pembayaran</Text>
+                  <Text style={styles.totalValue}>{rupiah(data.booking.amount_total_charged)}</Text>
+                </View>
+              </View>
+            ) : (
+              <>
+                <Text style={styles.totalLabel}>Total Pembayaran</Text>
+                <Text style={styles.totalValue}>{rupiah(data.booking?.total_price || 0)}</Text>
+              </>
+            )}
           </LinearGradient>
         </View>
 
@@ -392,6 +411,9 @@ const styles = StyleSheet.create({
   totalDeco: { position: "absolute", width: 90, height: 90, borderRadius: 45, backgroundColor: "rgba(255,255,255,0.08)", top: -35, right: -20 },
   totalLabel: { color: "rgba(255,255,255,0.9)", fontFamily: FONT.semibold, fontSize: 13 },
   totalValue: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 22 },
+  totalBreakRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  totalBreakLabel: { color: "rgba(255,255,255,0.75)", fontFamily: FONT.medium, fontSize: 12 },
+  totalBreakVal: { color: "rgba(255,255,255,0.9)", fontFamily: FONT.semibold, fontSize: 12 },
 
   btnPriWrap: { borderRadius: 14, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4 },
   btnPri: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, padding: 16 },
