@@ -40,7 +40,10 @@ export default function Profile() {
         </LinearGradient>
         <View style={styles.menu}>
           {user?.role === "customer" && <>
+            <MenuItem icon="person-circle-outline" label="Edit Profil" onPress={() => router.push("/(customer)/edit-profile" as any)} testID="menu-edit-profile" />
+            <MenuItem icon="lock-closed-outline" label="Ubah Password" onPress={() => router.push("/(customer)/change-password" as any)} testID="menu-change-password" />
             <MenuItem icon="receipt-outline" label="Riwayat Pesanan" onPress={() => router.push("/(customer)/orders" as any)} />
+            <MenuItem icon="wallet-outline" label="Riwayat Pembayaran" onPress={() => router.push("/(customer)/payment-history" as any)} testID="menu-payment-history" />
             <MenuItem icon="sparkles-outline" label="AI Face Scan" onPress={() => router.push("/(customer)/ai-scan" as any)} />
           </>}
           {user?.role === "owner" && <>

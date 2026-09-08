@@ -445,6 +445,11 @@ class ResetPasswordIn(BaseModel):
     new_password: str
 
 
+class ChangePasswordIn(BaseModel):
+    old_password: str
+    new_password: str
+
+
 class UpdateProfileIn(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
@@ -966,10 +971,23 @@ async def me(user=Depends(get_current_user)):
 @api.put("/auth/profile")
 async def update_profile(body: UpdateProfileIn, user=Depends(get_current_user)):
     updates = {k: v for k, v in body.dict().items() if v is not None}
+    if "photo" in updates and updates["photo"]:
+        updates["photo"] = await upload_to_r2(updates["photo"], f"users/{user['id']}/avatar")
     if updates:
         await db.profiles.update_one({"id": user["id"]}, {"$set": updates})
     fresh = await db.profiles.find_one({"id": user["id"]}, {"_id": 0, "password": 0})
     return {"user": fresh}
+
+
+@api.put("/auth/change-password")
+async def change_password(body: ChangePasswordIn, user=Depends(get_current_user)):
+    if len(body.new_password) < 8:
+        raise HTTPException(400, "Password baru minimal 8 karakter")
+    fresh = await db.profiles.find_one({"id": user["id"]}, {"_id": 0, "password": 1})
+    if not fresh or not verify_pw(body.old_password, fresh["password"]):
+        raise HTTPException(400, "Password lama salah")
+    await db.profiles.update_one({"id": user["id"]}, {"$set": {"password": hash_pw(body.new_password)}})
+    return {"ok": True}
 
 
 # ============================================================
@@ -4059,7 +4077,45 @@ async def simulate_payment(booking_id: str, user=Depends(get_current_user)):
     return {"ok": True, "simulated": True, "processed": processed}
 
 
-# ---------- 6) PAYMENT MODE INFO (frontend detect mode) ----------
+# ---------- 6) PAYMENT HISTORY (customer) ----------
+@api.get("/payments/history")
+async def payment_history(user=Depends(get_current_user)):
+    bookings = await db.bookings.find(
+        {"user_id": user["id"], "payment_status": {"$in": ["paid", "forfeited"]}},
+        {"_id": 0},
+    ).sort("created_at", -1).to_list(200)
+    shop_ids = list({b["shop_id"] for b in bookings})
+    shops = (
+        await db.barbershops.find({"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1, "image": 1}).to_list(len(shop_ids))
+        if shop_ids else []
+    )
+    shop_map = {s["id"]: s for s in shops}
+    booking_ids = [b["id"] for b in bookings]
+    payments = (
+        await db.payments.find({"booking_id": {"$in": booking_ids}}, {"_id": 0}).to_list(len(booking_ids))
+        if booking_ids else []
+    )
+    pay_map = {p["booking_id"]: p for p in payments}
+
+    rows = []
+    for b in bookings:
+        p = pay_map.get(b["id"], {})
+        shop = shop_map.get(b["shop_id"], {})
+        rows.append({
+            "booking_id": b["id"],
+            "shop_name": shop.get("name", "Toko"),
+            "shop_image": shop.get("image"),
+            "amount": b.get("amount_total_charged", b.get("total_price", 0)),
+            "status": "paid" if b["payment_status"] == "paid" else "failed",
+            "method": p.get("method"),
+            "paid_at": b.get("paid_at") or p.get("paid_at"),
+            "booking_date": b.get("booking_date"),
+            "created_at": b.get("created_at"),
+        })
+    return {"payments": rows}
+
+
+# ---------- 7) PAYMENT MODE INFO (frontend detect mode) ----------
 @api.get("/payments/mode")
 async def payments_mode():
     """Return current payment mode so frontend knows which flow to use."""
