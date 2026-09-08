@@ -3,6 +3,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 const API = `${BASE}/api`;
 
+const NETWORK_RETRY_DELAYS_MS = [800, 2000];
+
 async function req(path: string, opts: RequestInit = {}) {
   const token = await AsyncStorage.getItem("token");
   const headers: any = {
@@ -10,7 +12,25 @@ async function req(path: string, opts: RequestInit = {}) {
     ...(opts.headers as any || {}),
   };
   if (token) headers.Authorization = `Bearer ${token}`;
-  const res = await fetch(`${API}${path}`, { ...opts, headers });
+
+  let res: Response;
+  let attempt = 0;
+  while (true) {
+    try {
+      res = await fetch(`${API}${path}`, { ...opts, headers });
+      break;
+    } catch {
+      // fetch() melempar TypeError (bukan response HTTP) saat koneksi putus di
+      // tengah transfer — sering terjadi pada upload foto (payload lebih besar)
+      // di sinyal seluler lemah. Retry singkat sebelum menyerah ke pesan yang
+      // lebih jelas daripada "Network request failed" mentah dari RN.
+      if (attempt >= NETWORK_RETRY_DELAYS_MS.length) {
+        throw new Error("Koneksi jaringan terputus. Periksa sinyal/internet Anda dan coba lagi.");
+      }
+      await new Promise((r) => setTimeout(r, NETWORK_RETRY_DELAYS_MS[attempt]));
+      attempt++;
+    }
+  }
   const text = await res.text();
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
