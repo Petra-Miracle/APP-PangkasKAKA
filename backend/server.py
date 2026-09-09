@@ -384,6 +384,70 @@ async def _refund_booking_if_held(booking: dict, session) -> bool:
     return True
 
 
+async def _hold_product_order_funds(order: dict, session):
+    """Mirror _hold_booking_funds untuk pembelian produk. Trigger: pembayaran terkonfirmasi."""
+    platform_wallet = await get_or_create_wallet("platform", None)
+    amount_product = order["amount_product"]
+    updated = await _adjust_wallet(platform_wallet["id"], amount_product, 0, session)
+    txn_id = new_id()
+    await _ledger(session, platform_wallet["id"], txn_id, order["id"], "credit", amount_product,
+                  "payment_in", updated["balance_pending"] + updated["balance_available"],
+                  "Dana ditahan menunggu produk diambil/diantar")
+    await db.product_orders.update_one({"id": order["id"]}, {"$set": {"fund_state": "held"}}, session=session)
+
+
+async def _release_product_order_funds(order: dict, session) -> bool:
+    """Mirror _release_booking_funds — dipanggil owner saat pesanan produk ditandai selesai."""
+    fresh = await db.product_orders.find_one({"id": order["id"]}, {"_id": 0}, session=session)
+    if not fresh or fresh.get("fund_state") != "held":
+        return False
+    platform_wallet = await get_or_create_wallet("platform", None)
+    payee_wallet = await get_or_create_wallet(fresh["payout_wallet_type"], fresh["payout_wallet_owner_id"])
+    commission = fresh["amount_platform_commission"]
+    shop_net = fresh["amount_shop_net"]
+    txn_id = new_id()
+
+    platform_after = await _adjust_wallet(platform_wallet["id"], -fresh["amount_product"], commission, session)
+    await _ledger(session, platform_wallet["id"], txn_id, fresh["id"], "debit", shop_net,
+                  "product_payout", platform_after["balance_pending"] + platform_after["balance_available"],
+                  "Dana dilepas dari bucket platform")
+    await _ledger(session, platform_wallet["id"], txn_id, fresh["id"], "credit", commission,
+                  "platform_commission", platform_after["balance_pending"] + platform_after["balance_available"],
+                  "Komisi platform")
+
+    payee_after = await _adjust_wallet(payee_wallet["id"], 0, shop_net, session)
+    await _ledger(session, payee_wallet["id"], txn_id, fresh["id"], "credit", shop_net,
+                  "product_payout", payee_after["balance_pending"] + payee_after["balance_available"],
+                  "Pendapatan penjualan produk")
+
+    await db.product_orders.update_one(
+        {"id": fresh["id"]},
+        {"$set": {"fund_state": "released", "released_at": now_utc().isoformat()}},
+        session=session,
+    )
+    return True
+
+
+async def _refund_product_order_if_held(order: dict, session) -> bool:
+    """Mirror _refund_booking_if_held — dipanggil owner saat membatalkan pesanan produk."""
+    fresh = await db.product_orders.find_one({"id": order["id"]}, {"_id": 0}, session=session)
+    if not fresh or fresh.get("fund_state") != "held":
+        return False
+    platform_wallet = await get_or_create_wallet("platform", None)
+    amount_product = fresh["amount_product"]
+    txn_id = new_id()
+    platform_after = await _adjust_wallet(platform_wallet["id"], -amount_product, 0, session)
+    await _ledger(session, platform_wallet["id"], txn_id, fresh["id"], "debit", amount_product,
+                  "refund", platform_after["balance_pending"] + platform_after["balance_available"],
+                  "Dikembalikan ke user")
+    await db.product_orders.update_one(
+        {"id": fresh["id"]},
+        {"$set": {"fund_state": "refunded", "refunded_at": now_utc().isoformat(), "payment_status": "refunded"}},
+        session=session,
+    )
+    return True
+
+
 def bayesian_rating(v: int, R: float, C: float, m: int = 10) -> float:
     if v + m == 0:
         return 0.0
@@ -547,6 +611,15 @@ class ProductIn(BaseModel):
     price: int
     description: str = ""
     photo: str = ""  # data-URL base64 dari ImagePicker, atau "" kalau tidak ganti foto
+
+
+class ProductOrderIn(BaseModel):
+    product_id: str
+    quantity: int = 1
+    fulfillment: str  # "pickup" | "delivery"
+    address: str = ""
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 
 class ShopAdminProductIn(BaseModel):
@@ -926,6 +999,24 @@ async def expire_stale_bookings():
         )
 
 
+async def expire_stale_product_orders():
+    """Mirror expire_stale_bookings untuk pesanan produk."""
+    cutoff = (now_utc() - timedelta(minutes=15)).isoformat()
+    query = {"payment_status": "unpaid", "status": "pending", "created_at": {"$lt": cutoff}}
+    stale = await db.product_orders.find(query, {"_id": 0, "id": 1, "user_id": 1}).to_list(200)
+    if not stale:
+        return
+    await db.product_orders.update_many(query, {"$set": {"status": "cancelled", "payment_status": "forfeited"}})
+    for o in stale:
+        await send_notif(
+            o["user_id"],
+            "Pembayaran kadaluarsa",
+            "Pesanan produk Anda dibatalkan karena tidak dibayar dalam 15 menit. Silakan pesan ulang bila masih diperlukan.",
+            "payment",
+            {"product_order_id": o["id"]},
+        )
+
+
 async def recalc_shop_rating(shop_id: str):
     reviews = await db.reviews.find({"shop_id": shop_id}, {"_id": 0, "rating": 1}).to_list(1000)
     all_reviews = await db.reviews.find({}, {"_id": 0, "rating": 1}).to_list(50000)
@@ -1067,6 +1158,80 @@ async def products_catalog():
     for p in products:
         p["shop_name"] = shop_names.get(p.get("shop_id"))
     return {"products": products}
+
+
+@api.get("/products/{product_id}")
+async def product_detail(product_id: str):
+    product = await db.products.find_one({"id": product_id, "is_active": True}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Produk tidak ditemukan")
+    shop = await db.barbershops.find_one({"id": product.get("shop_id")}, {"_id": 0, "name": 1, "address": 1})
+    product["shop_name"] = (shop or {}).get("name", "")
+    product["shop_address"] = (shop or {}).get("address", "")
+    return product
+
+
+@api.post("/product-orders")
+async def create_product_order(body: ProductOrderIn, user=Depends(get_current_user)):
+    if body.quantity < 1:
+        raise HTTPException(400, "Kuantitas minimal 1")
+    if body.fulfillment not in ("pickup", "delivery"):
+        raise HTTPException(400, "Fulfillment tidak valid")
+    if body.fulfillment == "delivery" and not body.address.strip():
+        raise HTTPException(400, "Alamat pengantaran wajib diisi")
+
+    product = await db.products.find_one({"id": body.product_id, "is_active": True}, {"_id": 0})
+    if not product:
+        raise HTTPException(404, "Produk tidak ditemukan")
+
+    unit_price = product["price"]
+    amount_product = unit_price * body.quantity
+    amount_admin_fee = round(amount_product * PAYMENT_FEE_RATE_QRIS) + PAYMENT_FEE_FLAT
+    amount_total_charged = amount_product + amount_admin_fee
+    amount_platform_commission = round(amount_product * PLATFORM_COMMISSION_RATE)
+    amount_shop_net = amount_product - amount_platform_commission
+
+    doc = {
+        "id": new_id(),
+        "user_id": user["id"],
+        "product_id": product["id"],
+        "shop_id": product.get("shop_id", ""),
+        "product_name": product["name"],
+        "product_image": product.get("image", ""),
+        "unit_price": unit_price,
+        "quantity": body.quantity,
+        "amount_product": amount_product,
+        "amount_admin_fee": amount_admin_fee,
+        "amount_total_charged": amount_total_charged,
+        "amount_platform_commission": amount_platform_commission,
+        "amount_shop_net": amount_shop_net,
+        "payout_wallet_type": "shop",
+        "payout_wallet_owner_id": product.get("shop_id", ""),
+        "fulfillment": body.fulfillment,
+        "address": body.address if body.fulfillment == "delivery" else "",
+        "lat": body.lat if body.fulfillment == "delivery" else None,
+        "lng": body.lng if body.fulfillment == "delivery" else None,
+        "status": "pending",
+        "payment_status": "unpaid",
+        "fund_state": "unpaid",
+        "created_at": now_utc().isoformat(),
+    }
+    await db.product_orders.insert_one(doc)
+    return {"order": clean(doc)}
+
+
+@api.get("/product-orders")
+async def list_my_product_orders(user=Depends(get_current_user)):
+    orders = await db.product_orders.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return {"orders": orders}
+
+
+@api.get("/product-orders/{order_id}")
+async def get_my_product_order(order_id: str, user=Depends(get_current_user)):
+    order = await db.product_orders.find_one({"id": order_id, "user_id": user["id"]}, {"_id": 0})
+    if not order:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    return order
 
 
 # ============================================================
@@ -1912,6 +2077,47 @@ async def update_order_status(bid: str, payload: dict = Body(...), user=Depends(
     async with await client.start_session() as session:
         await session.with_transaction(_txn)
     await send_notif(b["user_id"], "Status pesanan berubah", f"Pesanan Anda kini: {new_status}", "booking")
+    return {"ok": True}
+
+
+@api.get("/owner/product-orders")
+async def owner_product_orders(user=Depends(require_role("owner"))):
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        return {"orders": []}
+    orders = await db.product_orders.find({"shop_id": shop["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    for o in orders:
+        u = await db.profiles.find_one(
+            {"id": o["user_id"]},
+            {"_id": 0, "name": 1, "phone": 1, "email": 1, "photo": 1}
+        )
+        o["customer"] = u
+    return {"orders": orders}
+
+
+@api.post("/owner/product-orders/{oid}/status")
+async def update_product_order_status(oid: str, payload: dict = Body(...), user=Depends(require_role("owner"))):
+    new_status = payload.get("status")
+    valid = {"confirmed": ["completed", "cancelled"]}
+    o = await db.product_orders.find_one({"id": oid}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    shop = await db.barbershops.find_one({"id": o["shop_id"]}, {"_id": 0, "owner_id": 1})
+    if not shop or shop["owner_id"] != user["id"]:
+        raise HTTPException(403, "Bukan milik Anda")
+    if new_status not in valid.get(o["status"], []):
+        raise HTTPException(400, "Transisi status tidak valid")
+
+    async def _txn(session):
+        await db.product_orders.update_one({"id": oid}, {"$set": {"status": new_status}}, session=session)
+        if new_status == "completed":
+            await _release_product_order_funds(o, session)
+        elif new_status == "cancelled":
+            await _refund_product_order_if_held(o, session)
+
+    async with await client.start_session() as session:
+        await session.with_transaction(_txn)
+    await send_notif(o["user_id"], "Status pesanan produk berubah", f"Pesanan produk Anda kini: {new_status}", "product_order")
     return {"ok": True}
 
 
@@ -3950,6 +4156,28 @@ async def _load_booking_for_payment(booking_id: str, user: dict) -> dict:
     return b
 
 
+async def _load_product_order_for_payment(order_id: str, user: dict) -> dict:
+    """Mirror _load_booking_for_payment untuk pesanan produk."""
+    o = await db.product_orders.find_one({"id": order_id, "user_id": user["id"]}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    if o["status"] != "pending" or o["payment_status"] != "unpaid":
+        raise HTTPException(400, "Pesanan ini tidak lagi menunggu pembayaran")
+    try:
+        created = datetime.fromisoformat(o["created_at"])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+    except Exception:
+        created = now_utc()
+    if (now_utc() - created).total_seconds() > 15 * 60:
+        await db.product_orders.update_one(
+            {"id": order_id},
+            {"$set": {"status": "cancelled", "payment_status": "forfeited"}}
+        )
+        raise HTTPException(410, "Pembayaran kadaluarsa, silakan pesan ulang")
+    return o
+
+
 def _payment_fail_label(*hints: str) -> str:
     combined = " ".join(hints).lower()
     if "expired" in combined:
@@ -4018,66 +4246,73 @@ async def _mark_booking_paid(booking: dict, provider_ref: str, method: str = "du
     return True
 
 
-# ---------- 1) CREATE PAYMENT LINK ----------
-@api.post("/payments/create/{booking_id}")
-async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
-    """
-    Buat Durianpay payment link untuk booking.
-    - Amount SELALU dari database (tidak menerima dari client)
-    - Expiry 15 menit
-    - Aktif hanya ketika PAYMENT_MODE ∈ {sandbox, production}
-    """
-    if PAYMENT_MODE == "simulation":
-        raise HTTPException(400, "Payment gateway sedang mode simulasi. Gunakan endpoint /payments/simulate/")
+async def _mark_product_order_paid(order: dict, provider_ref: str, method: str = "durianpay"):
+    """Mirror _mark_booking_paid untuk pesanan produk. Idempotent: skip bila sudah paid."""
+    oid = order["id"]
+    fresh = await db.product_orders.find_one({"id": oid}, {"_id": 0})
+    if fresh and fresh.get("payment_status") == "paid":
+        return False
 
-    if not DURIANPAY_API_KEY:
-        log.error("DURIANPAY_API_KEY tidak dikonfigurasi")
-        raise HTTPException(500, DURIANPAY_ERR_GENERIC)
+    async def _txn(session):
+        await db.product_orders.update_one(
+            {"id": oid},
+            {"$set": {"payment_status": "paid", "status": "confirmed",
+                      "paid_at": now_utc().isoformat()}},
+            session=session,
+        )
+        await db.payments.update_one(
+            {"product_order_id": oid},
+            {"$set": {"status": "success", "method": method,
+                      "provider_ref": provider_ref,
+                      "paid_at": now_utc().isoformat()}},
+            session=session,
+        )
+        if fresh:
+            await _hold_product_order_funds(fresh, session)
 
-    b = await _load_booking_for_payment(booking_id, user)
+    async with await client.start_session() as session:
+        await session.with_transaction(_txn)
 
-    # Ambil customer info dari database
-    profile = await db.profiles.find_one({"id": user["id"]}, {"_id": 0})
-    given_name = (profile or {}).get("name") or "Customer"
-    email = (profile or {}).get("email") or "noreply@pangkaskaka.id"
-    mobile = (profile or {}).get("phone") or "0800000000"
+    shop = await db.barbershops.find_one({"id": order["shop_id"]}, {"_id": 0})
+    customer = await db.profiles.find_one({"id": order["user_id"]}, {"_id": 0, "name": 1})
+    await send_notif(
+        order["user_id"],
+        "Pembayaran berhasil",
+        f"Pembelian {order.get('product_name', 'produk')} telah dikonfirmasi.",
+        "payment",
+    )
+    if shop:
+        await send_notif(
+            shop["owner_id"],
+            "Pesanan produk baru masuk!",
+            f"Pesanan produk baru masuk dari {customer['name'] if customer else 'customer'}.",
+            "product_order",
+        )
+    return True
 
-    # Reuse payment link jika masih valid (idempotent bila user klik ulang). Skip reuse
-    # if it was generated against a different DURIANPAY_PAYMENT_LINK_BASE (e.g. host
-    # config changed since) - a stale cached link would otherwise be served forever.
-    existing_pay = await db.payments.find_one({"booking_id": booking_id}, {"_id": 0})
-    if (existing_pay and existing_pay.get("payment_link_url")
-            and existing_pay.get("status") == "pending"
-            and existing_pay["payment_link_url"].startswith(DURIANPAY_PAYMENT_LINK_BASE)):
-        return {
-            "payment_link_url": existing_pay["payment_link_url"],
-            "qr_string": existing_pay.get("qr_string") or "",
-            "qr_code": existing_pay.get("qr_code") or "",
-            "transaction_id": existing_pay.get("transaction_id"),
-            "reused": True,
-        }
 
+async def _durianpay_create_order(order_ref_id: str, customer_ref_id: str, amount: int,
+                                   given_name: str, email: str, mobile: str, metadata: dict) -> dict:
+    """Shared Durianpay order+QRIS creation, used by both booking payment (create_payment_link)
+    and product-order payment (create_product_payment_link). Raises HTTPException on failure.
+    Returns dict: payment_link_code, payment_link_url, transaction_id, qr_string, qr_code,
+    qr_debug, expiry_date."""
+    expiry_date = _expiry_rfc3339_wita(15)
     payload = {
-        "amount": str(int(b.get("amount_total_charged", b["total_price"]))),
+        "amount": str(int(amount)),
         "currency": "IDR",
         "payment_option": "full_payment",
         "is_payment_link": True,
-        "order_ref_id": booking_id,
-        "expiry_date": _expiry_rfc3339_wita(15),
+        "order_ref_id": order_ref_id,
+        "expiry_date": expiry_date,
         "customer": {
-            "customer_ref_id": user["id"],
+            "customer_ref_id": customer_ref_id,
             "given_name": given_name,
             "email": email,
             "mobile": mobile,
         },
-        "metadata": {
-            "app": "pangkaskaka",
-            "shop_id": b["shop_id"],
-            "booking_date": b["booking_date"],
-            "booking_time": b["booking_time"],
-        },
+        "metadata": metadata,
     }
-
     headers = {
         "Authorization": _durianpay_basic_auth(),
         "Content-Type": "application/json",
@@ -4129,38 +4364,174 @@ async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
             qr_string = qr_data.get("qr_string") or ""
             qr_code_raw = qr_data.get("qr_code") or ""
 
+    return {
+        "payment_link_code": code,
+        "payment_link_url": full_url,
+        "transaction_id": dp_order_id,
+        "qr_string": qr_string,
+        "qr_code": qr_code_raw,
+        "qr_debug": qr_debug,
+        "expiry_date": expiry_date,
+    }
+
+
+# ---------- 1) CREATE PAYMENT LINK ----------
+@api.post("/payments/create/{booking_id}")
+async def create_payment_link(booking_id: str, user=Depends(get_current_user)):
+    """
+    Buat Durianpay payment link untuk booking.
+    - Amount SELALU dari database (tidak menerima dari client)
+    - Expiry 15 menit
+    - Aktif hanya ketika PAYMENT_MODE ∈ {sandbox, production}
+    """
+    if PAYMENT_MODE == "simulation":
+        raise HTTPException(400, "Payment gateway sedang mode simulasi. Gunakan endpoint /payments/simulate/")
+
+    if not DURIANPAY_API_KEY:
+        log.error("DURIANPAY_API_KEY tidak dikonfigurasi")
+        raise HTTPException(500, DURIANPAY_ERR_GENERIC)
+
+    b = await _load_booking_for_payment(booking_id, user)
+
+    # Ambil customer info dari database
+    profile = await db.profiles.find_one({"id": user["id"]}, {"_id": 0})
+    given_name = (profile or {}).get("name") or "Customer"
+    email = (profile or {}).get("email") or "noreply@pangkaskaka.id"
+    mobile = (profile or {}).get("phone") or "0800000000"
+
+    # Reuse payment link jika masih valid (idempotent bila user klik ulang). Skip reuse
+    # if it was generated against a different DURIANPAY_PAYMENT_LINK_BASE (e.g. host
+    # config changed since) - a stale cached link would otherwise be served forever.
+    existing_pay = await db.payments.find_one({"booking_id": booking_id}, {"_id": 0})
+    if (existing_pay and existing_pay.get("payment_link_url")
+            and existing_pay.get("status") == "pending"
+            and existing_pay["payment_link_url"].startswith(DURIANPAY_PAYMENT_LINK_BASE)):
+        return {
+            "payment_link_url": existing_pay["payment_link_url"],
+            "qr_string": existing_pay.get("qr_string") or "",
+            "qr_code": existing_pay.get("qr_code") or "",
+            "transaction_id": existing_pay.get("transaction_id"),
+            "reused": True,
+        }
+
+    dp = await _durianpay_create_order(
+        booking_id, user["id"], int(b.get("amount_total_charged", b["total_price"])),
+        given_name, email, mobile,
+        {
+            "app": "pangkaskaka",
+            "shop_id": b["shop_id"],
+            "booking_date": b["booking_date"],
+            "booking_time": b["booking_time"],
+        },
+    )
+
     # Simpan ke payments — transaction_id = Durianpay order id
     await db.payments.update_one(
         {"booking_id": booking_id},
         {"$set": {
-            "transaction_id": dp_order_id,
-            "payment_link_code": code,
-            "payment_link_url": full_url,
-            "qr_string": qr_string,
-            "qr_code": qr_code_raw,
-            "qr_debug": qr_debug if (PAYMENT_MODE == "sandbox" and not qr_string) else "",
+            "transaction_id": dp["transaction_id"],
+            "payment_link_code": dp["payment_link_code"],
+            "payment_link_url": dp["payment_link_url"],
+            "qr_string": dp["qr_string"],
+            "qr_code": dp["qr_code"],
+            "qr_debug": dp["qr_debug"] if (PAYMENT_MODE == "sandbox" and not dp["qr_string"]) else "",
             "method": "durianpay",
             "status": "pending",
             "amount": int(b.get("amount_total_charged", b["total_price"])),
-            "expires_at": payload["expiry_date"],
+            "expires_at": dp["expiry_date"],
             "updated_at": now_utc().isoformat(),
         }, "$setOnInsert": {
             "id": new_id(),
             "booking_id": booking_id,
+            "order_type": "booking",
             "created_at": now_utc().isoformat(),
         }},
         upsert=True,
     )
 
     resp = {
-        "payment_link_url": full_url,
-        "qr_string": qr_string,
-        "qr_code": qr_code_raw,
-        "transaction_id": dp_order_id,
-        "expires_at": payload["expiry_date"],
+        "payment_link_url": dp["payment_link_url"],
+        "qr_string": dp["qr_string"],
+        "qr_code": dp["qr_code"],
+        "transaction_id": dp["transaction_id"],
+        "expires_at": dp["expiry_date"],
     }
-    if PAYMENT_MODE == "sandbox" and not qr_string and qr_debug:
-        resp["qr_sandbox_debug"] = qr_debug
+    if PAYMENT_MODE == "sandbox" and not dp["qr_string"] and dp["qr_debug"]:
+        resp["qr_sandbox_debug"] = dp["qr_debug"]
+    return resp
+
+
+@api.post("/payments/create-product/{order_id}")
+async def create_product_payment_link(order_id: str, user=Depends(get_current_user)):
+    """Mirror create_payment_link untuk pesanan produk."""
+    if PAYMENT_MODE == "simulation":
+        raise HTTPException(400, "Payment gateway sedang mode simulasi. Gunakan endpoint /payments/simulate-product/")
+    if not DURIANPAY_API_KEY:
+        log.error("DURIANPAY_API_KEY tidak dikonfigurasi")
+        raise HTTPException(500, DURIANPAY_ERR_GENERIC)
+
+    o = await _load_product_order_for_payment(order_id, user)
+
+    profile = await db.profiles.find_one({"id": user["id"]}, {"_id": 0})
+    given_name = (profile or {}).get("name") or "Customer"
+    email = (profile or {}).get("email") or "noreply@pangkaskaka.id"
+    mobile = (profile or {}).get("phone") or "0800000000"
+
+    existing_pay = await db.payments.find_one({"product_order_id": order_id}, {"_id": 0})
+    if (existing_pay and existing_pay.get("payment_link_url")
+            and existing_pay.get("status") == "pending"
+            and existing_pay["payment_link_url"].startswith(DURIANPAY_PAYMENT_LINK_BASE)):
+        return {
+            "payment_link_url": existing_pay["payment_link_url"],
+            "qr_string": existing_pay.get("qr_string") or "",
+            "qr_code": existing_pay.get("qr_code") or "",
+            "transaction_id": existing_pay.get("transaction_id"),
+            "reused": True,
+        }
+
+    dp = await _durianpay_create_order(
+        order_id, user["id"], int(o["amount_total_charged"]),
+        given_name, email, mobile,
+        {
+            "app": "pangkaskaka",
+            "shop_id": o["shop_id"],
+            "product_id": o["product_id"],
+            "quantity": o["quantity"],
+        },
+    )
+
+    await db.payments.update_one(
+        {"product_order_id": order_id},
+        {"$set": {
+            "transaction_id": dp["transaction_id"],
+            "payment_link_code": dp["payment_link_code"],
+            "payment_link_url": dp["payment_link_url"],
+            "qr_string": dp["qr_string"],
+            "qr_code": dp["qr_code"],
+            "qr_debug": dp["qr_debug"] if (PAYMENT_MODE == "sandbox" and not dp["qr_string"]) else "",
+            "method": "durianpay",
+            "status": "pending",
+            "amount": int(o["amount_total_charged"]),
+            "expires_at": dp["expiry_date"],
+            "updated_at": now_utc().isoformat(),
+        }, "$setOnInsert": {
+            "id": new_id(),
+            "product_order_id": order_id,
+            "order_type": "product",
+            "created_at": now_utc().isoformat(),
+        }},
+        upsert=True,
+    )
+
+    resp = {
+        "payment_link_url": dp["payment_link_url"],
+        "qr_string": dp["qr_string"],
+        "qr_code": dp["qr_code"],
+        "transaction_id": dp["transaction_id"],
+        "expires_at": dp["expiry_date"],
+    }
+    if PAYMENT_MODE == "sandbox" and not dp["qr_string"] and dp["qr_debug"]:
+        resp["qr_sandbox_debug"] = dp["qr_debug"]
     return resp
 
 
@@ -4224,36 +4595,59 @@ async def durianpay_webhook(request: Request):
                           "order.failed", "order.expired") or status in ("failed", "expired", "cancelled")
 
     booking = None
+    product_order = None
     if order_ref_id:
         booking = await db.bookings.find_one({"id": order_ref_id}, {"_id": 0})
-    if not booking and order_id:
+        if not booking:
+            product_order = await db.product_orders.find_one({"id": order_ref_id}, {"_id": 0})
+    if not booking and not product_order and order_id:
         # fallback: cari via payments.transaction_id
         p = await db.payments.find_one({"transaction_id": order_id}, {"_id": 0})
-        if p:
+        if p and p.get("booking_id"):
             booking = await db.bookings.find_one({"id": p["booking_id"]}, {"_id": 0})
+        elif p and p.get("product_order_id"):
+            product_order = await db.product_orders.find_one({"id": p["product_order_id"]}, {"_id": 0})
 
-    if not booking:
+    if not booking and not product_order:
         log_entry["status"] = "booking_not_found"
         await db.payment_webhooks.insert_one(log_entry)
         # Tetap balas 200 agar tidak retry
         return {"ok": True, "warning": "booking not found"}
 
-    if is_success:
-        await _mark_booking_paid(booking, provider_ref=order_id or "", method="durianpay")
-        log_entry["status"] = "processed"
-    elif is_failed:
-        await db.bookings.update_one(
-            {"id": booking["id"], "payment_status": {"$ne": "paid"}},
-            {"$set": {"status": "cancelled", "payment_status": "forfeited"}}
-        )
-        await db.payments.update_one(
-            {"booking_id": booking["id"]},
-            {"$set": {"status": "failed", "last_event": event}}
-        )
-        log_entry["status"] = "processed"
-        await _notify_payment_failed(booking["user_id"], booking["id"], _payment_fail_label(event, status))
+    if booking:
+        if is_success:
+            await _mark_booking_paid(booking, provider_ref=order_id or "", method="durianpay")
+            log_entry["status"] = "processed"
+        elif is_failed:
+            await db.bookings.update_one(
+                {"id": booking["id"], "payment_status": {"$ne": "paid"}},
+                {"$set": {"status": "cancelled", "payment_status": "forfeited"}}
+            )
+            await db.payments.update_one(
+                {"booking_id": booking["id"]},
+                {"$set": {"status": "failed", "last_event": event}}
+            )
+            log_entry["status"] = "processed"
+            await _notify_payment_failed(booking["user_id"], booking["id"], _payment_fail_label(event, status))
+        else:
+            log_entry["status"] = "ignored"
     else:
-        log_entry["status"] = "ignored"
+        if is_success:
+            await _mark_product_order_paid(product_order, provider_ref=order_id or "", method="durianpay")
+            log_entry["status"] = "processed"
+        elif is_failed:
+            await db.product_orders.update_one(
+                {"id": product_order["id"], "payment_status": {"$ne": "paid"}},
+                {"$set": {"status": "cancelled", "payment_status": "forfeited"}}
+            )
+            await db.payments.update_one(
+                {"product_order_id": product_order["id"]},
+                {"$set": {"status": "failed", "last_event": event}}
+            )
+            log_entry["status"] = "processed"
+            await _notify_payment_failed(product_order["user_id"], product_order["id"], _payment_fail_label(event, status))
+        else:
+            log_entry["status"] = "ignored"
 
     await db.payment_webhooks.insert_one(log_entry)
     return {"ok": True}
@@ -4291,6 +4685,36 @@ async def payment_status(booking_id: str, user=Depends(get_current_user)):
         "remaining_seconds": remaining,
         "payment_status": b.get("payment_status"),
         "booking_status": b.get("status"),
+        "payment_link_url": (p or {}).get("payment_link_url"),
+    }
+
+
+@api.get("/payments/status-product/{order_id}")
+async def product_payment_status(order_id: str, user=Depends(get_current_user)):
+    """Mirror payment_status untuk pesanan produk."""
+    await expire_stale_product_orders()
+    o = await db.product_orders.find_one({"id": order_id, "user_id": user["id"]}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    p = await db.payments.find_one({"product_order_id": order_id}, {"_id": 0})
+    shop = await db.barbershops.find_one({"id": o["shop_id"]}, {"_id": 0, "name": 1, "image": 1, "address": 1})
+
+    try:
+        created = datetime.fromisoformat(o["created_at"])
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+    except Exception:
+        created = now_utc()
+    expires_at = created + timedelta(minutes=15)
+    remaining = max(0, int((expires_at - now_utc()).total_seconds()))
+
+    return {
+        "order": o,
+        "payment": p,
+        "shop": shop,
+        "remaining_seconds": remaining,
+        "payment_status": o.get("payment_status"),
+        "order_status": o.get("status"),
         "payment_link_url": (p or {}).get("payment_link_url"),
     }
 
@@ -4347,6 +4771,53 @@ async def fallback_check(booking_id: str, user=Depends(get_current_user)):
     return {"ok": True, "paid": False, "status": status or "pending"}
 
 
+@api.post("/payments/fallback-check-product/{order_id}")
+async def product_fallback_check(order_id: str, user=Depends(get_current_user)):
+    """Mirror fallback_check untuk pesanan produk."""
+    if PAYMENT_MODE == "simulation":
+        raise HTTPException(400, "Payment mode adalah simulasi, tidak ada fallback ke Durianpay")
+
+    o = await db.product_orders.find_one({"id": order_id, "user_id": user["id"]}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Pesanan tidak ditemukan")
+    if o.get("payment_status") == "paid":
+        return {"ok": True, "already_paid": True}
+
+    p = await db.payments.find_one({"product_order_id": order_id}, {"_id": 0})
+    if not p or not p.get("transaction_id"):
+        raise HTTPException(404, "Transaksi belum dibuat")
+
+    dp_order_id = p["transaction_id"]
+    headers = {"Authorization": _durianpay_basic_auth()}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as http:
+            r = await http.get(f"{DURIANPAY_API_BASE}/orders/{dp_order_id}", headers=headers)
+    except (httpx.TimeoutException, httpx.RequestError) as e:
+        log.error("Fallback check request failed: %s", e)
+        raise HTTPException(502, "Gagal memeriksa status ke Durianpay")
+
+    if r.status_code >= 400:
+        raise HTTPException(502, "Gagal memeriksa status ke Durianpay")
+
+    try:
+        data = r.json().get("data", {})
+    except Exception:
+        raise HTTPException(502, "Response tidak valid")
+
+    status = (data.get("status") or "").lower()
+    if status in ("completed", "paid", "success", "settled"):
+        await _mark_product_order_paid(o, provider_ref=dp_order_id, method="durianpay")
+        return {"ok": True, "paid": True}
+    if status in ("failed", "expired", "cancelled"):
+        await db.product_orders.update_one(
+            {"id": order_id, "payment_status": {"$ne": "paid"}},
+            {"$set": {"status": "cancelled", "payment_status": "forfeited"}}
+        )
+        await _notify_payment_failed(user["id"], order_id, _payment_fail_label(status))
+        return {"ok": True, "paid": False, "status": status}
+    return {"ok": True, "paid": False, "status": status or "pending"}
+
+
 # ---------- 5) SIMULATION MODE (demo only, offline) ----------
 @api.post("/payments/simulate/{booking_id}")
 async def simulate_payment(booking_id: str, user=Depends(get_current_user)):
@@ -4361,6 +4832,19 @@ async def simulate_payment(booking_id: str, user=Depends(get_current_user)):
     b = await _load_booking_for_payment(booking_id, user)
     processed = await _mark_booking_paid(
         b, provider_ref=f"SIM-{int(now_utc().timestamp())}", method="simulation"
+    )
+    return {"ok": True, "simulated": True, "processed": processed}
+
+
+@api.post("/payments/simulate-product/{order_id}")
+async def simulate_product_payment(order_id: str, user=Depends(get_current_user)):
+    """Mirror simulate_payment untuk pesanan produk."""
+    if PAYMENT_MODE != "simulation":
+        raise HTTPException(403, "Endpoint simulasi hanya aktif pada PAYMENT_MODE=simulation")
+
+    o = await _load_product_order_for_payment(order_id, user)
+    processed = await _mark_product_order_paid(
+        o, provider_ref=f"SIM-{int(now_utc().timestamp())}", method="simulation"
     )
     return {"ok": True, "simulated": True, "processed": processed}
 
@@ -4977,6 +5461,9 @@ async def ensure_indexes():
     await db.products.create_index([("is_active", 1), ("created_at", -1)])
     await db.products.create_index("shop_id")
     await db.services.create_index("shop_id")
+    await db.product_orders.create_index("user_id")
+    await db.product_orders.create_index("shop_id")
+    await db.product_orders.create_index("payment_status")
 
 
 async def _auto_release_loop():

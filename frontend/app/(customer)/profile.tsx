@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/src/lib/auth";
@@ -27,9 +28,13 @@ export default function Profile() {
         >
           <View pointerEvents="none" style={styles.decoCircle} />
           <View style={styles.avatarRing}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{user?.name?.[0]?.toUpperCase() || "?"}</Text>
-            </View>
+            {user?.photo ? (
+              <Image source={{ uri: user.photo }} style={styles.avatarImg} contentFit="cover" />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{user?.name?.[0]?.toUpperCase() || "?"}</Text>
+              </View>
+            )}
           </View>
           <Text style={styles.name} testID="profile-name">{user?.name}</Text>
           <Text style={styles.mail}>{user?.email}</Text>
@@ -44,6 +49,7 @@ export default function Profile() {
             <MenuItem icon="lock-closed-outline" label="Ubah Password" onPress={() => router.push("/(customer)/change-password" as any)} testID="menu-change-password" />
             <MenuItem icon="receipt-outline" label="Riwayat Pesanan" onPress={() => router.push("/(customer)/orders" as any)} />
             <MenuItem icon="wallet-outline" label="Riwayat Pembayaran" onPress={() => router.push("/(customer)/payment-history" as any)} testID="menu-payment-history" />
+            <MenuItem icon="bag-handle-outline" label="Pesanan Produk" onPress={() => router.push("/(customer)/product-orders" as any)} testID="menu-product-orders" />
             <MenuItem icon="sparkles-outline" label="AI Face Scan" onPress={() => router.push("/(customer)/ai-scan" as any)} />
           </>}
           {user?.role === "owner" && <>
@@ -83,6 +89,7 @@ const styles = StyleSheet.create({
   decoCircle: { position: "absolute", width: 200, height: 200, borderRadius: 100, backgroundColor: "rgba(255,255,255,0.08)", top: -80, right: -60 },
   avatarRing: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, borderColor: "rgba(255,255,255,0.5)", alignItems: "center", justifyContent: "center" },
   avatar: { width: 86, height: 86, borderRadius: 999, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
+  avatarImg: { width: 86, height: 86, borderRadius: 999, backgroundColor: "#FFFFFF" },
   avatarText: { color: COLORS.brand, fontSize: 36, fontFamily: FONT.extrabold },
   name: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.extrabold, marginTop: 12 },
   mail: { color: "rgba(255,255,255,0.85)", marginTop: 4, fontFamily: FONT.medium, fontSize: 13 },

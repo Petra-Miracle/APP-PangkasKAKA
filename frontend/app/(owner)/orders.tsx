@@ -26,13 +26,23 @@ const FUND_STATE_META: Record<string, { color: string; bg: string; label: string
 
 export default function OwnerOrders() {
   const router = useRouter();
+  const [tab, setTab] = useState<"layanan" | "produk">("layanan");
   const [orders, setOrders] = useState<any[]>([]);
+  const [productOrders, setProductOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<any>(null);
+  const [productDetail, setProductDetail] = useState<any>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { const r = await api.get("/owner/orders"); setOrders(r.orders); } catch {} finally { setLoading(false); }
+    try {
+      const [r, rp] = await Promise.all([
+        api.get("/owner/orders"),
+        api.get("/owner/product-orders").catch(() => ({ orders: [] })),
+      ]);
+      setOrders(r.orders);
+      setProductOrders(rp.orders || []);
+    } catch {} finally { setLoading(false); }
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -42,6 +52,14 @@ export default function OwnerOrders() {
       await api.post(`/owner/orders/${id}/status`, { status });
       await load();
       setDetail(null);
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const updateProduct = async (id: string, status: string) => {
+    try {
+      await api.post(`/owner/product-orders/${id}/status`, { status });
+      await load();
+      setProductDetail(null);
     } catch (e: any) { alert(e.message); }
   };
 
@@ -86,8 +104,19 @@ export default function OwnerOrders() {
       >
         <View pointerEvents="none" style={styles.headerDeco} />
         <Text style={styles.headerTitle}>Pesanan Masuk</Text>
-        <Text style={styles.headerSub}>{orders.length} pesanan total</Text>
+        <Text style={styles.headerSub}>{tab === "layanan" ? orders.length : productOrders.length} pesanan total</Text>
       </LinearGradient>
+
+      <View style={styles.tabRow}>
+        <PressableScale style={[styles.tabBtn, tab === "layanan" && styles.tabBtnActive]} onPress={() => setTab("layanan")} scaleTo={0.97}>
+          <Text style={[styles.tabBtnText, tab === "layanan" && styles.tabBtnTextActive]}>Layanan</Text>
+        </PressableScale>
+        <PressableScale style={[styles.tabBtn, tab === "produk" && styles.tabBtnActive]} onPress={() => setTab("produk")} scaleTo={0.97}>
+          <Text style={[styles.tabBtnText, tab === "produk" && styles.tabBtnTextActive]}>Produk</Text>
+        </PressableScale>
+      </View>
+
+      {tab === "layanan" ? (
       <ScrollView contentContainerStyle={{ padding: 20, gap: 12, paddingBottom: 120 }}>
         {orders.length === 0 && (
           <EmptyState
@@ -132,6 +161,54 @@ export default function OwnerOrders() {
           );
         })}
       </ScrollView>
+      ) : (
+      <ScrollView contentContainerStyle={{ padding: 20, gap: 12, paddingBottom: 120 }}>
+        {productOrders.length === 0 && (
+          <EmptyState
+            icon="bag-handle-outline"
+            title="Belum ada pesanan produk"
+            description="Pesanan produk baru dari pelanggan akan muncul di sini."
+          />
+        )}
+        {productOrders.map((o) => {
+          const meta = STATUS_META[o.status] || STATUS_META.pending;
+          return (
+            <PressableScale key={o.id} style={styles.card} testID={`o-product-order-${o.id}`} onPress={() => setProductDetail(o)} scaleTo={0.98}>
+              <View style={styles.rowTop}>
+                {o.customer?.photo ? (
+                  <Image source={{ uri: o.customer.photo }} style={styles.avatarImg} contentFit="cover" />
+                ) : (
+                  <View style={styles.avatar}><Ionicons name="person" size={20} color={COLORS.brand} /></View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cust}>{o.customer?.name}</Text>
+                  <Text style={styles.phone}>{o.customer?.phone}</Text>
+                </View>
+                <View style={[styles.badge, { backgroundColor: meta.bg }]}>
+                  <Text style={[styles.badgeText, { color: meta.color }]}>{meta.label}</Text>
+                </View>
+              </View>
+              <View style={styles.det}>
+                <View style={styles.detRow}><Ionicons name="bag-handle" size={13} color={COLORS.textDim} /><Text style={styles.detText}>{o.product_name} x{o.quantity}</Text></View>
+                <View style={styles.detRow}>
+                  <Ionicons name={o.fulfillment === "delivery" ? "bicycle" : "storefront"} size={13} color={COLORS.brand} />
+                  <Text style={[styles.detText, { color: COLORS.brand, fontFamily: FONT.bold }]}>
+                    {o.fulfillment === "delivery" ? "Diantar ke Alamat" : "Ambil di Toko"}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.rowBottom}>
+                <Text style={styles.price}>{rupiah(o.amount_total_charged)}</Text>
+                <View style={styles.tapHint}>
+                  <Text style={styles.tapHintText}>Detail</Text>
+                  <Ionicons name="chevron-forward" size={14} color={COLORS.brand} />
+                </View>
+              </View>
+            </PressableScale>
+          );
+        })}
+      </ScrollView>
+      )}
 
       {/* Detail Pelanggan Modal */}
       <Modal visible={!!detail} animationType="slide" transparent onRequestClose={() => setDetail(null)}>
@@ -273,6 +350,105 @@ export default function OwnerOrders() {
           </View>
         </View>
       </Modal>
+
+      {/* Detail Pesanan Produk Modal */}
+      <Modal visible={!!productDetail} animationType="slide" transparent onRequestClose={() => setProductDetail(null)}>
+        <View style={styles.modalBg}>
+          <View style={styles.modal}>
+            <View style={styles.grabber} />
+            <ScrollView contentContainerStyle={{ paddingBottom: 20 }}>
+              <View style={styles.mHeader}>
+                {productDetail?.customer?.photo ? (
+                  <Image source={{ uri: productDetail.customer.photo }} style={styles.mAvatarImg} contentFit="cover" />
+                ) : (
+                  <View style={styles.mAvatarFallback}><Text style={styles.mInitial}>{productDetail?.customer?.name?.[0] || "?"}</Text></View>
+                )}
+                <Text style={styles.mName}>{productDetail?.customer?.name}</Text>
+                <Text style={styles.mEmail}>{productDetail?.customer?.email || "-"}</Text>
+                {productDetail?.status && (
+                  <View style={[styles.mBadge, { backgroundColor: STATUS_META[productDetail.status]?.bg }]}>
+                    <Text style={[styles.mBadgeText, { color: STATUS_META[productDetail.status]?.color }]}>{STATUS_META[productDetail.status]?.label}</Text>
+                  </View>
+                )}
+                {productDetail?.fund_state && FUND_STATE_META[productDetail.fund_state] && (
+                  <View style={[styles.mBadge, { backgroundColor: FUND_STATE_META[productDetail.fund_state].bg, marginTop: 6 }]}>
+                    <Text style={[styles.mBadgeText, { color: FUND_STATE_META[productDetail.fund_state].color }]}>{FUND_STATE_META[productDetail.fund_state].label}</Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.mSection}>
+                <Text style={styles.mSectionTitle}>DETAIL PESANAN</Text>
+                <MRow icon="bag-handle" label="Produk" value={productDetail?.product_name} />
+                <MRow icon="layers" label="Kuantitas" value={String(productDetail?.quantity || 1)} />
+                <MRow icon="call-outline" label="Telepon" value={productDetail?.customer?.phone || "-"} />
+                <MRow icon={productDetail?.fulfillment === "delivery" ? "bicycle" : "storefront"} label="Metode" value={productDetail?.fulfillment === "delivery" ? "Diantar ke Alamat" : "Ambil di Toko"} />
+                {productDetail?.fulfillment === "delivery" && productDetail?.address ? (
+                  <MRow icon="location" label="Alamat Tujuan" value={productDetail.address} />
+                ) : null}
+              </View>
+
+              <LinearGradient
+                colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.mTotalCard}
+              >
+                <View style={{ width: "100%" }}>
+                  <View style={styles.mTotalBreakRow}>
+                    <Text style={styles.mTotalBreakLabel}>Harga Produk</Text>
+                    <Text style={styles.mTotalBreakVal}>{rupiah(productDetail?.amount_product || 0)}</Text>
+                  </View>
+                  <View style={styles.mTotalBreakRow}>
+                    <Text style={styles.mTotalBreakLabel}>Komisi Platform</Text>
+                    <Text style={styles.mTotalBreakVal}>-{rupiah(productDetail?.amount_platform_commission || 0)}</Text>
+                  </View>
+                  <View style={[styles.mTotalBreakRow, { marginTop: 6 }]}>
+                    <Text style={styles.mTotalLabel}>Pendapatan Bersih</Text>
+                    <Text style={styles.mTotalValue}>{rupiah(productDetail?.amount_shop_net || 0)}</Text>
+                  </View>
+                </View>
+              </LinearGradient>
+
+              <View style={styles.contactRow}>
+                <PressableScale style={styles.contactBtn} onPress={() => callCustomer(productDetail?.customer?.phone)} testID="btn-telepon-produk" scaleTo={0.96} haptic>
+                  <LinearGradient
+                    colors={["#16A34A", "#22C55E"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.contactBtnGrad}
+                  >
+                    <Ionicons name="call" size={20} color="#FFFFFF" />
+                    <Text style={styles.contactBtnText}>Telepon</Text>
+                  </LinearGradient>
+                </PressableScale>
+              </View>
+
+              {productDetail?.status === "confirmed" && (
+                <View style={styles.actRow}>
+                  <PressableScale style={styles.btnPriFullWrap} onPress={() => updateProduct(productDetail.id, "completed")} testID="btn-complete-produk" haptic>
+                    <LinearGradient
+                      colors={["#16A34A", "#22C55E"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.btnPriFull}
+                    >
+                      <Ionicons name="checkmark-done" size={18} color="#FFFFFF" />
+                      <Text style={styles.btnPriFullText}>SELESAIKAN</Text>
+                    </LinearGradient>
+                  </PressableScale>
+                  <PressableScale style={styles.btnSecFull} onPress={() => updateProduct(productDetail.id, "cancelled")} scaleTo={0.97}>
+                    <Text style={styles.btnSecFullText}>BATALKAN</Text>
+                  </PressableScale>
+                </View>
+              )}
+            </ScrollView>
+            <PressableScale style={styles.closeBtn} onPress={() => setProductDetail(null)} scaleTo={0.97}>
+              <Text style={styles.closeText}>Tutup</Text>
+            </PressableScale>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -293,6 +469,11 @@ const styles = StyleSheet.create({
   headerDeco: { position: "absolute", width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(255,255,255,0.05)", top: -60, right: -30 },
   headerTitle: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.extrabold },
   headerSub: { color: COLORS.sidebarTextDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 4 },
+  tabRow: { flexDirection: "row", gap: 10, paddingHorizontal: 20, paddingTop: 16 },
+  tabBtn: { flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: "center", backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
+  tabBtnActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+  tabBtnText: { color: COLORS.textDim, fontFamily: FONT.bold, fontSize: 13 },
+  tabBtnTextActive: { color: "#FFFFFF" },
   card: {
     backgroundColor: COLORS.surface, borderRadius: 18, padding: 14, borderWidth: 1, borderColor: COLORS.border,
     shadowColor: COLORS.cardShadowStrong, shadowOpacity: 1, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 3,

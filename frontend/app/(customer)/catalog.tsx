@@ -59,7 +59,7 @@ export default function ProductCatalog() {
             <PressableScale
               testID={`catalog-item-${item.id}`}
               style={styles.card}
-              onPress={() => { if (item.shop_id) router.push(`/(customer)/shop/${item.shop_id}` as any); }}
+              onPress={() => router.push(`/(customer)/product/${item.id}` as any)}
               scaleTo={0.97}
             >
               {item.image ? (
