@@ -616,6 +616,12 @@ class HomeServiceFeeIn(BaseModel):
     fee: int = Field(ge=0)
 
 
+class BankAccountIn(BaseModel):
+    bank_name: str
+    account_number: str
+    account_holder: str
+
+
 class ShopImageIn(BaseModel):
     image: str
 
@@ -838,6 +844,45 @@ async def compute_available_slots(shop_id: str, barber_id: str, date_str: str, s
         # Overlap check
         overlap = any(not (s_end <= r[0] or s_min >= r[1]) for r in booked_ranges)
         # past today
+        past = is_today and (s_min <= now_wita.hour * 60 + now_wita.minute)
+        result.append({"time": s, "available": (not overlap) and (not past)})
+    return result
+
+
+async def compute_available_slots_barber(barber_id: str, karyawan_id: str, date_str: str, service_duration: int):
+    """Sama seperti compute_available_slots, tapi untuk StreetBarber mandiri —
+    jadwal dibaca dari karyawan_schedules/karyawan_schedule_overrides milik
+    barber itu sendiri, bukan jam buka toko manapun."""
+    d = datetime.strptime(date_str, "%Y-%m-%d").date()
+    override = await db.karyawan_schedule_overrides.find_one({"karyawan_id": karyawan_id, "date": date_str}, {"_id": 0})
+    if override:
+        if override.get("is_closed"):
+            return []
+        open_time, close_time = override["open_time"], override["close_time"]
+    else:
+        wd = d.weekday()  # Mon=0..Sun=6
+        day_name = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][wd]
+        sched = await db.karyawan_schedules.find_one({"karyawan_id": karyawan_id, "day_name": day_name}, {"_id": 0})
+        if not sched or sched.get("is_closed"):
+            return []
+        open_time, close_time = sched["open_time"], sched["close_time"]
+    all_slots = gen_time_slots(open_time, close_time, 30)
+    bookings = await db.bookings.find(
+        {"barber_id": barber_id, "booking_date": date_str, "status": {"$ne": "cancelled"}},
+        {"_id": 0, "booking_time": 1, "duration": 1},
+    ).to_list(500)
+    booked_ranges = []
+    for b in bookings:
+        bt = time_to_min(b["booking_time"])
+        dur = b.get("duration", 30)
+        booked_ranges.append((bt, bt + dur))
+    result = []
+    now_wita = datetime.now(WITA)
+    is_today = (d == now_wita.date())
+    for s in all_slots:
+        s_min = time_to_min(s)
+        s_end = s_min + service_duration
+        overlap = any(not (s_end <= r[0] or s_min >= r[1]) for r in booked_ranges)
         past = is_today and (s_min <= now_wita.hour * 60 + now_wita.minute)
         result.append({"time": s, "available": (not overlap) and (not past)})
     return result
@@ -1100,6 +1145,35 @@ async def nearby_barbers(lat: float, lng: float):
     return {"barbers": result}
 
 
+@api.get("/barbers/{barber_id}")
+async def barber_profile(barber_id: str):
+    """Profil booking mandiri StreetBarber — layanan & biaya ke rumah miliknya
+    sendiri (bukan katalog toko validator). Dipakai app/(customer)/barber/[id].tsx."""
+    barber = await db.barbers.find_one({"id": barber_id, "status": "active"}, {"_id": 0})
+    if not barber or not barber.get("karyawan_id"):
+        raise HTTPException(404, "StreetBarber tidak ditemukan")
+    karyawan = await db.karyawan.find_one({"id": barber["karyawan_id"]}, {"_id": 0})
+    shop = await db.barbershops.find_one({"id": barber["shop_id"]}, {"_id": 0, "name": 1})
+    services = await db.streetbarber_services.find({"karyawan_id": barber["karyawan_id"]}, {"_id": 0}).to_list(200)
+    barber["services"] = services
+    barber["home_service_fee"] = (karyawan or {}).get("home_service_fee", 0)
+    barber["shop_name"] = shop["name"] if shop else ""
+    return barber
+
+
+@api.get("/barbers/{barber_id}/slots")
+async def get_barber_slots(barber_id: str, date: str, service_id: str):
+    await expire_stale_bookings()
+    barber = await db.barbers.find_one({"id": barber_id}, {"_id": 0, "karyawan_id": 1})
+    if not barber or not barber.get("karyawan_id"):
+        raise HTTPException(404, "StreetBarber tidak ditemukan")
+    svc = await db.streetbarber_services.find_one({"id": service_id}, {"_id": 0})
+    if not svc:
+        raise HTTPException(404, "Layanan tidak ditemukan")
+    slots = await compute_available_slots_barber(barber_id, barber["karyawan_id"], date, svc["duration"])
+    return {"slots": slots}
+
+
 @api.get("/shops/{shop_id}")
 async def shop_detail(shop_id: str):
     shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0})
@@ -1144,9 +1218,6 @@ async def get_slots(shop_id: str, barber_id: str, date: str, service_id: str):
 @api.post("/bookings")
 async def create_booking(body: BookingIn, user=Depends(get_current_user)):
     await expire_stale_bookings()
-    svc = await db.services.find_one({"id": body.service_id}, {"_id": 0})
-    if not svc:
-        raise HTTPException(404, "Layanan tidak ditemukan")
     barber = await db.barbers.find_one({"id": body.barber_id}, {"_id": 0})
     if not barber:
         raise HTTPException(404, "Barber tidak ditemukan")
@@ -1155,12 +1226,23 @@ async def create_booking(body: BookingIn, user=Depends(get_current_user)):
         raise HTTPException(400, "Barber ini hanya melayani di toko, bukan panggilan ke rumah")
     if body.delivery_mode == "toko" and is_street_barber:
         raise HTTPException(400, "StreetBarber ini hanya melayani panggilan ke rumah, bukan di toko")
+    # StreetBarber punya katalog layanan & jadwal sendiri (mandiri dari toko validator);
+    # barber toko biasa tetap pakai katalog & jadwal milik shop_id-nya.
+    if is_street_barber:
+        svc = await db.streetbarber_services.find_one({"id": body.service_id}, {"_id": 0})
+    else:
+        svc = await db.services.find_one({"id": body.service_id}, {"_id": 0})
+    if not svc:
+        raise HTTPException(404, "Layanan tidak ditemukan")
     if body.delivery_mode == "rumah" and (body.customer_lat is None or body.customer_lng is None):
         raise HTTPException(400, "Lokasi rumah wajib diisi untuk booking ke rumah")
     if body.delivery_mode == "rumah" and user.get("home_delivery_blocked"):
         raise HTTPException(403, "Kamu tidak bisa memesan jasa panggil ke rumah lagi karena pernah membatalkan booking kurang dari H-2 jam sebelum jadwal.")
     # re-validate slot
-    slots = await compute_available_slots(body.shop_id, body.barber_id, body.booking_date, svc["duration"])
+    if is_street_barber:
+        slots = await compute_available_slots_barber(body.barber_id, barber["karyawan_id"], body.booking_date, svc["duration"])
+    else:
+        slots = await compute_available_slots(body.shop_id, body.barber_id, body.booking_date, svc["duration"])
     match = next((s for s in slots if s["time"] == body.booking_time), None)
     if not match or not match["available"]:
         raise HTTPException(409, "Slot baru saja dipesan orang lain, silakan pilih waktu lain")
@@ -1168,8 +1250,8 @@ async def create_booking(body: BookingIn, user=Depends(get_current_user)):
     home_service_fee = 0
     eta_minutes_at_booking = None
     if body.delivery_mode == "rumah":
-        shop = await db.barbershops.find_one({"id": body.shop_id}, {"_id": 0, "home_service_fee": 1})
-        home_service_fee = (shop or {}).get("home_service_fee", 0)
+        karyawan = await db.karyawan.find_one({"id": barber["karyawan_id"]}, {"_id": 0, "home_service_fee": 1})
+        home_service_fee = (karyawan or {}).get("home_service_fee", 0)
         price += home_service_fee
         # Batas layanan 30 menit perjalanan (README §3) — dicek juga di saat booking dibuat,
         # bukan cuma di pencarian /barbers/nearby, karena barber sudah dipilih spesifik di sini.
@@ -2214,6 +2296,121 @@ async def karyawan_complete_booking(bid: str, user=Depends(require_role("streetb
         await session.with_transaction(_txn)
     await send_notif(b["user_id"], "Layanan selesai", "Terima kasih! Booking Anda telah diselesaikan.", "booking")
     return {"ok": True}
+
+
+async def _active_karyawan(user) -> dict:
+    active = await db.karyawan.find_one({"profile_id": user["id"], "status": "active"}, {"_id": 0})
+    if not active:
+        raise HTTPException(400, "Anda belum menjadi StreetBarber aktif")
+    return active
+
+
+# ============================================================
+# STREETBARBER — layanan, jadwal & rekening milik sendiri (mandiri dari toko validator)
+# ============================================================
+@api.get("/streetbarber/services")
+async def list_own_streetbarber_services(user=Depends(require_role("streetbarber"))):
+    active = await _active_karyawan(user)
+    services = await db.streetbarber_services.find({"karyawan_id": active["id"]}, {"_id": 0}).to_list(200)
+    return {"services": services}
+
+
+@api.post("/streetbarber/services")
+async def add_streetbarber_service(body: ServiceIn, user=Depends(require_role("streetbarber"))):
+    active = await _active_karyawan(user)
+    doc = {"id": new_id(), "karyawan_id": active["id"], "name": body.name,
+           "duration": body.duration, "price": body.price,
+           "created_at": now_utc().isoformat()}
+    await db.streetbarber_services.insert_one(doc)
+    return {"service": clean(doc)}
+
+
+@api.put("/streetbarber/services/{sid}")
+async def update_streetbarber_service(sid: str, body: ServiceIn, user=Depends(require_role("streetbarber"))):
+    active = await _active_karyawan(user)
+    r = await db.streetbarber_services.update_one(
+        {"id": sid, "karyawan_id": active["id"]},
+        {"$set": {"name": body.name, "duration": body.duration, "price": body.price}},
+    )
+    if r.matched_count == 0:
+        raise HTTPException(404, "Layanan tidak ditemukan")
+    return {"ok": True}
+
+
+@api.delete("/streetbarber/services/{sid}")
+async def delete_streetbarber_service(sid: str, user=Depends(require_role("streetbarber"))):
+    active = await _active_karyawan(user)
+    await db.streetbarber_services.delete_one({"id": sid, "karyawan_id": active["id"]})
+    return {"ok": True}
+
+
+@api.get("/streetbarber/schedules")
+async def get_streetbarber_schedules(user=Depends(require_role("streetbarber"))):
+    active = await _active_karyawan(user)
+    schedules = await db.karyawan_schedules.find({"karyawan_id": active["id"]}, {"_id": 0}).to_list(20)
+    return {"schedules": schedules}
+
+
+@api.post("/streetbarber/schedules")
+async def save_streetbarber_schedules(body: SaveSchedulesIn, user=Depends(require_role("streetbarber"))):
+    active = await _active_karyawan(user)
+    for row in body.schedules:
+        await db.karyawan_schedules.update_one(
+            {"karyawan_id": active["id"], "day_name": row.day_name},
+            {"$set": {"open_time": row.open_time, "close_time": row.close_time, "is_closed": row.is_closed,
+                      "karyawan_id": active["id"], "day_name": row.day_name, "id": new_id()}},
+            upsert=True,
+        )
+    return {"ok": True}
+
+
+@api.get("/streetbarber/schedule-overrides")
+async def list_streetbarber_schedule_overrides(user=Depends(require_role("streetbarber"))):
+    active = await _active_karyawan(user)
+    overrides = await db.karyawan_schedule_overrides.find({"karyawan_id": active["id"]}, {"_id": 0}).sort("date", 1).to_list(200)
+    return {"overrides": overrides}
+
+
+@api.post("/streetbarber/schedule-overrides")
+async def upsert_streetbarber_schedule_override(body: ScheduleOverrideIn, user=Depends(require_role("streetbarber"))):
+    active = await _active_karyawan(user)
+    try:
+        datetime.strptime(body.date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(400, "Format tanggal harus YYYY-MM-DD")
+    await db.karyawan_schedule_overrides.update_one(
+        {"karyawan_id": active["id"], "date": body.date},
+        {"$set": {
+            "karyawan_id": active["id"], "date": body.date, "is_closed": body.is_closed,
+            "open_time": body.open_time, "close_time": body.close_time, "note": body.note or "",
+        }},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+@api.delete("/streetbarber/schedule-overrides/{date}")
+async def delete_streetbarber_schedule_override(date: str, user=Depends(require_role("streetbarber"))):
+    active = await _active_karyawan(user)
+    await db.karyawan_schedule_overrides.delete_one({"karyawan_id": active["id"], "date": date})
+    return {"ok": True}
+
+
+@api.put("/streetbarber/bank-account")
+async def set_streetbarber_bank_account(body: BankAccountIn, user=Depends(require_role("streetbarber"))):
+    active = await _active_karyawan(user)
+    await db.karyawan.update_one({"id": active["id"]}, {"$set": {
+        "bank_name": body.bank_name, "bank_account_number": body.account_number,
+        "bank_account_holder": body.account_holder,
+    }})
+    return {"ok": True}
+
+
+@api.put("/streetbarber/home-service-fee")
+async def set_streetbarber_home_service_fee(body: HomeServiceFeeIn, user=Depends(require_role("streetbarber"))):
+    active = await _active_karyawan(user)
+    await db.karyawan.update_one({"id": active["id"]}, {"$set": {"home_service_fee": body.fee}})
+    return {"ok": True, "home_service_fee": body.fee}
 
 
 # ============================================================
@@ -3581,11 +3778,13 @@ async def analytics_customer(user=Depends(require_role("customer"))):
         lb = sorted(completed, key=lambda x: x["created_at"], reverse=True)[0]
         shop = await db.barbershops.find_one({"id": lb["shop_id"]}, {"_id": 0, "name": 1, "image": 1})
         service = await db.services.find_one({"id": lb["service_id"]}, {"_id": 0, "name": 1})
+        barber = await db.barbers.find_one({"id": lb["barber_id"]}, {"_id": 0, "karyawan_id": 1})
         if shop and service:
             last_booking = {
                 "shop_id": lb["shop_id"], "shop_name": shop["name"], "shop_image": shop["image"],
                 "service_id": lb["service_id"], "service_name": service["name"],
                 "barber_id": lb["barber_id"],
+                "is_street_barber": bool(barber and barber.get("karyawan_id")),
             }
 
     return {
@@ -4522,6 +4721,9 @@ async def ensure_indexes():
     await db.bookings.create_index("status")
     await db.shop_schedules.create_index([("shop_id", 1), ("day_name", 1)])
     await db.shop_schedule_overrides.create_index([("shop_id", 1), ("date", 1)], unique=True)
+    await db.streetbarber_services.create_index("karyawan_id")
+    await db.karyawan_schedules.create_index([("karyawan_id", 1), ("day_name", 1)])
+    await db.karyawan_schedule_overrides.create_index([("karyawan_id", 1), ("date", 1)], unique=True)
     await db.owner_messages.create_index("booking_id")
     await db.payments.create_index("booking_id")
     await db.notifications.create_index("user_id")

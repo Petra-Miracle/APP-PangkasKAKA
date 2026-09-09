@@ -103,6 +103,25 @@ export default function KaryawanStatus() {
   const [loadingLedger, setLoadingLedger] = useState(false);
   const [payingOut, setPayingOut] = useState(false);
 
+  // Layanan, jadwal & rekening milik StreetBarber sendiri — mandiri dari toko validator.
+  const [servicesModal, setServicesModal] = useState(false);
+  const [myServices, setMyServices] = useState<any[]>([]);
+  const [loadingServices, setLoadingServices] = useState(false);
+  const [svcForm, setSvcForm] = useState({ name: "", duration: "30", price: "" });
+  const [editingSvcId, setEditingSvcId] = useState<string | null>(null);
+  const [savingSvc, setSavingSvc] = useState(false);
+
+  const DAY_ROWS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"] as const;
+  const [scheduleModal, setScheduleModal] = useState(false);
+  const [mySchedule, setMySchedule] = useState<Record<string, { open_time: string; close_time: string; is_closed: boolean }>>({});
+  const [loadingSchedule, setLoadingSchedule] = useState(false);
+  const [savingSchedule, setSavingSchedule] = useState(false);
+
+  const [bankModal, setBankModal] = useState(false);
+  const [bankForm, setBankForm] = useState({ bank_name: "", account_number: "", account_holder: "" });
+  const [homeFeeInput, setHomeFeeInput] = useState("0");
+  const [savingBank, setSavingBank] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -110,7 +129,17 @@ export default function KaryawanStatus() {
         api.get("/karyawan/my"),
         api.get("/shops?sort=rating"),
       ]);
-      if (my.status === "fulfilled") setApps(my.value.applications);
+      if (my.status === "fulfilled") {
+        setApps(my.value.applications);
+        const active = (my.value.applications || []).find((a: any) => a.status === "active");
+        if (active) {
+          setBankForm({
+            bank_name: active.bank_name || "", account_number: active.bank_account_number || "",
+            account_holder: active.bank_account_holder || "",
+          });
+          setHomeFeeInput(String(active.home_service_fee ?? 0));
+        }
+      }
       if (sh.status === "fulfilled") setShops(sh.value.shops);
       const [bk, earn, w] = await Promise.allSettled([
         api.get("/karyawan/bookings"),
@@ -147,6 +176,78 @@ export default function KaryawanStatus() {
       setLedger([]);
       setWalletModal(false);
     } catch (e: any) { Alert.alert("Penarikan Gagal", e.message); } finally { setPayingOut(false); }
+  };
+
+  const openServices = async () => {
+    setServicesModal(true);
+    setLoadingServices(true);
+    try { const r = await api.get("/streetbarber/services"); setMyServices(r.services || []); } catch {} finally { setLoadingServices(false); }
+  };
+
+  const resetSvcForm = () => { setSvcForm({ name: "", duration: "30", price: "" }); setEditingSvcId(null); };
+
+  const editService = (s: any) => {
+    setEditingSvcId(s.id);
+    setSvcForm({ name: s.name, duration: String(s.duration), price: String(s.price) });
+  };
+
+  const saveService = async () => {
+    if (!svcForm.name.trim()) return Alert.alert("Gagal", "Nama layanan wajib diisi");
+    const body = { name: svcForm.name.trim(), duration: parseInt(svcForm.duration || "0", 10), price: parseInt(svcForm.price || "0", 10) };
+    if (!body.duration || !body.price) return Alert.alert("Gagal", "Durasi & harga wajib diisi dengan angka");
+    setSavingSvc(true);
+    try {
+      if (editingSvcId) await api.put(`/streetbarber/services/${editingSvcId}`, body);
+      else await api.post("/streetbarber/services", body);
+      resetSvcForm();
+      const r = await api.get("/streetbarber/services"); setMyServices(r.services || []);
+    } catch (e: any) { Alert.alert("Gagal", e.message || "Gagal menyimpan layanan"); } finally { setSavingSvc(false); }
+  };
+
+  const deleteService = async (sid: string) => {
+    try {
+      await api.del(`/streetbarber/services/${sid}`);
+      setMyServices((prev) => prev.filter((s) => s.id !== sid));
+      if (editingSvcId === sid) resetSvcForm();
+    } catch (e: any) { Alert.alert("Gagal", e.message || "Gagal menghapus layanan"); }
+  };
+
+  const openSchedule = async () => {
+    setScheduleModal(true);
+    setLoadingSchedule(true);
+    try {
+      const r = await api.get("/streetbarber/schedules");
+      const byDay: Record<string, any> = {};
+      for (const row of r.schedules || []) byDay[row.day_name] = row;
+      const merged: typeof mySchedule = {};
+      for (const d of DAY_ROWS) {
+        merged[d] = byDay[d]
+          ? { open_time: byDay[d].open_time, close_time: byDay[d].close_time, is_closed: byDay[d].is_closed }
+          : { open_time: "09:00", close_time: "21:00", is_closed: false };
+      }
+      setMySchedule(merged);
+    } catch {} finally { setLoadingSchedule(false); }
+  };
+
+  const saveSchedule = async () => {
+    setSavingSchedule(true);
+    try {
+      const schedules = DAY_ROWS.map((d) => ({ day_name: d, ...mySchedule[d] }));
+      await api.post("/streetbarber/schedules", { schedules });
+      setScheduleModal(false);
+    } catch (e: any) { Alert.alert("Gagal", e.message || "Gagal menyimpan jadwal"); } finally { setSavingSchedule(false); }
+  };
+
+  const saveBank = async () => {
+    if (!bankForm.bank_name.trim() || !bankForm.account_number.trim() || !bankForm.account_holder.trim()) {
+      return Alert.alert("Gagal", "Semua kolom rekening wajib diisi");
+    }
+    setSavingBank(true);
+    try {
+      await api.put("/streetbarber/bank-account", bankForm);
+      await api.put("/streetbarber/home-service-fee", { fee: parseInt(homeFeeInput || "0", 10) });
+      setBankModal(false);
+    } catch (e: any) { Alert.alert("Gagal", e.message || "Gagal menyimpan data"); } finally { setSavingBank(false); }
   };
 
   const pickPhoto = async (target: "ktp" | "diploma") => {
@@ -297,6 +398,37 @@ export default function KaryawanStatus() {
             </View>
             <Switch value={sharingLocation} onValueChange={toggleSharing} trackColor={{ true: COLORS.brand }} testID="location-share-toggle" />
           </View>
+        )}
+
+        {hasActive && (
+          <>
+            <PressableScale style={styles.manageRow} onPress={openServices} testID="open-services" scaleTo={0.97}>
+              <View style={styles.locIcon}><Ionicons name="cut-outline" size={18} color={COLORS.brand} /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.locTitle}>Kelola Layanan</Text>
+                <Text style={styles.locSub}>Atur sendiri layanan & harga panggilan ke rumahmu</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={COLORS.textDim} />
+            </PressableScale>
+            <PressableScale style={styles.manageRow} onPress={openSchedule} testID="open-schedule" scaleTo={0.97}>
+              <View style={styles.locIcon}><Ionicons name="calendar-outline" size={18} color={COLORS.brand} /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.locTitle}>Atur Jadwal</Text>
+                <Text style={styles.locSub}>Jam kerja mingguan & tanggal libur milikmu sendiri</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={COLORS.textDim} />
+            </PressableScale>
+            <PressableScale style={styles.manageRow} onPress={() => setBankModal(true)} testID="open-bank" scaleTo={0.97}>
+              <View style={styles.locIcon}><Ionicons name="card-outline" size={18} color={COLORS.brand} /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.locTitle}>Rekening & Biaya</Text>
+                <Text style={styles.locSub}>
+                  {bankForm.bank_name ? `${bankForm.bank_name} a.n. ${bankForm.account_holder}` : "Belum diisi — tambahkan rekening tujuan pencairan"}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={COLORS.textDim} />
+            </PressableScale>
+          </>
         )}
 
         {myBookings.length > 0 && (
@@ -508,6 +640,15 @@ export default function KaryawanStatus() {
                 <Text style={styles.walletBalValue}>{rupiah(wallet?.balance_available || 0)}</Text>
               </View>
             </View>
+            {bankForm.bank_name ? (
+              <Text style={styles.payoutDestText}>
+                Akan dicairkan ke {bankForm.bank_name} a.n. {bankForm.account_holder} — {bankForm.account_number}
+              </Text>
+            ) : (
+              <Text style={[styles.payoutDestText, { color: COLORS.error }]}>
+                Rekening tujuan belum diisi — atur dulu di "Rekening & Biaya"
+              </Text>
+            )}
             <PressableScale
               style={[styles.btnWrap, styles.payoutBtn, (payingOut || (wallet?.balance_available || 0) < 50000) && { opacity: 0.5 }]}
               onPress={doPayout}
@@ -545,6 +686,158 @@ export default function KaryawanStatus() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={servicesModal} transparent animationType="slide" onRequestClose={() => setServicesModal(false)}>
+        <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <View style={[styles.modal, { maxHeight: "88%" }]}>
+            <View style={styles.grabber} />
+            <Text style={styles.sec}>KELOLA LAYANAN</Text>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <Text style={styles.label}>Nama Layanan</Text>
+              <TextInput style={styles.input} placeholder="mis. Low Fade" placeholderTextColor={COLORS.textDim} value={svcForm.name} onChangeText={(t) => setSvcForm({ ...svcForm, name: t })} testID="svc-name-input" />
+              <View style={{ flexDirection: "row", gap: 10 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Durasi (menit)</Text>
+                  <TextInput style={styles.input} keyboardType="numeric" placeholder="30" placeholderTextColor={COLORS.textDim} value={svcForm.duration} onChangeText={(t) => setSvcForm({ ...svcForm, duration: t.replace(/[^0-9]/g, "") })} testID="svc-duration-input" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.label}>Harga (Rp)</Text>
+                  <TextInput style={styles.input} keyboardType="numeric" placeholder="15000" placeholderTextColor={COLORS.textDim} value={svcForm.price} onChangeText={(t) => setSvcForm({ ...svcForm, price: t.replace(/[^0-9]/g, "") })} testID="svc-price-input" />
+                </View>
+              </View>
+              <View style={{ flexDirection: "row", gap: 10, marginTop: 16 }}>
+                <PressableScale style={[styles.btnWrap, { flex: 1, marginTop: 0 }, savingSvc && { opacity: 0.6 }]} onPress={saveService} disabled={savingSvc} testID="svc-save">
+                  <LinearGradient colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.btn}>
+                    <Text style={styles.btnText}>{savingSvc ? "..." : editingSvcId ? "SIMPAN PERUBAHAN" : "TAMBAH LAYANAN"}</Text>
+                  </LinearGradient>
+                </PressableScale>
+                {editingSvcId && (
+                  <PressableScale style={[styles.cancelBtn, { marginTop: 0 }]} onPress={resetSvcForm}>
+                    <Text style={styles.cancelText}>Batal</Text>
+                  </PressableScale>
+                )}
+              </View>
+
+              <Text style={[styles.sec, { marginTop: 20 }]}>LAYANAN AKTIF</Text>
+              {loadingServices ? (
+                <Skeleton style={{ height: 60 }} />
+              ) : myServices.length === 0 ? (
+                <Text style={styles.walletEmpty}>Belum ada layanan. Tambahkan di atas.</Text>
+              ) : myServices.map((s: any) => (
+                <View key={s.id} style={styles.appCard}>
+                  <View style={styles.rowTop}>
+                    <View style={styles.bookingIcon}><Ionicons name="cut" size={18} color={COLORS.brand} /></View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cName}>{s.name}</Text>
+                      <Text style={styles.cMeta}>{s.duration} menit · {rupiah(s.price)}</Text>
+                    </View>
+                    <PressableScale onPress={() => editService(s)} style={styles.svcActionBtn} testID={`svc-edit-${s.id}`}>
+                      <Ionicons name="pencil" size={16} color={COLORS.brand} />
+                    </PressableScale>
+                    <PressableScale onPress={() => deleteService(s.id)} style={styles.svcActionBtn} testID={`svc-delete-${s.id}`}>
+                      <Ionicons name="trash" size={16} color={COLORS.error} />
+                    </PressableScale>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+            <PressableScale style={styles.cancelBtn} onPress={() => { setServicesModal(false); resetSvcForm(); }}>
+              <Text style={styles.cancelText}>Tutup</Text>
+            </PressableScale>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal visible={scheduleModal} transparent animationType="slide" onRequestClose={() => setScheduleModal(false)}>
+        <View style={styles.modalBg}>
+          <View style={[styles.modal, { maxHeight: "88%" }]}>
+            <View style={styles.grabber} />
+            <Text style={styles.sec}>ATUR JADWAL KERJA</Text>
+            {loadingSchedule ? (
+              <Skeleton style={{ height: 200 }} />
+            ) : (
+              <ScrollView>
+                {DAY_ROWS.map((d) => {
+                  const row = mySchedule[d] || { open_time: "09:00", close_time: "21:00", is_closed: false };
+                  return (
+                    <View key={d} style={styles.dayRow}>
+                      <View style={styles.dayRowTop}>
+                        <Text style={styles.dayName}>{d}</Text>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                          <Text style={styles.dayLiburLabel}>Libur</Text>
+                          <Switch
+                            value={row.is_closed}
+                            onValueChange={(v) => setMySchedule({ ...mySchedule, [d]: { ...row, is_closed: v } })}
+                            trackColor={{ true: COLORS.brand }}
+                            testID={`sched-closed-${d}`}
+                          />
+                        </View>
+                      </View>
+                      {!row.is_closed && (
+                        <View style={{ flexDirection: "row", gap: 10, marginTop: 8 }}>
+                          <TextInput
+                            style={[styles.input, { flex: 1 }]}
+                            placeholder="09:00"
+                            placeholderTextColor={COLORS.textDim}
+                            value={row.open_time}
+                            onChangeText={(t) => setMySchedule({ ...mySchedule, [d]: { ...row, open_time: t } })}
+                            testID={`sched-open-${d}`}
+                          />
+                          <TextInput
+                            style={[styles.input, { flex: 1 }]}
+                            placeholder="21:00"
+                            placeholderTextColor={COLORS.textDim}
+                            value={row.close_time}
+                            onChangeText={(t) => setMySchedule({ ...mySchedule, [d]: { ...row, close_time: t } })}
+                            testID={`sched-close-${d}`}
+                          />
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <PressableScale style={[styles.btnWrap, savingSchedule && { opacity: 0.6 }]} onPress={saveSchedule} disabled={savingSchedule} testID="save-schedule">
+              <LinearGradient colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.btn}>
+                <Text style={styles.btnText}>{savingSchedule ? "..." : "SIMPAN JADWAL"}</Text>
+              </LinearGradient>
+            </PressableScale>
+            <PressableScale style={styles.cancelBtn} onPress={() => setScheduleModal(false)}>
+              <Text style={styles.cancelText}>Tutup</Text>
+            </PressableScale>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={bankModal} transparent animationType="slide" onRequestClose={() => setBankModal(false)}>
+        <KeyboardAvoidingView style={styles.modalBg} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <View style={[styles.modal, { maxHeight: "88%" }]}>
+            <View style={styles.grabber} />
+            <ScrollView keyboardShouldPersistTaps="handled">
+              <Text style={styles.sec}>REKENING & BIAYA KE RUMAH</Text>
+              <Text style={styles.dayLiburLabel}>Rekening ini jadi tujuan saat kamu menarik saldo dompet — tim mencairkan secara manual ke sini (belum ada transfer otomatis).</Text>
+              <Text style={styles.label}>Nama Bank</Text>
+              <TextInput style={styles.input} placeholder="mis. BRI" placeholderTextColor={COLORS.textDim} value={bankForm.bank_name} onChangeText={(t) => setBankForm({ ...bankForm, bank_name: t })} testID="bank-name-input" />
+              <Text style={styles.label}>Nomor Rekening</Text>
+              <TextInput style={styles.input} keyboardType="numeric" placeholder="1234567890" placeholderTextColor={COLORS.textDim} value={bankForm.account_number} onChangeText={(t) => setBankForm({ ...bankForm, account_number: t })} testID="bank-number-input" />
+              <Text style={styles.label}>Nama Pemilik Rekening</Text>
+              <TextInput style={styles.input} placeholder="Nama sesuai buku tabungan" placeholderTextColor={COLORS.textDim} value={bankForm.account_holder} onChangeText={(t) => setBankForm({ ...bankForm, account_holder: t })} testID="bank-holder-input" />
+              <Text style={styles.label}>Biaya Layanan ke Rumah (Rp)</Text>
+              <Text style={[styles.dayLiburLabel, { marginBottom: 6 }]}>Ditambahkan ke harga layanan saat customer booking panggilan ke rumah.</Text>
+              <TextInput style={styles.input} keyboardType="numeric" placeholder="0" placeholderTextColor={COLORS.textDim} value={homeFeeInput} onChangeText={(t) => setHomeFeeInput(t.replace(/[^0-9]/g, ""))} testID="home-fee-input" />
+              <PressableScale style={[styles.btnWrap, savingBank && { opacity: 0.6 }]} onPress={saveBank} disabled={savingBank} testID="save-bank">
+                <LinearGradient colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.btn}>
+                  <Text style={styles.btnText}>{savingBank ? "..." : "SIMPAN"}</Text>
+                </LinearGradient>
+              </PressableScale>
+            </ScrollView>
+            <PressableScale style={styles.cancelBtn} onPress={() => setBankModal(false)}>
+              <Text style={styles.cancelText}>Tutup</Text>
+            </PressableScale>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -579,6 +872,16 @@ const styles = StyleSheet.create({
   locTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 14 },
   locSub: { color: COLORS.textDim, fontSize: 12, marginTop: 2, fontFamily: FONT.medium },
   locErrorText: { color: COLORS.error, fontSize: 11, marginTop: 4, fontFamily: FONT.semibold },
+  manageRow: {
+    flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.surface, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, marginBottom: 10,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 12, elevation: 2,
+  },
+  payoutDestText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, textAlign: "center", marginTop: 10, lineHeight: 15 },
+  svcActionBtn: { width: 32, height: 32, borderRadius: 10, backgroundColor: COLORS.surface2, alignItems: "center", justifyContent: "center" },
+  dayRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border },
+  dayRowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  dayName: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 14 },
+  dayLiburLabel: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11 },
   pendingBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#FFF7ED", padding: 14, borderRadius: 16, borderWidth: 1, borderColor: "#FDE4C4", marginBottom: 16 },
   pendingIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
   pendingTitle: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },

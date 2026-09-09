@@ -1,22 +1,29 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal, Alert } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable, Modal, Alert, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
+import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
+import { useAuth } from "@/src/lib/auth";
 import PressableScale from "@/src/components/PressableScale";
 import Skeleton from "@/src/components/Skeleton";
 
-export default function ShopDetail() {
-  const { id, rebookServiceId, rebookBarberId } = useLocalSearchParams<{ id: string; rebookServiceId?: string; rebookBarberId?: string }>();
+// Halaman booking mandiri untuk StreetBarber — sengaja terpisah dari halaman toko
+// (app/(customer)/shop/[id].tsx). StreetBarber berdiri sendiri setelah lulus validasi
+// (lihat Noted/2026-09-02/Mentoring/Karyawan.md): toko cuma jadi validator berkas & skill.
+// Layanan, harga & biaya ke rumah di sini murni milik StreetBarber sendiri (GET /barbers/{id}),
+// bukan dipinjam dari katalog toko validator.
+export default function BarberProfile() {
+  const { id, rebookServiceId } = useLocalSearchParams<{ id: string; rebookServiceId?: string }>();
   const router = useRouter();
-  const [shop, setShop] = useState<any>(null);
+  const { user } = useAuth();
+  const [barber, setBarber] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [step, setStep] = useState(1);
   const [service, setService] = useState<any>(null);
-  const [barber, setBarber] = useState<any>(null);
   const [date, setDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [slots, setSlots] = useState<any[]>([]);
@@ -25,38 +32,45 @@ export default function ShopDetail() {
   const [creating, setCreating] = useState(false);
   const [payModal, setPayModal] = useState<any>(null);
   const [countdown, setCountdown] = useState(15 * 60);
+  const [customerAddress, setCustomerAddress] = useState("");
+  const [customerCoords, setCustomerCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [gpsLoading, setGpsLoading] = useState(false);
+
+  const useCurrentLocation = async () => {
+    setGpsLoading(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") { alert("Izin lokasi dibutuhkan untuk booking ke rumah"); return; }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setCustomerCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+    } catch { alert("Gagal mengambil lokasi, coba lagi"); } finally { setGpsLoading(false); }
+  };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const r = await api.get(`/shops/${id}`);
+        const r = await api.get(`/barbers/${id}`);
         if (cancelled) return;
-        setShop(r);
-        // "Pesan ulang" datang dari Beranda dengan layanan+barber terakhir - langsung
-        // pilihkan kalau masih tersedia di toko ini, biar user tinggal pilih jadwal.
+        setBarber(r);
         if (rebookServiceId) {
           const svc = (r.services || []).find((s: any) => s.id === rebookServiceId);
-          const brb = (r.barbers || []).find((b: any) => b.id === rebookBarberId);
-          if (svc) {
-            setService(svc);
-            if (brb) { setBarber(brb); setStep(3); } else { setStep(2); }
-          }
+          if (svc) { setService(svc); setStep(2); }
         }
       } catch {} finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [id, rebookServiceId, rebookBarberId]);
+  }, [id, rebookServiceId]);
 
   useEffect(() => {
-    if (step === 3 && service && barber) {
+    if (step === 2 && service && barber) {
       (async () => {
-        const r = await api.get(`/shops/${id}/slots?barber_id=${barber.id}&date=${date}&service_id=${service.id}`);
+        const r = await api.get(`/barbers/${barber.id}/slots?date=${date}&service_id=${service.id}`);
         setSlots(r.slots);
         setShowAllSlots(false);
       })();
     }
-  }, [step, service, barber, date, id]);
+  }, [step, service, barber, date]);
 
   useEffect(() => {
     if (!payModal) return;
@@ -91,24 +105,20 @@ export default function ShopDetail() {
     setCreating(true);
     try {
       const r = await api.post("/bookings", {
-        shop_id: id, barber_id: barber.id, service_id: service.id, booking_date: date, booking_time: slotTime,
-        delivery_mode: "toko",
+        shop_id: barber.shop_id, barber_id: barber.id, service_id: service.id, booking_date: date, booking_time: slotTime,
+        delivery_mode: "rumah",
+        customer_address: customerAddress, customer_lat: customerCoords?.lat, customer_lng: customerCoords?.lng,
       });
       const bookingId = r.booking.id;
-      // Cek mode pembayaran
       let mode = "simulation";
       try { const m = await api.get("/payments/mode"); mode = m.mode || "simulation"; } catch {}
 
       if (mode === "simulation") {
-        // Tampilkan modal QRIS mock (demo mode)
         setPayModal({ ...r.booking, mode });
       } else {
-        // Sandbox / production: buat payment link + QRIS Durianpay
         try {
           const p = await api.post(`/payments/create/${bookingId}`);
           if (p?.payment_link_url || p?.qr_string) {
-            // Tampilkan QRIS/status di dalam app; link pembayaran tetap tersedia
-            // di layar status sebagai alternatif (metode selain QRIS).
             router.replace(`/payment/status/${bookingId}?url=${encodeURIComponent(p.payment_link_url || "")}`);
           } else {
             Alert.alert("Pembayaran", "Gagal membuat link pembayaran, silakan coba lagi");
@@ -121,13 +131,11 @@ export default function ShopDetail() {
   };
 
   const doPay = async () => {
-    // Mode simulasi: langsung tandai sukses via endpoint /simulate/
     try {
       await api.post(`/payments/simulate/${payModal.id}`);
       setPayModal(null);
       router.replace(`/payment/status/${payModal.id}`);
     } catch (e: any) {
-      // Fallback ke endpoint lama bila simulate tidak aktif
       try {
         await api.post(`/bookings/${payModal.id}/pay`);
         setPayModal(null);
@@ -138,15 +146,35 @@ export default function ShopDetail() {
     }
   };
 
-  if (loading || !shop) return (
+  if (loading) return (
     <SafeAreaView style={styles.safe}>
-      <Skeleton style={{ height: 240, borderRadius: 0 }} />
       <View style={styles.body}>
-        <Skeleton style={{ height: 28, width: "70%", marginTop: 8 }} />
-        <Skeleton style={{ height: 14, width: "45%", marginTop: 10 }} />
+        <Skeleton style={{ height: 96, borderRadius: 20 }} />
         <Skeleton style={{ height: 56, marginTop: 22 }} />
         <Skeleton style={{ height: 56, marginTop: 8 }} />
         <Skeleton style={{ height: 56, marginTop: 8 }} />
+      </View>
+    </SafeAreaView>
+  );
+
+  if (!barber) return (
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <View style={styles.body}>
+        <PressableScale style={styles.backBtnFlat} onPress={() => router.back()} scaleTo={0.92}>
+          <Ionicons name="arrow-back" size={22} color={COLORS.text} />
+        </PressableScale>
+        <Text style={styles.empty}>StreetBarber tidak ditemukan atau sudah tidak aktif.</Text>
+      </View>
+    </SafeAreaView>
+  );
+
+  if (user?.home_delivery_blocked) return (
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <View style={styles.body}>
+        <PressableScale style={styles.backBtnFlat} onPress={() => router.back()} scaleTo={0.92}>
+          <Ionicons name="arrow-back" size={22} color={COLORS.text} />
+        </PressableScale>
+        <Text style={styles.empty}>Kamu tidak bisa memesan jasa Barber ke Rumah karena pernah membatalkan booking kurang dari H-2 jam sebelum jadwal.</Text>
       </View>
     </SafeAreaView>
   );
@@ -155,49 +183,32 @@ export default function ShopDetail() {
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
         <View style={styles.hero}>
-          <Image source={{ uri: shop.image }} style={styles.heroImg} contentFit="cover" />
-          <LinearGradient colors={["rgba(10,37,64,0.25)", "rgba(10,37,64,0)"]} style={styles.heroScrim} pointerEvents="none" />
           <PressableScale style={styles.backBtn} onPress={() => router.back()} testID="back-btn" scaleTo={0.92}>
             <Ionicons name="arrow-back" size={22} color={COLORS.text} />
           </PressableScale>
+          {barber.photo ? (
+            <Image source={{ uri: barber.photo }} style={styles.heroAvatar} contentFit="cover" />
+          ) : (
+            <View style={[styles.heroAvatar, styles.heroAvatarFallback]}>
+              <Text style={styles.heroInitial}>{barber.name?.[0]?.toUpperCase()}</Text>
+            </View>
+          )}
+          <Text style={styles.heroName}>{barber.name}</Text>
+          <View style={styles.skillBadge}>
+            <Text style={styles.skillText}>{barber.skill_level} · StreetBarber</Text>
+          </View>
+          <Text style={styles.validatorHint}>Divalidasi oleh {barber.shop_name}</Text>
         </View>
         <View style={styles.body}>
-          <View style={styles.nameRow}>
-            <Text style={styles.name}>{shop.name}</Text>
-            {shop.is_open === false ? (
-              <View style={styles.closedBadge}>
-                <Text style={styles.closedBadgeText}>TUTUP SEMENTARA</Text>
-              </View>
-            ) : (
-              <View style={styles.openBadge} testID="open-now-badge">
-                <View style={styles.openDot} />
-                <Text style={styles.openBadgeText}>BUKA SEKARANG</Text>
-              </View>
-            )}
-          </View>
-          <View style={styles.metaRow}>
-            <View style={styles.metaItem}>
-              <Ionicons name="star" size={14} color={COLORS.warning} />
-              <Text style={styles.metaText}>{shop.rating?.toFixed(1)}</Text>
-              <Text style={styles.metaDim}>({shop.reviews_count} ulasan)</Text>
-            </View>
-            <View style={styles.dot} />
-            <Text style={styles.metaDim}>{shop.price_range}</Text>
-          </View>
-          <View style={styles.addrRow}>
-            <Ionicons name="location" size={14} color={COLORS.brand} />
-            <Text style={styles.addr}>{shop.address}</Text>
-          </View>
-
           <View style={styles.stepper}>
-            {["Layanan", "Barber", "Jadwal", "Bayar"].map((label, i) => (
+            {["Layanan", "Jadwal", "Bayar"].map((label, i) => (
               <View key={label} style={styles.stepCol}>
                 <View style={[styles.stepDot, step > i + 1 && styles.stepDotDone, step === i + 1 && styles.stepDotActive]}>
                   {step > i + 1 ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> :
                     <Text style={[styles.stepNum, step === i + 1 && { color: "#FFFFFF" }]}>{i + 1}</Text>}
                 </View>
                 <Text style={[styles.stepLabel, step === i + 1 && { color: COLORS.brand, fontFamily: FONT.bold }]}>{label}</Text>
-                {i < 3 && <View style={[styles.stepLine, step > i + 1 && styles.stepLineDone]} />}
+                {i < 2 && <View style={[styles.stepLine, step > i + 1 && styles.stepLineDone]} />}
               </View>
             ))}
           </View>
@@ -205,7 +216,8 @@ export default function ShopDetail() {
           {step === 1 && (
             <View>
               <Text style={styles.sec}>PILIH LAYANAN</Text>
-              {shop.services.map((s: any) => (
+              {(barber.services || []).length === 0 && <Text style={styles.empty}>StreetBarber ini belum menambahkan layanan.</Text>}
+              {(barber.services || []).map((s: any) => (
                 <PressableScale key={s.id} testID={`svc-${s.id}`} style={[styles.item, service?.id === s.id && styles.itemActive]} onPress={() => setService(s)} scaleTo={0.98}>
                   <View style={[styles.svcIcon, service?.id === s.id && { backgroundColor: COLORS.brand }]}>
                     <Ionicons name="cut" size={18} color={service?.id === s.id ? "#FFFFFF" : COLORS.brand} />
@@ -225,35 +237,6 @@ export default function ShopDetail() {
             </View>
           )}
           {step === 2 && (
-            <View>
-              <Text style={styles.sec}>PILIH BARBER</Text>
-              {shop.barbers.filter((b: any) => !b.is_street_barber).length === 0 && (
-                <Text style={styles.empty}>Belum ada barber toko.</Text>
-              )}
-              {shop.barbers.filter((b: any) => !b.is_street_barber).map((b: any) => (
-                <PressableScale key={b.id} testID={`barber-${b.id}`} style={[styles.item, barber?.id === b.id && styles.itemActive]} onPress={() => setBarber(b)} scaleTo={0.98}>
-                  {b.photo ?
-                    <Image source={{ uri: b.photo }} style={styles.brAvatar} /> :
-                    <View style={[styles.brAvatarFallback, barber?.id === b.id && { backgroundColor: COLORS.brand }]}>
-                      <Text style={[styles.brInitial, barber?.id === b.id && { color: "#FFFFFF" }]}>{b.name[0]}</Text>
-                    </View>}
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.itemName}>{b.name}</Text>
-                    <View style={styles.skillBadge}>
-                      <Text style={styles.skillText}>{b.skill_level}</Text>
-                    </View>
-                    <Text style={styles.itemMeta}>{b.specialization}</Text>
-                  </View>
-                  {barber?.id === b.id && (
-                    <View style={styles.checkedPill}>
-                      <Ionicons name="checkmark" size={12} color="#FFFFFF" />
-                    </View>
-                  )}
-                </PressableScale>
-              ))}
-            </View>
-          )}
-          {step === 3 && (
             <View>
               <Text style={styles.sec}>PILIH TANGGAL & JAM</Text>
 
@@ -317,7 +300,7 @@ export default function ShopDetail() {
               </View>
 
               <View style={styles.slotList}>
-                {slots.length === 0 && <Text style={styles.empty}>Toko tutup atau tidak ada slot.</Text>}
+                {slots.length === 0 && <Text style={styles.empty}>Tidak ada slot tersedia.</Text>}
                 {(showAllSlots ? slots : slots.slice(0, 5)).map((sl) => {
                   const selected = slotTime === sl.time;
                   return (
@@ -356,20 +339,38 @@ export default function ShopDetail() {
               </View>
             </View>
           )}
-          {step === 4 && (
+          {step === 3 && (
             <View>
+              <View style={styles.homeBox}>
+                <Text style={styles.homeFeeNote}>
+                  + {rupiah(barber.home_service_fee || 0)} biaya layanan ke rumah
+                </Text>
+                <TextInput
+                  style={styles.addrInput}
+                  placeholder="Alamat rumah (patokan, nama jalan, dsb)"
+                  placeholderTextColor={COLORS.textDim}
+                  value={customerAddress}
+                  onChangeText={setCustomerAddress}
+                  testID="home-address-input"
+                  multiline
+                />
+                <PressableScale style={styles.gpsBtn} onPress={useCurrentLocation} disabled={gpsLoading} testID="use-current-location" scaleTo={0.97}>
+                  <Ionicons name={customerCoords ? "checkmark-circle" : "locate"} size={16} color={customerCoords ? COLORS.success : COLORS.brand} />
+                  <Text style={[styles.gpsBtnText, customerCoords && { color: COLORS.success }]}>
+                    {gpsLoading ? "Mengambil lokasi..." : customerCoords ? "Lokasi tersimpan" : "Pakai Lokasi Saat Ini"}
+                  </Text>
+                </PressableScale>
+              </View>
+
               <View style={styles.summaryCard}>
                 <Text style={styles.sec}>RINGKASAN PESANAN</Text>
                 <SummaryRow label="Layanan" value={service?.name} />
-                <SummaryRow label="Barber" value={barber?.name} />
+                <SummaryRow label="StreetBarber" value={barber?.name} />
                 <SummaryRow label="Tanggal" value={date} />
                 <SummaryRow label="Jam" value={`${slotTime} WITA`} />
-                <SummaryRow label="Metode" value="Datang ke Toko" />
                 <View style={styles.divider} />
                 {(() => {
-                  // Estimasi tampilan sebelum booking dibuat — angka final selalu dihitung ulang
-                  // di server saat POST /bookings. 0.007 harus sinkron dengan PAYMENT_FEE_RATE_QRIS backend.
-                  const servicePrice = service?.price || 0;
+                  const servicePrice = (service?.price || 0) + (barber.home_service_fee || 0);
                   const adminFeeEst = Math.round(servicePrice * 0.007);
                   return (
                     <>
@@ -392,9 +393,9 @@ export default function ShopDetail() {
                 <Text style={styles.navSecText}>KEMBALI</Text>
               </PressableScale>
             )}
-            {step < 4 && (
-              <PressableScale testID="next-step" style={[styles.navPri, ((step === 1 && !service) || (step === 2 && !barber) || (step === 3 && !slotTime)) && { opacity: 0.4 }]}
-                disabled={(step === 1 && !service) || (step === 2 && !barber) || (step === 3 && !slotTime)} onPress={() => setStep(step + 1)}>
+            {step < 3 && (
+              <PressableScale testID="next-step" style={[styles.navPri, ((step === 1 && !service) || (step === 2 && !slotTime)) && { opacity: 0.4 }]}
+                disabled={(step === 1 && !service) || (step === 2 && !slotTime)} onPress={() => setStep(step + 1)}>
                 <LinearGradient
                   colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
                   start={{ x: 0, y: 0 }}
@@ -406,12 +407,12 @@ export default function ShopDetail() {
                 </LinearGradient>
               </PressableScale>
             )}
-            {step === 4 && (
+            {step === 3 && (
               <PressableScale
                 testID="confirm-booking"
-                style={[styles.navPri, creating && { opacity: 0.4 }]}
+                style={[styles.navPri, (creating || !customerCoords) && { opacity: 0.4 }]}
                 onPress={createBooking}
-                disabled={creating}
+                disabled={creating || !customerCoords}
               >
                 <LinearGradient
                   colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
@@ -496,25 +497,15 @@ function SummaryRow({ label, value }: any) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  hero: { position: "relative" },
-  heroImg: { width: "100%", height: 240 },
-  heroScrim: { position: "absolute", top: 0, left: 0, right: 0, height: 120 },
-  backBtn: { position: "absolute", top: 12, left: 12, width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.92)", alignItems: "center", justifyContent: "center", shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 8, elevation: 4 },
-  body: { padding: 20, marginTop: -20, backgroundColor: COLORS.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24 },
-  nameRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
-  name: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, letterSpacing: -0.3 },
-  closedBadge: { backgroundColor: "#FEF2F2", borderWidth: 1, borderColor: COLORS.error, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
-  closedBadgeText: { color: COLORS.error, fontSize: 10, fontFamily: FONT.bold, letterSpacing: 0.4 },
-  openBadge: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "#ECFDF5", borderWidth: 1, borderColor: COLORS.success, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
-  openDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.success },
-  openBadgeText: { color: COLORS.success, fontSize: 10, fontFamily: FONT.bold, letterSpacing: 0.4 },
-  metaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 8 },
-  metaItem: { flexDirection: "row", alignItems: "center", gap: 4 },
-  metaText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
-  metaDim: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium },
-  dot: { width: 3, height: 3, borderRadius: 999, backgroundColor: COLORS.textDim },
-  addrRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 6 },
-  addr: { color: COLORS.textMuted, fontSize: 12, fontFamily: FONT.medium, flex: 1 },
+  hero: { alignItems: "center", paddingTop: 12, paddingBottom: 20, paddingHorizontal: 20, backgroundColor: COLORS.surface, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
+  backBtn: { position: "absolute", top: 12, left: 12, width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.surface2, alignItems: "center", justifyContent: "center" },
+  backBtnFlat: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.surface2, alignItems: "center", justifyContent: "center", marginBottom: 16 },
+  heroAvatar: { width: 88, height: 88, borderRadius: 44, backgroundColor: COLORS.surface2, marginTop: 24 },
+  heroAvatarFallback: { alignItems: "center", justifyContent: "center", backgroundColor: COLORS.brandDim },
+  heroInitial: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 32 },
+  heroName: { color: COLORS.text, fontSize: 20, fontFamily: FONT.extrabold, marginTop: 12 },
+  validatorHint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 8, textAlign: "center" },
+  body: { padding: 20, backgroundColor: COLORS.bg },
 
   stepper: { flexDirection: "row", justifyContent: "space-between", marginVertical: 24, backgroundColor: COLORS.surface, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2 },
   stepCol: { alignItems: "center", flex: 1 },
@@ -537,11 +528,8 @@ const styles = StyleSheet.create({
   itemMeta: { color: COLORS.textDim, fontSize: 12, marginTop: 2, fontFamily: FONT.medium },
   itemPrice: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 14 },
   checkedPill: { width: 22, height: 22, borderRadius: 11, backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center", position: "absolute", top: -6, right: -6, borderWidth: 2, borderColor: "#FFFFFF" },
-  brAvatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.surface2 },
-  brAvatarFallback: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
-  brInitial: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 18 },
-  skillBadge: { alignSelf: "flex-start", backgroundColor: COLORS.brandDim, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, marginTop: 4 },
-  skillText: { color: COLORS.brand, fontSize: 10, fontFamily: FONT.bold },
+  skillBadge: { alignSelf: "center", backgroundColor: COLORS.brandDim, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginTop: 8 },
+  skillText: { color: COLORS.brand, fontSize: 11, fontFamily: FONT.bold },
 
   calendarCard: {
     backgroundColor: COLORS.surface, borderRadius: 18, padding: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 16,
@@ -577,6 +565,11 @@ const styles = StyleSheet.create({
   seeMoreBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 14, backgroundColor: COLORS.brandDim, marginTop: 2 },
   seeMoreText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 13 },
 
+  homeBox: { backgroundColor: COLORS.brandDim, padding: 14, borderRadius: 16, marginBottom: 14, gap: 10 },
+  homeFeeNote: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 12 },
+  addrInput: { backgroundColor: COLORS.surface, color: COLORS.text, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, fontFamily: FONT.medium, fontSize: 13, minHeight: 60, textAlignVertical: "top" },
+  gpsBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.surface, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
+  gpsBtnText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 13 },
   summaryCard: { backgroundColor: COLORS.surface, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3 },
   sumRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 8 },
   sumLabel: { color: COLORS.textDim, fontFamily: FONT.medium },

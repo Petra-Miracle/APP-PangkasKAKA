@@ -82,7 +82,11 @@ export default function Home() {
   const rebook = () => {
     const lb = analytics?.last_booking;
     if (!lb) return;
-    router.push({ pathname: `/(customer)/shop/${lb.shop_id}`, params: { rebookServiceId: lb.service_id, rebookBarberId: lb.barber_id || "" } } as any);
+    if (lb.is_street_barber) {
+      router.push({ pathname: `/(customer)/barber/${lb.barber_id}`, params: { rebookServiceId: lb.service_id } } as any);
+    } else {
+      router.push({ pathname: `/(customer)/shop/${lb.shop_id}`, params: { rebookServiceId: lb.service_id, rebookBarberId: lb.barber_id || "" } } as any);
+    }
   };
 
   return (
@@ -181,7 +185,7 @@ export default function Home() {
             </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
               {nearbyBarbers.map((b: any) => (
-                <PressableScale key={b.id} testID={`nearby-barber-${b.id}`} style={styles.barberCard} onPress={() => router.push({ pathname: `/(customer)/shop/${b.shop_id}`, params: { presetBarberId: b.id } } as any)} scaleTo={0.95}>
+                <PressableScale key={b.id} testID={`nearby-barber-${b.id}`} style={styles.barberCard} onPress={() => router.push(`/(customer)/barber/${b.id}` as any)} scaleTo={0.95}>
                   <Image source={{ uri: b.photo }} style={styles.barberImg} contentFit="cover" />
                   <View style={styles.onlineDot} />
                   <Text style={styles.barberName} numberOfLines={1}>{b.name}</Text>
