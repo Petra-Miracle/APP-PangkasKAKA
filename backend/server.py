@@ -2848,6 +2848,216 @@ async def admin_mark_payout_paid(payout_id: str, user=Depends(require_role("supe
 
 
 # ============================================================
+# SUPERADMIN — pantau StreetBarber (read-only)
+# Membuka data yang selama ini hanya bisa dilihat StreetBarber sendiri lewat
+# /streetbarber/*, /wallets/me, /karyawan/* — supaya SuperAdmin bisa memantau
+# transaksi, layanan, jadwal, dompet, dan lamaran tiap StreetBarber.
+# `barber_id` di semua endpoint ini = profiles.id (role streetbarber).
+# ============================================================
+async def _street_barber_context(profile_id: str) -> dict:
+    profile = await db.profiles.find_one(
+        {"id": profile_id, "role": "streetbarber"}, {"_id": 0, "password": 0}
+    )
+    if not profile:
+        raise HTTPException(404, "StreetBarber tidak ditemukan")
+    apps = await db.karyawan.find({"profile_id": profile_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    active = next((a for a in apps if a.get("status") == "active"), None)
+    barbers = []
+    if apps:
+        barbers = await db.barbers.find(
+            {"karyawan_id": {"$in": [a["id"] for a in apps]}}, {"_id": 0}
+        ).to_list(50)
+    return {"profile": profile, "applications": apps, "active": active, "barbers": barbers}
+
+
+async def _street_barber_month_earnings(barber_ids: list) -> dict:
+    if not barber_ids:
+        return {"monthly_revenue": 0, "completed_count": 0}
+    month_start = datetime.now(WITA).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+    paid = await db.bookings.find(
+        {"barber_id": {"$in": barber_ids}, "payment_status": "paid",
+         "fund_state": {"$ne": "refunded"}, "created_at": {"$gte": month_start}},
+        {"_id": 0, "total_price": 1, "amount_barber_net": 1},
+    ).to_list(2000)
+    return {
+        "monthly_revenue": sum(b.get("amount_barber_net", b.get("total_price", 0)) for b in paid),
+        "completed_count": len(paid),
+    }
+
+
+@api.get("/admin/street-barbers")
+async def admin_list_street_barbers(search: str = "", size: int = 200, user=Depends(require_role("superadmin"))):
+    q = {"role": "streetbarber"}
+    if search:
+        q["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}},
+            {"phone": {"$regex": search, "$options": "i"}},
+        ]
+    total = await db.profiles.count_documents(q)
+    profiles = await db.profiles.find(q, {"_id": 0, "password": 0}).sort("created_at", -1).limit(size).to_list(size)
+    pids = [p["id"] for p in profiles]
+    kys = await db.karyawan.find(
+        {"profile_id": {"$in": pids}}, {"_id": 0, "id": 1, "profile_id": 1, "status": 1}
+    ).to_list(5000) if pids else []
+    active_by_pid = {}
+    for k in kys:
+        if k.get("status") == "active":
+            active_by_pid[k["profile_id"]] = k["id"]
+    active_ids = list(active_by_pid.values())
+    barbers = await db.barbers.find(
+        {"karyawan_id": {"$in": active_ids}}, {"_id": 0, "karyawan_id": 1, "rating": 1, "skill_level": 1}
+    ).to_list(5000) if active_ids else []
+    barber_by_ky = {b["karyawan_id"]: b for b in barbers}
+    locs = await db.karyawan_locations.find(
+        {"karyawan_id": {"$in": active_ids}}, {"_id": 0, "karyawan_id": 1, "is_online": 1, "updated_at": 1}
+    ).to_list(5000) if active_ids else []
+    loc_by_ky = {l["karyawan_id"]: l for l in locs}
+    wallets = await db.wallets.find(
+        {"owner_type": "karyawan", "owner_id": {"$in": active_ids}},
+        {"_id": 0, "owner_id": 1, "balance_pending": 1, "balance_available": 1},
+    ).to_list(5000) if active_ids else []
+    w_by_ky = {w["owner_id"]: w for w in wallets}
+    rows = []
+    for p in profiles:
+        aky = active_by_pid.get(p["id"])
+        b = barber_by_ky.get(aky) or {}
+        loc = loc_by_ky.get(aky) or {}
+        w = w_by_ky.get(aky) or {}
+        rows.append({
+            **p,
+            "onboarding_status": "active" if aky else "not_active",
+            "skill_level": b.get("skill_level"),
+            "rating": b.get("rating", 0.0),
+            "is_online": bool(loc.get("is_online")),
+            "location_updated_at": loc.get("updated_at"),
+            "undisbursed_balance": w.get("balance_pending", 0) + w.get("balance_available", 0),
+        })
+    return {"total": total, "street_barbers": rows}
+
+
+@api.get("/admin/street-barbers/{barber_id}")
+async def admin_street_barber_detail(barber_id: str, user=Depends(require_role("superadmin"))):
+    ctx = await _street_barber_context(barber_id)
+    profile, apps, active, barbers = ctx["profile"], ctx["applications"], ctx["active"], ctx["barbers"]
+    shop_ids = list({a["shop_id"] for a in apps})
+    shops = {
+        s["id"]: s
+        for s in await db.barbershops.find(
+            {"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1, "image": 1, "address": 1}
+        ).to_list(100)
+    }
+    for a in apps:
+        a["shop"] = shops.get(a["shop_id"])
+    loc = wallet = None
+    if active:
+        loc = await db.karyawan_locations.find_one({"karyawan_id": active["id"]}, {"_id": 0})
+        wallet = await db.wallets.find_one(
+            {"owner_type": "karyawan", "owner_id": active["id"]}, {"_id": 0}
+        )
+    return {
+        "profile": profile,
+        "onboarding_status": "active" if active else "not_active",
+        "active_application": active,
+        "applications": apps,
+        "barber_record": barbers[0] if barbers else None,
+        "bank_account": None if not active else {
+            "bank_name": active.get("bank_name", ""),
+            "account_number": active.get("bank_account_number", ""),
+            "account_holder": active.get("bank_account_holder", ""),
+        },
+        "home_service_fee": None if not active else active.get("home_service_fee", 0),
+        "location": loc,
+        "wallet": wallet,
+        "earnings_this_month": await _street_barber_month_earnings([b["id"] for b in barbers]),
+    }
+
+
+@api.get("/admin/street-barbers/{barber_id}/services")
+async def admin_street_barber_services(barber_id: str, user=Depends(require_role("superadmin"))):
+    ctx = await _street_barber_context(barber_id)
+    if not ctx["active"]:
+        return {"services": []}
+    services = await db.streetbarber_services.find(
+        {"karyawan_id": ctx["active"]["id"]}, {"_id": 0}
+    ).sort("created_at", 1).to_list(200)
+    return {"services": services}
+
+
+@api.get("/admin/street-barbers/{barber_id}/schedule")
+async def admin_street_barber_schedule(barber_id: str, user=Depends(require_role("superadmin"))):
+    ctx = await _street_barber_context(barber_id)
+    if not ctx["active"]:
+        return {"schedules": [], "overrides": []}
+    kid = ctx["active"]["id"]
+    schedules = await db.karyawan_schedules.find({"karyawan_id": kid}, {"_id": 0}).to_list(20)
+    overrides = await db.karyawan_schedule_overrides.find(
+        {"karyawan_id": kid}, {"_id": 0}
+    ).sort("date", 1).to_list(200)
+    return {"schedules": schedules, "overrides": overrides}
+
+
+@api.get("/admin/street-barbers/{barber_id}/wallet")
+async def admin_street_barber_wallet(barber_id: str, page: int = 1, size: int = 20, user=Depends(require_role("superadmin"))):
+    ctx = await _street_barber_context(barber_id)
+    if not ctx["active"]:
+        return {"wallet": None, "entries": [], "total": 0, "payouts": []}
+    kid = ctx["active"]["id"]
+    wallet = await db.wallets.find_one({"owner_type": "karyawan", "owner_id": kid}, {"_id": 0})
+    if not wallet:
+        return {"wallet": None, "entries": [], "total": 0, "payouts": []}
+    skip = max(0, (page - 1) * size)
+    entries = await db.ledger_entries.find(
+        {"wallet_id": wallet["id"]}, {"_id": 0}
+    ).sort("created_at", -1).skip(skip).limit(size).to_list(size)
+    total = await db.ledger_entries.count_documents({"wallet_id": wallet["id"]})
+    payouts = await db.payouts.find({"wallet_id": wallet["id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return {"wallet": wallet, "entries": entries, "total": total, "page": page, "size": size, "payouts": payouts}
+
+
+@api.get("/admin/street-barbers/{barber_id}/bookings")
+async def admin_street_barber_bookings(barber_id: str, status: str = "", page: int = 1, size: int = 20, user=Depends(require_role("superadmin"))):
+    ctx = await _street_barber_context(barber_id)
+    barber_ids = [b["id"] for b in ctx["barbers"]]
+    if not barber_ids:
+        return {"bookings": [], "total": 0}
+    q = {"barber_id": {"$in": barber_ids}}
+    if status:
+        q["status"] = status
+    skip = max(0, (page - 1) * size)
+    total = await db.bookings.count_documents(q)
+    bookings = await db.bookings.find(q, {"_id": 0}).sort("created_at", -1).skip(skip).limit(size).to_list(size)
+    svc_ids = list({b.get("service_id") for b in bookings if b.get("service_id")})
+    cust_ids = list({b.get("user_id") for b in bookings if b.get("user_id")})
+    b_shop_ids = list({b.get("shop_id") for b in bookings if b.get("shop_id")})
+    svcs = {s["id"]: s for s in await db.services.find({"id": {"$in": svc_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500)}
+    sb_svcs = {s["id"]: s for s in await db.streetbarber_services.find({"id": {"$in": svc_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500)}
+    custs = {c["id"]: c for c in await db.profiles.find({"id": {"$in": cust_ids}}, {"_id": 0, "id": 1, "name": 1, "phone": 1}).to_list(500)}
+    shps = {s["id"]: s for s in await db.barbershops.find({"id": {"$in": b_shop_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(500)}
+    for b in bookings:
+        b["service"] = svcs.get(b.get("service_id")) or sb_svcs.get(b.get("service_id"))
+        b["customer"] = custs.get(b.get("user_id"))
+        b["shop"] = shps.get(b.get("shop_id"))
+    return {"bookings": bookings, "total": total, "page": page, "size": size}
+
+
+@api.get("/admin/street-barbers/{barber_id}/applications")
+async def admin_street_barber_applications(barber_id: str, user=Depends(require_role("superadmin"))):
+    ctx = await _street_barber_context(barber_id)
+    apps = ctx["applications"]
+    shop_ids = list({a["shop_id"] for a in apps})
+    shops = {
+        s["id"]: s
+        for s in await db.barbershops.find(
+            {"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1, "image": 1, "address": 1}
+        ).to_list(100)
+    }
+    for a in apps:
+        a["shop"] = shops.get(a["shop_id"])
+    return {"applications": apps}
+
+
+# ============================================================
 # NOTIFICATIONS
 # ============================================================
 @api.post("/devices/push-token")
