@@ -3743,7 +3743,13 @@ async def analytics_customer(user=Depends(require_role("customer"))):
     if upcoming:
         b = upcoming[0]
         b["shop"] = await db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0, "name": 1, "image": 1, "address": 1})
-        b["service"] = await db.services.find_one({"id": b["service_id"]}, {"_id": 0, "name": 1})
+        barber = await db.barbers.find_one({"id": b["barber_id"]}, {"_id": 0, "name": 1, "photo": 1, "karyawan_id": 1})
+        b["barber"] = barber
+        b["is_street_barber"] = bool(barber and barber.get("karyawan_id"))
+        if b["is_street_barber"]:
+            b["service"] = await db.streetbarber_services.find_one({"id": b["service_id"]}, {"_id": 0, "name": 1})
+        else:
+            b["service"] = await db.services.find_one({"id": b["service_id"]}, {"_id": 0, "name": 1})
         # days until
         try:
             dt = datetime.strptime(f"{b['booking_date']} {b['booking_time']}", "%Y-%m-%d %H:%M").replace(tzinfo=WITA)
@@ -3777,14 +3783,18 @@ async def analytics_customer(user=Depends(require_role("customer"))):
     if completed:
         lb = sorted(completed, key=lambda x: x["created_at"], reverse=True)[0]
         shop = await db.barbershops.find_one({"id": lb["shop_id"]}, {"_id": 0, "name": 1, "image": 1})
-        service = await db.services.find_one({"id": lb["service_id"]}, {"_id": 0, "name": 1})
-        barber = await db.barbers.find_one({"id": lb["barber_id"]}, {"_id": 0, "karyawan_id": 1})
+        barber = await db.barbers.find_one({"id": lb["barber_id"]}, {"_id": 0, "name": 1, "photo": 1, "karyawan_id": 1})
+        is_sb = bool(barber and barber.get("karyawan_id"))
+        if is_sb:
+            service = await db.streetbarber_services.find_one({"id": lb["service_id"]}, {"_id": 0, "name": 1})
+        else:
+            service = await db.services.find_one({"id": lb["service_id"]}, {"_id": 0, "name": 1})
         if shop and service:
             last_booking = {
                 "shop_id": lb["shop_id"], "shop_name": shop["name"], "shop_image": shop["image"],
                 "service_id": lb["service_id"], "service_name": service["name"],
-                "barber_id": lb["barber_id"],
-                "is_street_barber": bool(barber and barber.get("karyawan_id")),
+                "barber_id": lb["barber_id"], "barber_name": (barber or {}).get("name"),
+                "is_street_barber": is_sb,
             }
 
     return {

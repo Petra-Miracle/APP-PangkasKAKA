@@ -6,6 +6,7 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { Map, Camera, Marker } from "@maplibre/maplibre-react-native";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import PressableScale from "@/src/components/PressableScale";
@@ -16,6 +17,22 @@ import Skeleton from "@/src/components/Skeleton";
 // (lihat Noted/2026-09-02/Mentoring/Karyawan.md): toko cuma jadi validator berkas & skill.
 // Layanan, harga & biaya ke rumah di sini murni milik StreetBarber sendiri (GET /barbers/{id}),
 // bukan dipinjam dari katalog toko validator.
+
+// Raster tile OSM gratis, tanpa API key — sama seperti app/booking/track/[bookingId].tsx.
+const OSM_STYLE = {
+  version: 8 as const,
+  sources: {
+    osm: {
+      type: "raster" as const,
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      attribution: "© OpenStreetMap contributors",
+    },
+  },
+  layers: [{ id: "osm", type: "raster" as const, source: "osm" }],
+};
+const DEFAULT_CENTER: [number, number] = [123.607, -10.1789]; // Kupang, [lng, lat]
+
 export default function BarberProfile() {
   const { id, rebookServiceId } = useLocalSearchParams<{ id: string; rebookServiceId?: string }>();
   const router = useRouter();
@@ -34,6 +51,9 @@ export default function BarberProfile() {
   const [countdown, setCountdown] = useState(15 * 60);
   const [customerAddress, setCustomerAddress] = useState("");
   const [customerCoords, setCustomerCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [mapCenter, setMapCenter] = useState<[number, number]>(
+    user?.lat != null && user?.lng != null ? [user.lng, user.lat] : DEFAULT_CENTER
+  );
   const [gpsLoading, setGpsLoading] = useState(false);
 
   const useCurrentLocation = async () => {
@@ -43,7 +63,15 @@ export default function BarberProfile() {
       if (status !== "granted") { alert("Izin lokasi dibutuhkan untuk booking ke rumah"); return; }
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       setCustomerCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      setMapCenter([loc.coords.longitude, loc.coords.latitude]);
     } catch { alert("Gagal mengambil lokasi, coba lagi"); } finally { setGpsLoading(false); }
+  };
+
+  const onMapPress = (e: any) => {
+    const [lng, lat] = e.nativeEvent?.lngLat || e.geometry?.coordinates || [];
+    if (lat == null || lng == null) return;
+    setCustomerCoords({ lat, lng });
+    setMapCenter([lng, lat]);
   };
 
   useEffect(() => {
@@ -345,6 +373,19 @@ export default function BarberProfile() {
                 <Text style={styles.homeFeeNote}>
                   + {rupiah(barber.home_service_fee || 0)} biaya layanan ke rumah
                 </Text>
+                <Text style={styles.mapHint}>Ketuk peta untuk menandai lokasi rumahmu</Text>
+                <View style={styles.mapBox}>
+                  <Map mapStyle={OSM_STYLE} style={{ flex: 1 }} attribution logo={false} compass={false} scaleBar={false} onPress={onMapPress}>
+                    <Camera center={mapCenter} zoom={15} duration={400} />
+                    {customerCoords && (
+                      <Marker id="home-pin" lngLat={[customerCoords.lng, customerCoords.lat]}>
+                        <View style={styles.mapPin}>
+                          <Ionicons name="home" size={16} color="#FFFFFF" />
+                        </View>
+                      </Marker>
+                    )}
+                  </Map>
+                </View>
                 <TextInput
                   style={styles.addrInput}
                   placeholder="Alamat rumah (patokan, nama jalan, dsb)"
@@ -357,7 +398,7 @@ export default function BarberProfile() {
                 <PressableScale style={styles.gpsBtn} onPress={useCurrentLocation} disabled={gpsLoading} testID="use-current-location" scaleTo={0.97}>
                   <Ionicons name={customerCoords ? "checkmark-circle" : "locate"} size={16} color={customerCoords ? COLORS.success : COLORS.brand} />
                   <Text style={[styles.gpsBtnText, customerCoords && { color: COLORS.success }]}>
-                    {gpsLoading ? "Mengambil lokasi..." : customerCoords ? "Lokasi tersimpan" : "Pakai Lokasi Saat Ini"}
+                    {gpsLoading ? "Mengambil lokasi..." : customerCoords ? "Titik lokasi tersimpan" : "Pakai Lokasi Saat Ini"}
                   </Text>
                 </PressableScale>
               </View>
@@ -567,6 +608,12 @@ const styles = StyleSheet.create({
 
   homeBox: { backgroundColor: COLORS.brandDim, padding: 14, borderRadius: 16, marginBottom: 14, gap: 10 },
   homeFeeNote: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 12 },
+  mapHint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11 },
+  mapBox: { height: 200, borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: COLORS.border },
+  mapPin: {
+    width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: "#FFFFFF", shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 4, elevation: 4,
+  },
   addrInput: { backgroundColor: COLORS.surface, color: COLORS.text, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, fontFamily: FONT.medium, fontSize: 13, minHeight: 60, textAlignVertical: "top" },
   gpsBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.surface, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
   gpsBtnText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 13 },

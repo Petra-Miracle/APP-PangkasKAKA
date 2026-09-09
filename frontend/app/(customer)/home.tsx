@@ -225,7 +225,9 @@ export default function Home() {
                   </Text>
                 </View>
               </View>
-              <Text style={styles.activeShop} numberOfLines={1}>{analytics.active_booking.shop?.name}</Text>
+              <Text style={styles.activeShop} numberOfLines={1}>
+                {analytics.active_booking.is_street_barber ? analytics.active_booking.barber?.name : analytics.active_booking.shop?.name}
+              </Text>
               <Text style={styles.activeMeta}>{analytics.active_booking.service?.name} · {analytics.active_booking.booking_time} WITA</Text>
               <View style={styles.trackerRow}>
                 {["Menunggu Bayar", "Terkonfirmasi", "Selesai"].map((step, i) => {
@@ -252,7 +254,9 @@ export default function Home() {
             <View style={{ flex: 1 }}>
               <Text style={styles.rebookLabel}>PESAN ULANG</Text>
               <Text style={styles.rebookTitle} numberOfLines={1}>{analytics.last_booking.service_name}</Text>
-              <Text style={styles.rebookSub} numberOfLines={1}>di {analytics.last_booking.shop_name}</Text>
+              <Text style={styles.rebookSub} numberOfLines={1}>
+                {analytics.last_booking.is_street_barber ? `bersama ${analytics.last_booking.barber_name}` : `di ${analytics.last_booking.shop_name}`}
+              </Text>
             </View>
             <View style={styles.rebookIcon}>
               <Ionicons name="repeat" size={18} color={COLORS.brand} />
