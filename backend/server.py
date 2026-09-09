@@ -549,6 +549,26 @@ class ProductIn(BaseModel):
     photo: str = ""  # data-URL base64 dari ImagePicker, atau "" kalau tidak ganti foto
 
 
+class ShopAdminProductIn(BaseModel):
+    name: str
+    price: int
+    description: str = ""
+    category: str = ""
+    image_url: str = ""  # base64 data-URL atau URL gambar
+    stock: int = 0
+    is_active: bool = True
+    shop_id: str
+
+
+class ShopAdminServiceIn(BaseModel):
+    name: str
+    price: int
+    description: str = ""
+    duration_minutes: int = 30
+    is_active: bool = True
+    shop_id: str
+
+
 FACE_SHAPES = ("oval", "round", "square", "oblong", "heart")
 
 
@@ -4584,6 +4604,212 @@ async def berkas_decision(kid: str, body: BerkasDecisionIn, user=Depends(require
     return {"ok": True, "status": new_status}
 
 
+# ============================================================
+# SHOP-ADMIN: PRODUK
+# ============================================================
+
+@api.get("/shop-admin/products")
+async def admin_list_products(user=Depends(require_role("admin"))):
+    shop_ids = user.get("managed_shop_ids", [])
+    if not shop_ids:
+        return {"products": []}
+    products = await db.products.find(
+        {"shop_id": {"$in": shop_ids}}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    for p in products:
+        p["image_url"] = p.pop("image", "")
+    return {"products": products}
+
+
+@api.post("/shop-admin/products")
+async def admin_add_product(body: ShopAdminProductIn, user=Depends(require_role("admin"))):
+    if body.shop_id not in user.get("managed_shop_ids", []):
+        raise HTTPException(403, "Bukan toko yang Anda kelola")
+    image = await upload_to_r2(body.image_url, f"shops/{body.shop_id}/products") if body.image_url else ""
+    doc = {
+        "id": new_id(), "shop_id": body.shop_id, "name": body.name,
+        "price": body.price, "description": body.description,
+        "category": body.category, "image": image, "stock": body.stock,
+        "is_active": body.is_active, "created_by": "admin",
+        "created_at": now_utc().isoformat(), "updated_at": now_utc().isoformat(),
+    }
+    await db.products.insert_one(doc)
+    doc["image_url"] = doc.pop("image", "")
+    return {"product": clean(doc)}
+
+
+@api.put("/shop-admin/products/{pid}")
+async def admin_update_product(pid: str, body: ShopAdminProductIn, user=Depends(require_role("admin"))):
+    if body.shop_id not in user.get("managed_shop_ids", []):
+        raise HTTPException(403, "Bukan toko yang Anda kelola")
+    update = {
+        "name": body.name, "price": body.price, "description": body.description,
+        "category": body.category, "stock": body.stock, "is_active": body.is_active,
+        "updated_at": now_utc().isoformat(),
+    }
+    if body.image_url:
+        update["image"] = await upload_to_r2(body.image_url, f"shops/{body.shop_id}/products")
+    r = await db.products.update_one({"id": pid, "shop_id": body.shop_id}, {"$set": update})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Produk tidak ditemukan")
+    return {"ok": True}
+
+
+@api.delete("/shop-admin/products/{pid}")
+async def admin_delete_product(pid: str, user=Depends(require_role("admin"))):
+    shop_ids = user.get("managed_shop_ids", [])
+    r = await db.products.delete_one({"id": pid, "shop_id": {"$in": shop_ids}})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Produk tidak ditemukan")
+    return {"ok": True}
+
+
+# ============================================================
+# SHOP-ADMIN: LAYANAN
+# ============================================================
+
+@api.get("/shop-admin/services")
+async def admin_list_services(user=Depends(require_role("admin"))):
+    shop_ids = user.get("managed_shop_ids", [])
+    if not shop_ids:
+        return {"services": []}
+    services = await db.services.find(
+        {"shop_id": {"$in": shop_ids}}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    for s in services:
+        s["duration_minutes"] = s.pop("duration", 30)
+        s.setdefault("is_active", True)
+        s.setdefault("description", "")
+        s.setdefault("updated_at", s.get("created_at", ""))
+    return {"services": services}
+
+
+@api.post("/shop-admin/services")
+async def admin_add_service(body: ShopAdminServiceIn, user=Depends(require_role("admin"))):
+    if body.shop_id not in user.get("managed_shop_ids", []):
+        raise HTTPException(403, "Bukan toko yang Anda kelola")
+    doc = {
+        "id": new_id(), "shop_id": body.shop_id, "name": body.name,
+        "price": body.price, "description": body.description,
+        "duration": body.duration_minutes, "is_active": body.is_active,
+        "created_by": "admin",
+        "created_at": now_utc().isoformat(), "updated_at": now_utc().isoformat(),
+    }
+    await db.services.insert_one(doc)
+    doc["duration_minutes"] = doc.pop("duration", 30)
+    doc.setdefault("is_active", True)
+    doc.setdefault("description", "")
+    doc.setdefault("updated_at", doc.get("created_at", ""))
+    return {"service": clean(doc)}
+
+
+@api.put("/shop-admin/services/{sid}")
+async def admin_update_service(sid: str, body: ShopAdminServiceIn, user=Depends(require_role("admin"))):
+    if body.shop_id not in user.get("managed_shop_ids", []):
+        raise HTTPException(403, "Bukan toko yang Anda kelola")
+    update = {
+        "name": body.name, "price": body.price, "description": body.description,
+        "duration": body.duration_minutes, "is_active": body.is_active,
+        "updated_at": now_utc().isoformat(),
+    }
+    r = await db.services.update_one({"id": sid, "shop_id": body.shop_id}, {"$set": update})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Layanan tidak ditemukan")
+    return {"ok": True}
+
+
+@api.delete("/shop-admin/services/{sid}")
+async def admin_delete_service(sid: str, user=Depends(require_role("admin"))):
+    shop_ids = user.get("managed_shop_ids", [])
+    r = await db.services.delete_one({"id": sid, "shop_id": {"$in": shop_ids}})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Layanan tidak ditemukan")
+    return {"ok": True}
+
+
+# ============================================================
+# SHOP-ADMIN: REVENUE / KEUANGAN (read-only)
+# ============================================================
+
+@api.get("/shop-admin/revenue")
+async def admin_list_revenue(
+    shop_id: str = "",
+    type: str = "",
+    start_date: str = "",
+    end_date: str = "",
+    user=Depends(require_role("admin")),
+):
+    shop_ids = user.get("managed_shop_ids", [])
+    if not shop_ids:
+        return {"transactions": []}
+
+    query: dict = {"shop_id": {"$in": shop_ids}, "payment_status": "paid"}
+    if shop_id:
+        if shop_id not in shop_ids:
+            raise HTTPException(403, "Bukan toko yang Anda kelola")
+        query["shop_id"] = shop_id
+    if start_date:
+        query.setdefault("created_at", {})["$gte"] = start_date
+    if end_date:
+        query.setdefault("created_at", {})["$lte"] = end_date + "T23:59:59"
+
+    bookings = await db.bookings.find(query, {"_id": 0}).sort("created_at", -1).to_list(1000)
+
+    transactions = []
+    for b in bookings:
+        tx_type = "income"
+        amount = b.get("amount_barber_net", b.get("total_price", 0))
+        service = await db.services.find_one({"id": b.get("service_id", "")}, {"_id": 0, "name": 1})
+        transactions.append({
+            "id": b["id"],
+            "shop_id": b["shop_id"],
+            "type": tx_type,
+            "amount": amount,
+            "description": f"Pemesanan {service['name'] if service else 'Layanan'}",
+            "category": "Layanan",
+            "recorded_by": b.get("barber_id", ""),
+            "recorded_by_role": "streetbarber",
+            "created_at": b.get("created_at", ""),
+        })
+    return {"transactions": transactions}
+
+
+@api.get("/shop-admin/revenue/summary")
+async def admin_revenue_summary(
+    shop_id: str = "",
+    start_date: str = "",
+    end_date: str = "",
+    user=Depends(require_role("admin")),
+):
+    shop_ids = user.get("managed_shop_ids", [])
+    if not shop_ids:
+        return {
+            "shop_id": shop_id or "", "total_income": 0, "total_expense": 0,
+            "net_profit": 0, "transaction_count": 0,
+            "period_start": start_date or "", "period_end": end_date or "",
+        }
+
+    target_shop_ids = [shop_id] if shop_id and shop_id in shop_ids else shop_ids
+    query: dict = {"shop_id": {"$in": target_shop_ids}, "payment_status": "paid"}
+    if start_date:
+        query.setdefault("created_at", {})["$gte"] = start_date
+    if end_date:
+        query.setdefault("created_at", {})["$lte"] = end_date + "T23:59:59"
+
+    paid = await db.bookings.find(query, {"_id": 0, "total_price": 1, "amount_barber_net": 1}).to_list(5000)
+    total_income = sum(b.get("amount_barber_net", b.get("total_price", 0)) for b in paid)
+
+    return {
+        "shop_id": shop_id or "",
+        "total_income": total_income,
+        "total_expense": 0,
+        "net_profit": total_income,
+        "transaction_count": len(paid),
+        "period_start": start_date or "",
+        "period_end": end_date or "",
+    }
+
+
 @api.get("/recruitment/{kid}/messages")
 async def get_recruitment_messages(kid: str, user=Depends(get_current_user)):
     """
@@ -4750,6 +4976,7 @@ async def ensure_indexes():
     await db.bookings.create_index("fund_state")
     await db.products.create_index([("is_active", 1), ("created_at", -1)])
     await db.products.create_index("shop_id")
+    await db.services.create_index("shop_id")
 
 
 async def _auto_release_loop():
