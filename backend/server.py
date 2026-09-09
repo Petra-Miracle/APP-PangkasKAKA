@@ -5233,6 +5233,8 @@ async def admin_list_barbers(user=Depends(require_role("admin"))):
     barbers = await db.barbers.find(
         {"shop_id": {"$in": shop_ids}}, {"_id": 0}
     ).sort("created_at", -1).to_list(500)
+    for b in barbers:
+        b["is_active"] = b.get("status") == "active"
     return {"barbers": barbers}
 
 
@@ -5240,14 +5242,19 @@ async def admin_list_barbers(user=Depends(require_role("admin"))):
 async def admin_add_barber(body: ShopAdminBarberIn, user=Depends(require_role("admin"))):
     if body.shop_id not in user.get("managed_shop_ids", []):
         raise HTTPException(403, "Bukan toko yang Anda kelola")
+    photo = await upload_to_r2(body.photo_url, f"shops/{body.shop_id}/barbers") if body.photo_url else ""
     doc = {
         "id": new_id(), "shop_id": body.shop_id, "name": body.name,
-        "phone": body.phone, "email": body.email, "photo_url": body.photo_url,
-        "specialization": body.specialization, "is_active": body.is_active,
+        "phone": body.phone, "email": body.email, "photo": photo,
+        "specialization": body.specialization,
+        "status": "active" if body.is_active else "inactive",
+        "skill_level": "Standar",
         "created_by": "admin",
         "created_at": now_utc().isoformat(), "updated_at": now_utc().isoformat(),
     }
     await db.barbers.insert_one(doc)
+    doc["is_active"] = doc["status"] == "active"
+    doc["photo_url"] = doc.pop("photo", "")
     return {"barber": clean(doc)}
 
 
@@ -5255,11 +5262,15 @@ async def admin_add_barber(body: ShopAdminBarberIn, user=Depends(require_role("a
 async def admin_update_barber(bid: str, body: ShopAdminBarberIn, user=Depends(require_role("admin"))):
     if body.shop_id not in user.get("managed_shop_ids", []):
         raise HTTPException(403, "Bukan toko yang Anda kelola")
+    photo = await upload_to_r2(body.photo_url, f"shops/{body.shop_id}/barbers") if body.photo_url else ""
     update = {
         "name": body.name, "phone": body.phone, "email": body.email,
-        "photo_url": body.photo_url, "specialization": body.specialization,
-        "is_active": body.is_active, "updated_at": now_utc().isoformat(),
+        "specialization": body.specialization,
+        "status": "active" if body.is_active else "inactive",
+        "updated_at": now_utc().isoformat(),
     }
+    if photo:
+        update["photo"] = photo
     r = await db.barbers.update_one({"id": bid, "shop_id": body.shop_id}, {"$set": update})
     if r.matched_count == 0:
         raise HTTPException(404, "Karyawan tidak ditemukan")
