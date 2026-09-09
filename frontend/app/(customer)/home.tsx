@@ -144,14 +144,22 @@ export default function Home() {
 
         {catalog.length > 0 && (
           <View>
-            <Text style={styles.sectionTitle}>Katalog Produk</Text>
+            <View style={styles.popularHeaderRow}>
+              <Text style={styles.sectionTitle}>Katalog Produk</Text>
+              <PressableScale testID="see-all-catalog" onPress={() => router.push("/(customer)/catalog" as any)}>
+                <View style={styles.seeAllPill}>
+                  <Text style={styles.seeAllText}>Lihat Semua</Text>
+                  <Ionicons name="arrow-forward" size={12} color={COLORS.brand} />
+                </View>
+              </PressableScale>
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
               {catalog.map((item: any) => (
                 <PressableScale
                   key={item.id}
                   testID={`catalog-product-${item.id}`}
                   style={styles.productCard}
-                  onPress={() => { if (item.shop_id) router.push(`/(customer)/shop/${item.shop_id}` as any); }}
+                  onPress={() => router.push("/(customer)/catalog" as any)}
                   scaleTo={0.95}
                 >
                   {item.image ? (
