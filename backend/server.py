@@ -5212,6 +5212,70 @@ async def admin_delete_service(sid: str, user=Depends(require_role("admin"))):
 
 
 # ============================================================
+# SHOP-ADMIN: KARYAWAN / BARBER
+# ============================================================
+
+class ShopAdminBarberIn(BaseModel):
+    name: str
+    phone: str = ""
+    email: str = ""
+    photo_url: str = ""
+    specialization: str = ""
+    is_active: bool = True
+    shop_id: str
+
+
+@api.get("/shop-admin/barbers")
+async def admin_list_barbers(user=Depends(require_role("admin"))):
+    shop_ids = user.get("managed_shop_ids", [])
+    if not shop_ids:
+        return {"barbers": []}
+    barbers = await db.barbers.find(
+        {"shop_id": {"$in": shop_ids}}, {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    return {"barbers": barbers}
+
+
+@api.post("/shop-admin/barbers")
+async def admin_add_barber(body: ShopAdminBarberIn, user=Depends(require_role("admin"))):
+    if body.shop_id not in user.get("managed_shop_ids", []):
+        raise HTTPException(403, "Bukan toko yang Anda kelola")
+    doc = {
+        "id": new_id(), "shop_id": body.shop_id, "name": body.name,
+        "phone": body.phone, "email": body.email, "photo_url": body.photo_url,
+        "specialization": body.specialization, "is_active": body.is_active,
+        "created_by": "admin",
+        "created_at": now_utc().isoformat(), "updated_at": now_utc().isoformat(),
+    }
+    await db.barbers.insert_one(doc)
+    return {"barber": clean(doc)}
+
+
+@api.put("/shop-admin/barbers/{bid}")
+async def admin_update_barber(bid: str, body: ShopAdminBarberIn, user=Depends(require_role("admin"))):
+    if body.shop_id not in user.get("managed_shop_ids", []):
+        raise HTTPException(403, "Bukan toko yang Anda kelola")
+    update = {
+        "name": body.name, "phone": body.phone, "email": body.email,
+        "photo_url": body.photo_url, "specialization": body.specialization,
+        "is_active": body.is_active, "updated_at": now_utc().isoformat(),
+    }
+    r = await db.barbers.update_one({"id": bid, "shop_id": body.shop_id}, {"$set": update})
+    if r.matched_count == 0:
+        raise HTTPException(404, "Karyawan tidak ditemukan")
+    return {"ok": True}
+
+
+@api.delete("/shop-admin/barbers/{bid}")
+async def admin_delete_barber(bid: str, user=Depends(require_role("admin"))):
+    shop_ids = user.get("managed_shop_ids", [])
+    r = await db.barbers.delete_one({"id": bid, "shop_id": {"$in": shop_ids}})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Karyawan tidak ditemukan")
+    return {"ok": True}
+
+
+# ============================================================
 # SHOP-ADMIN: REVENUE / KEUANGAN (read-only)
 # ============================================================
 
