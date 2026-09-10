@@ -82,10 +82,10 @@ export default function OwnerOrders() {
 
   if (loading) return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <LinearGradient colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.navyHeader}>
-        <Skeleton style={{ height: 22, width: 180, backgroundColor: "rgba(255,255,255,0.25)" }} />
-        <Skeleton style={{ height: 12, width: 100, marginTop: 8, backgroundColor: "rgba(255,255,255,0.25)" }} />
-      </LinearGradient>
+      <View style={styles.amberHeader}>
+        <Skeleton style={{ height: 22, width: 180, backgroundColor: "rgba(15,26,46,0.12)" }} />
+        <Skeleton style={{ height: 12, width: 100, marginTop: 8, backgroundColor: "rgba(15,26,46,0.12)" }} />
+      </View>
       <View style={{ padding: 20, gap: 12 }}>
         <Skeleton style={{ height: 130 }} />
         <Skeleton style={{ height: 130 }} />
@@ -96,16 +96,12 @@ export default function OwnerOrders() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <LinearGradient
-        colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.navyHeader}
-      >
+      <View style={styles.amberHeader}>
         <View pointerEvents="none" style={styles.headerDeco} />
-        <Text style={styles.headerTitle}>Pesanan Masuk</Text>
+        <Text style={styles.headerEyebrow}>PESANAN MASUK</Text>
+        <Text style={styles.headerTitle}>Pesanan</Text>
         <Text style={styles.headerSub}>{tab === "layanan" ? orders.length : productOrders.length} pesanan total</Text>
-      </LinearGradient>
+      </View>
 
       <View style={styles.tabRow}>
         <PressableScale style={[styles.tabBtn, tab === "layanan" && styles.tabBtnActive]} onPress={() => setTab("layanan")} scaleTo={0.97}>
@@ -251,12 +247,7 @@ export default function OwnerOrders() {
                 {detail?.customer?.address ? <MRow icon="home-outline" label="Alamat Profil" value={detail.customer.address} /> : null}
               </View>
 
-              <LinearGradient
-                colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.mTotalCard}
-              >
+              <View style={styles.mTotalCard}>
                 {detail?.amount_barber_net != null ? (
                   <View style={{ width: "100%" }}>
                     <View style={styles.mTotalBreakRow}>
@@ -278,7 +269,7 @@ export default function OwnerOrders() {
                     <Text style={styles.mTotalValue}>{rupiah(detail?.total_price || 0)}</Text>
                   </>
                 )}
-              </LinearGradient>
+              </View>
 
               {/* Contact actions */}
               <View style={styles.contactRow}>
@@ -316,8 +307,8 @@ export default function OwnerOrders() {
                       end={{ x: 1, y: 1 }}
                       style={styles.btnPriFull}
                     >
-                      <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
-                      <Text style={styles.btnPriFullText}>KONFIRMASI PESANAN</Text>
+                    <Ionicons name="checkmark-circle" size={18} color={COLORS.onBrand} />
+                    <Text style={styles.btnPriFullText}>KONFIRMASI PESANAN</Text>
                     </LinearGradient>
                   </PressableScale>
                   <PressableScale style={styles.btnSecFull} onPress={() => update(detail.id, "cancelled")} scaleTo={0.97}>
@@ -334,7 +325,7 @@ export default function OwnerOrders() {
                       end={{ x: 1, y: 1 }}
                       style={styles.btnPriFull}
                     >
-                      <Ionicons name="checkmark-done" size={18} color="#FFFFFF" />
+                      <Ionicons name="checkmark-done" size={18} color={COLORS.onBrand} />
                       <Text style={styles.btnPriFullText}>SELESAIKAN</Text>
                     </LinearGradient>
                   </PressableScale>
@@ -388,12 +379,7 @@ export default function OwnerOrders() {
                 ) : null}
               </View>
 
-              <LinearGradient
-                colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.mTotalCard}
-              >
+              <View style={styles.mTotalCard}>
                 <View style={{ width: "100%" }}>
                   <View style={styles.mTotalBreakRow}>
                     <Text style={styles.mTotalBreakLabel}>Harga Produk</Text>
@@ -408,7 +394,7 @@ export default function OwnerOrders() {
                     <Text style={styles.mTotalValue}>{rupiah(productDetail?.amount_shop_net || 0)}</Text>
                   </View>
                 </View>
-              </LinearGradient>
+              </View>
 
               <View style={styles.contactRow}>
                 <PressableScale style={styles.contactBtn} onPress={() => callCustomer(productDetail?.customer?.phone)} testID="btn-telepon-produk" scaleTo={0.96} haptic>
@@ -456,7 +442,7 @@ export default function OwnerOrders() {
 function MRow({ icon, label, value }: { icon: any; label: string; value: string }) {
   return (
     <View style={styles.mRow}>
-      <View style={styles.mIco}><Ionicons name={icon} size={14} color={COLORS.brand} /></View>
+      <View style={styles.mIco}><Ionicons name={icon} size={14} color={COLORS.brandLight} /></View>
       <Text style={styles.mLabel}>{label}</Text>
       <Text style={styles.mVal} numberOfLines={2}>{value || "-"}</Text>
     </View>
@@ -465,15 +451,20 @@ function MRow({ icon, label, value }: { icon: any; label: string; value: string 
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  navyHeader: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 30, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, overflow: "hidden", shadowColor: COLORS.sidebar, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8 },
-  headerDeco: { position: "absolute", width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(255,255,255,0.05)", top: -60, right: -30 },
-  headerTitle: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.extrabold },
-  headerSub: { color: COLORS.sidebarTextDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 4 },
+  amberHeader: {
+    backgroundColor: COLORS.brand, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 24,
+    borderBottomLeftRadius: 28, borderBottomRightRadius: 28, overflow: "hidden",
+    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8,
+  },
+  headerDeco: { position: "absolute", width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(255,255,255,0.18)", top: -60, right: -30 },
+  headerEyebrow: { color: "rgba(15,26,46,0.6)", fontSize: 11, fontFamily: FONT.bold, letterSpacing: 2 },
+  headerTitle: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, marginTop: 2 },
+  headerSub: { color: "rgba(15,26,46,0.65)", fontSize: 12, fontFamily: FONT.medium, marginTop: 4 },
   tabRow: { flexDirection: "row", gap: 10, paddingHorizontal: 20, paddingTop: 16 },
   tabBtn: { flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: "center", backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border },
-  tabBtnActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+  tabBtnActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brandLight },
   tabBtnText: { color: COLORS.textDim, fontFamily: FONT.bold, fontSize: 13 },
-  tabBtnTextActive: { color: "#FFFFFF" },
+  tabBtnTextActive: { color: COLORS.onBrand },
   card: {
     backgroundColor: COLORS.surface, borderRadius: 18, padding: 14, borderWidth: 1, borderColor: COLORS.border,
     shadowColor: COLORS.cardShadowStrong, shadowOpacity: 1, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 3,
@@ -489,9 +480,9 @@ const styles = StyleSheet.create({
   detRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   detText: { color: COLORS.textMuted, fontFamily: FONT.medium, fontSize: 12 },
   rowBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 6, paddingTop: 12, borderTopWidth: 1, borderTopColor: COLORS.border },
-  price: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 18 },
+  price: { color: COLORS.brandLight, fontFamily: FONT.extrabold, fontSize: 18 },
   tapHint: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: COLORS.brandDim, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
-  tapHintText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 11 },
+  tapHintText: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 11 },
 
   // Modal
   modalBg: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: "flex-end" },
@@ -500,7 +491,7 @@ const styles = StyleSheet.create({
   mHeader: { alignItems: "center", paddingBottom: 20, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   mAvatarImg: { width: 84, height: 84, borderRadius: 42, borderWidth: 3, borderColor: COLORS.brandDim },
   mAvatarFallback: { width: 84, height: 84, borderRadius: 42, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center", borderWidth: 3, borderColor: COLORS.brandDim },
-  mInitial: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 32 },
+  mInitial: { color: COLORS.brandLight, fontFamily: FONT.extrabold, fontSize: 32 },
   mName: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 20, marginTop: 12 },
   mEmail: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, marginTop: 2 },
   mBadge: { marginTop: 10, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999 },
@@ -515,7 +506,8 @@ const styles = StyleSheet.create({
 
   mTotalCard: {
     flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16, borderRadius: 16, marginTop: 16,
-    shadowColor: COLORS.sidebar, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 14, elevation: 5,
+    backgroundColor: COLORS.text,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.25, shadowRadius: 14, elevation: 5,
   },
   mTotalLabel: { color: "rgba(255,255,255,0.85)", fontFamily: FONT.semibold, fontSize: 13 },
   mTotalValue: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 22 },
@@ -531,7 +523,7 @@ const styles = StyleSheet.create({
   actRow: { gap: 10, marginTop: 16 },
   btnPriFullWrap: { borderRadius: 14, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4 },
   btnPriFull: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, padding: 16 },
-  btnPriFullText: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 13, letterSpacing: 0.8 },
+  btnPriFullText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, fontSize: 13, letterSpacing: 0.8 },
   btnSecFull: { padding: 14, borderRadius: 14, borderWidth: 1, borderColor: COLORS.error, alignItems: "center", backgroundColor: "#FEF2F2" },
   btnSecFullText: { color: COLORS.error, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 0.8 },
 

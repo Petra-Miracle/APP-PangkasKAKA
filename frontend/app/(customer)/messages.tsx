@@ -87,13 +87,27 @@ export default function Messages() {
           <SkeletonRow />
         </View>
       ) : threads.length === 0 ? (
-        <EmptyState
-          icon="chatbubbles-outline"
-          title="Belum ada percakapan"
-          description="Chat kamu dengan barbershop atau StreetBarber akan muncul di sini."
-          actionLabel="Cari barbershop"
-          onAction={() => router.push("/(customer)/explore" as any)}
-        />
+        <View style={styles.emptyWrap}>
+          <View style={styles.emptyArt}>
+            <Ionicons name="chatbubbles" size={64} color={COLORS.brandLight} />
+            <View style={styles.emptyScissors}>
+              <Ionicons name="cut" size={20} color={COLORS.text} />
+            </View>
+          </View>
+          <Text style={styles.emptyTitle}>Belum ada percakapan</Text>
+          <Text style={styles.emptyDesc}>
+            Chat kamu dengan barbershop atau StreetBarber akan muncul di sini.
+          </Text>
+          <PressableScale
+            style={styles.emptyBtn}
+            onPress={() => router.push("/(customer)/explore" as any)}
+            scaleTo={0.97}
+            haptic
+          >
+            <Text style={styles.emptyBtnText}>Cari barbershop</Text>
+            <Ionicons name="arrow-forward" size={16} color={COLORS.onBrand} />
+          </PressableScale>
+        </View>
       ) : shown.length === 0 ? (
         <EmptyState
           icon="search-outline"
@@ -170,4 +184,23 @@ const styles = StyleSheet.create({
   previewBold: { color: COLORS.textMuted, fontFamily: FONT.semibold },
   unreadBadge: { minWidth: 24, height: 24, borderRadius: 12, backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center", paddingHorizontal: 6, marginLeft: 4 },
   unreadText: { color: COLORS.onBrand, fontSize: 11, fontFamily: FONT.bold },
+  emptyWrap: { flex: 1, alignItems: "center", paddingHorizontal: 32, paddingTop: 56 },
+  emptyArt: {
+    width: 160, height: 160, borderRadius: 80, backgroundColor: COLORS.brandDim,
+    alignItems: "center", justifyContent: "center",
+  },
+  emptyScissors: {
+    position: "absolute", right: 12, bottom: 12, width: 44, height: 44, borderRadius: 22,
+    backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: COLORS.border,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 8, elevation: 3,
+  },
+  emptyTitle: { color: COLORS.text, fontSize: 22, fontFamily: FONT.extrabold, marginTop: 28, textAlign: "center" },
+  emptyDesc: { color: COLORS.textDim, fontSize: 14, fontFamily: FONT.medium, marginTop: 10, textAlign: "center", lineHeight: 21 },
+  emptyBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: COLORS.brand,
+    paddingVertical: 16, paddingHorizontal: 28, borderRadius: 18, marginTop: 24, minHeight: 54,
+    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 14, elevation: 5,
+  },
+  emptyBtnText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, fontSize: 15 },
 });

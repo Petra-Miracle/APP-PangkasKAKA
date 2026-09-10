@@ -23,7 +23,7 @@
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/icon-adaptive-fg.png",
-        "backgroundColor": "#006FEE"
+        "backgroundColor": "#066BDF"
       },
       "edgeToEdgeEnabled": true,
       "package": "com.pangkaskaka.app",
@@ -38,7 +38,7 @@
           "image": "./assets/images/icon-splash.png",
           "imageWidth": 210,
           "resizeMode": "contain",
-          "backgroundColor": "#0367DF"
+          "backgroundColor": "#066BDF"
         }
       ],
       [

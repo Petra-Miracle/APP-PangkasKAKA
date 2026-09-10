@@ -2,6 +2,7 @@ import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Switch, TextInput, Modal, KeyboardAvoidingView, Platform, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "expo-router";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
@@ -72,6 +73,8 @@ export default function StreetBarberManage() {
 
   const [bankModal, setBankModal] = useState(false);
   const [savingBank, setSavingBank] = useState(false);
+  const [validatorShop, setValidatorShop] = useState<any>(null);
+  const [svcSummary, setSvcSummary] = useState<{ count: number; minPrice: number | null }>({ count: 0, minPrice: null });
 
   const { scrollRef, handleFocus } = useScrollToInput();
 
@@ -81,11 +84,18 @@ export default function StreetBarberManage() {
       const r = await api.get("/karyawan/my");
       const apps = r.applications || [];
       const active = apps.find((a: any) => a.status === "active");
+      setValidatorShop(active?.shop || apps[0]?.shop || null);
       if (active) {
         setHasActive(true);
         setBankForm({ bank_name: active.bank_name || "", account_number: active.bank_account_number || "", account_holder: active.bank_account_holder || "" });
         setHomeFeeInput(String(active.home_service_fee ?? 0));
         try { const w = await api.get("/wallets/me"); setWallet(w.wallet); } catch { setWallet(null); }
+        try {
+          const s = await api.get("/streetbarber/services");
+          const list = s.services || [];
+          const prices = list.map((x: any) => x.price).filter((p: any) => typeof p === "number");
+          setSvcSummary({ count: list.length, minPrice: prices.length ? Math.min(...prices) : null });
+        } catch { setSvcSummary({ count: 0, minPrice: null }); }
       } else {
         setHasActive(false);
       }
@@ -170,6 +180,13 @@ export default function StreetBarberManage() {
     } catch (e: any) { Alert.alert("Gagal", e.message || "Gagal menyimpan jadwal"); } finally { setSavingSchedule(false); }
   };
 
+  const openBank = async () => {
+    setBankModal(true);
+    if (myServices.length === 0) {
+      try { const r = await api.get("/streetbarber/services"); setMyServices(r.services || []); } catch {}
+    }
+  };
+
   const saveBank = async () => {
     if (!bankForm.bank_name.trim() || !bankForm.account_number.trim() || !bankForm.account_holder.trim()) {
       return Alert.alert("Gagal", "Semua kolom rekening wajib diisi");
@@ -198,40 +215,78 @@ export default function StreetBarberManage() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <View style={styles.header}><Text style={styles.title}>Kelola</Text></View>
-      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120, gap: 10 }}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Kelola</Text>
+        <Text style={styles.sub}>Atur jasa, jadwal, dan dompetmu</Text>
+      </View>
+      <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 120, gap: 12 }}>
+        {validatorShop && (
+          <View style={styles.validatorCard}>
+            {validatorShop.image ? (
+              <Image source={{ uri: validatorShop.image }} style={styles.validatorImg} contentFit="cover" />
+            ) : (
+              <View style={[styles.validatorImg, styles.validatorImgFallback]}>
+                <Ionicons name="storefront" size={20} color={COLORS.brandLight} />
+              </View>
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.validatorLabel}>Toko validator</Text>
+              <Text style={styles.validatorName} numberOfLines={1}>{validatorShop.name}</Text>
+            </View>
+            {hasActive && (
+              <View style={styles.activePill}>
+                <View style={styles.activeDot} />
+                <Text style={styles.activeText}>Aktif</Text>
+              </View>
+            )}
+          </View>
+        )}
         <PressableScale style={styles.manageRow} onPress={openWallet} testID="open-wallet" scaleTo={0.97}>
-          <View style={styles.locIcon}><Ionicons name="wallet-outline" size={18} color={COLORS.brandLight} /></View>
+          <View style={[styles.locIcon, { backgroundColor: COLORS.brandDim }]}>
+            <Ionicons name="wallet-outline" size={20} color={COLORS.brandLight} />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.locTitle}>Dompet Saya</Text>
-            <Text style={styles.locSub}>
+            <Text style={styles.locSub} numberOfLines={1}>
               {wallet ? `${rupiah(wallet.balance_available || 0)} bisa ditarik · ${rupiah(wallet.balance_pending || 0)} ditahan` : "Lihat saldo & riwayat dompet"}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.textDim} />
         </PressableScale>
         <PressableScale style={styles.manageRow} onPress={openServices} testID="open-services" scaleTo={0.97}>
-          <View style={styles.locIcon}><Ionicons name="cut-outline" size={18} color={COLORS.brandLight} /></View>
+          <View style={[styles.locIcon, { backgroundColor: "#EFF6FF" }]}>
+            <Ionicons name="cut-outline" size={20} color={COLORS.info} />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.locTitle}>Kelola Layanan</Text>
-            <Text style={styles.locSub}>Atur sendiri layanan & harga panggilan ke rumahmu</Text>
+            <Text style={styles.locSub} numberOfLines={1}>
+              {svcSummary.count > 0
+                ? `${svcSummary.count} jasa aktif${svcSummary.minPrice != null ? ` · mulai ${rupiah(svcSummary.minPrice)}` : ""}`
+                : "Atur sendiri layanan & harga panggilan ke rumahmu"}
+            </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.textDim} />
         </PressableScale>
         <PressableScale style={styles.manageRow} onPress={openSchedule} testID="open-schedule" scaleTo={0.97}>
-          <View style={styles.locIcon}><Ionicons name="calendar-outline" size={18} color={COLORS.brandLight} /></View>
+          <View style={[styles.locIcon, { backgroundColor: "#E7F9F0" }]}>
+            <Ionicons name="calendar-outline" size={20} color={COLORS.success} />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.locTitle}>Atur Jadwal</Text>
             <Text style={styles.locSub}>Jam kerja mingguan & tanggal libur milikmu sendiri</Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.textDim} />
         </PressableScale>
-        <PressableScale style={styles.manageRow} onPress={() => setBankModal(true)} testID="open-bank" scaleTo={0.97}>
-          <View style={styles.locIcon}><Ionicons name="card-outline" size={18} color={COLORS.brandLight} /></View>
+        <PressableScale style={styles.manageRow} onPress={openBank} testID="open-bank" scaleTo={0.97}>
+          <View style={[styles.locIcon, { backgroundColor: COLORS.surface2 }]}>
+            <Ionicons name="card-outline" size={20} color={COLORS.textMuted} />
+          </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.locTitle}>Rekening & Biaya</Text>
-            <Text style={styles.locSub}>
-              {bankForm.bank_name ? `${bankForm.bank_name} a.n. ${bankForm.account_holder}` : "Belum diisi — tambahkan rekening tujuan pencairan"}
+            <Text style={styles.locSub} numberOfLines={1}>
+              {bankForm.bank_name
+                ? `${bankForm.bank_name}${bankForm.account_number ? ` ••${bankForm.account_number.slice(-4)}` : ""} · fee ${rupiah(parseInt(homeFeeInput || "0", 10) || 0)}`
+                : "Belum diisi — tambahkan rekening tujuan pencairan"}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.textDim} />
@@ -307,7 +362,12 @@ export default function StreetBarberManage() {
           <View style={[styles.modal, { maxHeight: "88%" }]}>
             <View style={styles.grabber} />
             <Text style={styles.sec}>KELOLA LAYANAN</Text>
+            <View style={styles.infoBox}>
+              <Ionicons name="information-circle" size={16} color={COLORS.info} />
+              <Text style={styles.infoText}>Harga belum termasuk biaya panggilan ke rumah.</Text>
+            </View>
             <ScrollView keyboardShouldPersistTaps="handled">
+              <Text style={styles.countText}>{myServices.length} layanan</Text>
               <Text style={styles.label}>Nama Layanan</Text>
               <TextInput style={styles.input} placeholder="mis. Low Fade" placeholderTextColor={COLORS.textDim} value={svcForm.name} onChangeText={(t) => setSvcForm({ ...svcForm, name: t })} testID="svc-name-input" />
               <View style={{ flexDirection: "row", gap: 10 }}>
@@ -364,7 +424,11 @@ export default function StreetBarberManage() {
         <View style={styles.modalBg}>
           <View style={[styles.modal, { maxHeight: "88%" }]}>
             <View style={styles.grabber} />
-            <Text style={styles.sec}>ATUR JADWAL KERJA</Text>
+            <Text style={styles.sec}>ATUR JADWAL</Text>
+            <View style={styles.infoBox}>
+              <Ionicons name="information-circle" size={16} color={COLORS.info} />
+              <Text style={styles.infoText}>Pelanggan hanya bisa memanggilmu di jam yang kamu buka.</Text>
+            </View>
             <PressableScale
               style={styles.copyDaysBtn}
               onPress={() => {
@@ -420,22 +484,58 @@ export default function StreetBarberManage() {
           <View style={[styles.modal, { maxHeight: "88%" }]}>
             <View style={styles.grabber} />
             <ScrollView keyboardShouldPersistTaps="handled">
-              <Text style={styles.sec}>REKENING & BIAYA KE RUMAH</Text>
-              <Text style={styles.dayLiburLabel}>Rekening ini jadi tujuan saat kamu menarik saldo dompet — tim mencairkan secara manual ke sini (belum ada transfer otomatis).</Text>
-              <Text style={styles.label}>Nama Bank</Text>
-              <TextInput style={styles.input} placeholder="mis. BRI" placeholderTextColor={COLORS.textDim} value={bankForm.bank_name} onChangeText={(t) => setBankForm({ ...bankForm, bank_name: t })} testID="bank-name-input" />
-              <Text style={styles.label}>Nomor Rekening</Text>
-              <TextInput style={styles.input} keyboardType="numeric" placeholder="1234567890" placeholderTextColor={COLORS.textDim} value={bankForm.account_number} onChangeText={(t) => setBankForm({ ...bankForm, account_number: t })} testID="bank-number-input" />
-              <Text style={styles.label}>Nama Pemilik Rekening</Text>
-              <TextInput style={styles.input} placeholder="Nama sesuai buku tabungan" placeholderTextColor={COLORS.textDim} value={bankForm.account_holder} onChangeText={(t) => setBankForm({ ...bankForm, account_holder: t })} testID="bank-holder-input" />
-              <Text style={styles.label}>Biaya Layanan ke Rumah (Rp)</Text>
-              <Text style={[styles.dayLiburLabel, { marginBottom: 6 }]}>Ditambahkan ke harga layanan saat customer booking panggilan ke rumah.</Text>
-              <TextInput style={styles.input} keyboardType="numeric" placeholder="0" placeholderTextColor={COLORS.textDim} value={homeFeeInput} onChangeText={(t) => setHomeFeeInput(t.replace(/[^0-9]/g, ""))} testID="home-fee-input" />
+              <Text style={styles.sec}>REKENING & BIAYA</Text>
+              <Text style={styles.groupLabel}>REKENING PENCAIRAN</Text>
+              <Text style={styles.label}>Nama bank</Text>
+              <View style={styles.inputRow}>
+                <Ionicons name="business-outline" size={18} color={COLORS.textDim} />
+                <TextInput style={styles.inputFlex} placeholder="mis. BRI" placeholderTextColor={COLORS.textDim} value={bankForm.bank_name} onChangeText={(t) => setBankForm({ ...bankForm, bank_name: t })} testID="bank-name-input" />
+              </View>
+              <Text style={styles.label}>Nomor rekening</Text>
+              <View style={styles.inputRow}>
+                <Ionicons name="card-outline" size={18} color={COLORS.textDim} />
+                <TextInput style={styles.inputFlex} keyboardType="numeric" placeholder="1234567890" placeholderTextColor={COLORS.textDim} value={bankForm.account_number} onChangeText={(t) => setBankForm({ ...bankForm, account_number: t })} testID="bank-number-input" />
+              </View>
+              <Text style={styles.label}>Nama pemilik rekening</Text>
+              <View style={styles.inputRow}>
+                <Ionicons name="person-outline" size={18} color={COLORS.textDim} />
+                <TextInput style={styles.inputFlex} placeholder="Nama sesuai buku tabungan" placeholderTextColor={COLORS.textDim} value={bankForm.account_holder} onChangeText={(t) => setBankForm({ ...bankForm, account_holder: t })} testID="bank-holder-input" />
+              </View>
+              <Text style={[styles.groupLabel, { marginTop: 20 }]}>BIAYA PANGGILAN</Text>
+              <Text style={styles.label}>Biaya panggilan ke rumah</Text>
+              <View style={styles.inputRow}>
+                <Ionicons name="bicycle-outline" size={18} color={COLORS.textDim} />
+                <TextInput style={styles.inputFlex} keyboardType="numeric" placeholder="0" placeholderTextColor={COLORS.textDim} value={homeFeeInput} onChangeText={(t) => setHomeFeeInput(t.replace(/[^0-9]/g, ""))} testID="home-fee-input" />
+              </View>
+              <Text style={[styles.dayLiburLabel, { marginTop: 6 }]}>Ditambahkan ke harga layanan karena kamu yang datang ke lokasi pelanggan.</Text>
+              {myServices.length > 0 && (() => {
+                const s = myServices[0];
+                const fee = parseInt(homeFeeInput || "0", 10) || 0;
+                return (
+                  <View style={styles.previewCard}>
+                    <Text style={styles.previewTitle}>Contoh yang dilihat pelanggan</Text>
+                    <View style={styles.previewRow}>
+                      <Text style={styles.previewLabel} numberOfLines={1}>{s.name}</Text>
+                      <Text style={styles.previewVal}>{rupiah(s.price)}</Text>
+                    </View>
+                    <View style={styles.previewRow}>
+                      <Text style={styles.previewLabel}>Biaya panggilan</Text>
+                      <Text style={styles.previewVal}>{rupiah(fee)}</Text>
+                    </View>
+                    <View style={styles.previewDivider} />
+                    <View style={styles.previewRow}>
+                      <Text style={styles.previewTotalLabel}>Pelanggan bayar</Text>
+                      <Text style={styles.previewTotal}>{rupiah((s.price || 0) + fee)}</Text>
+                    </View>
+                  </View>
+                );
+              })()}
               <PressableScale style={[styles.btnWrap, savingBank && { opacity: 0.6 }]} onPress={saveBank} disabled={savingBank} testID="save-bank">
                 <LinearGradient colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.btn}>
-                  <Text style={styles.btnText}>{savingBank ? "..." : "SIMPAN"}</Text>
+                  <Text style={styles.btnText}>{savingBank ? "..." : "SIMPAN PERUBAHAN"}</Text>
                 </LinearGradient>
               </PressableScale>
+              <Text style={styles.feeNote}>Perubahan biaya panggilan berlaku untuk pesanan baru saja.</Text>
             </ScrollView>
             <PressableScale style={styles.cancelBtn} onPress={() => setBankModal(false)}>
               <Text style={styles.cancelText}>Tutup</Text>
@@ -449,9 +549,36 @@ export default function StreetBarberManage() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  header: { padding: 20, paddingBottom: 0 },
-  title: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, letterSpacing: -0.3 },
+  header: { padding: 20, paddingBottom: 12 },
+  title: { color: COLORS.text, fontSize: 28, fontFamily: FONT.extrabold, letterSpacing: -0.5 },
+  sub: { color: COLORS.textDim, fontSize: 13, fontFamily: FONT.medium, marginTop: 2 },
   sec: { color: COLORS.textDim, letterSpacing: 0.8, fontSize: 11, fontFamily: FONT.bold, marginTop: 20, marginBottom: 12 },
+  groupLabel: { color: COLORS.brandLight, letterSpacing: 1.2, fontSize: 11, fontFamily: FONT.bold, marginTop: 4 },
+  validatorCard: {
+    flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.text,
+    borderRadius: 20, padding: 16, marginBottom: 2, overflow: "hidden",
+  },
+  validatorImg: { width: 48, height: 48, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.1)" },
+  validatorImgFallback: { alignItems: "center", justifyContent: "center" },
+  validatorLabel: { color: "rgba(255,255,255,0.6)", fontFamily: FONT.medium, fontSize: 11 },
+  validatorName: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 16, marginTop: 2 },
+  activePill: { flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: "rgba(18,145,90,0.2)", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999 },
+  activeDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.success },
+  activeText: { color: COLORS.success, fontFamily: FONT.bold, fontSize: 12 },
+  infoBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#EFF6FF", padding: 14, borderRadius: 14, marginBottom: 12 },
+  infoText: { color: COLORS.textMuted, fontFamily: FONT.medium, fontSize: 12, flex: 1, lineHeight: 18 },
+  countText: { color: COLORS.textDim, fontSize: 13, fontFamily: FONT.medium, marginBottom: 10 },
+  inputRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1.5, borderColor: COLORS.border },
+  inputFlex: { flex: 1, color: COLORS.text, paddingVertical: 13, fontFamily: FONT.medium, fontSize: 14 },
+  previewCard: { backgroundColor: COLORS.text, borderRadius: 20, padding: 18, marginTop: 16, overflow: "hidden" },
+  previewTitle: { color: "rgba(255,255,255,0.6)", fontFamily: FONT.medium, fontSize: 12, marginBottom: 10 },
+  previewRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4, gap: 12 },
+  previewLabel: { color: "rgba(255,255,255,0.75)", fontFamily: FONT.medium, fontSize: 13, flex: 1 },
+  previewVal: { color: "#FFFFFF", fontFamily: FONT.semibold, fontSize: 13 },
+  previewDivider: { height: 1, backgroundColor: "rgba(255,255,255,0.15)", marginVertical: 8 },
+  previewTotalLabel: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 14 },
+  previewTotal: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 17 },
+  feeNote: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, textAlign: "center", marginTop: 10, lineHeight: 16 },
   manageRow: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.surface, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 12, elevation: 2 },
   locIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
   locTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 14 },

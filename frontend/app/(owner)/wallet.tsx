@@ -2,7 +2,6 @@ import { useCallback, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect } from "expo-router";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
 import PressableScale from "@/src/components/PressableScale";
@@ -48,16 +47,12 @@ export default function OwnerWallet() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <LinearGradient
-        colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.navyHeader}
-      >
+      <View style={styles.amberHeader}>
         <View pointerEvents="none" style={styles.headerDeco} />
-        <Text style={styles.headerTitle}>Dompet Toko</Text>
-        <Text style={styles.headerSub}>Buku kas lengkap: rincian saldo, riwayat dana masuk-keluar, dan penarikan</Text>
-      </LinearGradient>
+        <Text style={styles.headerEyebrow}>DOMPET TOKO</Text>
+        <Text style={styles.headerTitle}>Dompet</Text>
+        <Text style={styles.headerSub}>Rincian saldo, riwayat dana, dan penarikan</Text>
+      </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
         {loading ? (
@@ -94,7 +89,7 @@ export default function OwnerWallet() {
               testID="request-payout"
               haptic
             >
-              <Ionicons name="arrow-down" size={16} color="#FFFFFF" />
+              <Ionicons name="arrow-down" size={16} color={COLORS.onBrand} />
               <Text style={styles.payoutText}>{payingOut ? "..." : "TARIK SALDO"}</Text>
             </PressableScale>
             {(wallet?.balance_available || 0) < 50000 && (
@@ -126,10 +121,15 @@ export default function OwnerWallet() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  navyHeader: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 30, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, overflow: "hidden", shadowColor: COLORS.sidebar, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8 },
-  headerDeco: { position: "absolute", width: 180, height: 180, borderRadius: 90, backgroundColor: "rgba(255,255,255,0.05)", top: -70, right: -40 },
-  headerTitle: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.extrabold, marginTop: 2 },
-  headerSub: { color: COLORS.sidebarTextDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 4 },
+  amberHeader: {
+    backgroundColor: COLORS.brand, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 24,
+    borderBottomLeftRadius: 28, borderBottomRightRadius: 28, overflow: "hidden",
+    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8,
+  },
+  headerDeco: { position: "absolute", width: 180, height: 180, borderRadius: 90, backgroundColor: "rgba(255,255,255,0.18)", top: -70, right: -40 },
+  headerEyebrow: { color: "rgba(15,26,46,0.6)", fontSize: 11, fontFamily: FONT.bold, letterSpacing: 2 },
+  headerTitle: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, marginTop: 2 },
+  headerSub: { color: "rgba(15,26,46,0.65)", fontSize: 12, fontFamily: FONT.medium, marginTop: 4 },
   balRow: { flexDirection: "row", gap: 10 },
   balBox: { flex: 1, backgroundColor: COLORS.surface, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: COLORS.border },
   infoBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, backgroundColor: COLORS.brandDim, padding: 12, borderRadius: 14, marginTop: 12 },
@@ -138,10 +138,10 @@ const styles = StyleSheet.create({
   balValue: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 17, marginTop: 4 },
   payoutBtn: {
     flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8,
-    backgroundColor: COLORS.sidebarSurface, padding: 16, borderRadius: 14, marginTop: 14,
-    shadowColor: COLORS.sidebarSurface, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 14, elevation: 5,
+    backgroundColor: COLORS.brand, padding: 16, borderRadius: 14, marginTop: 14, minHeight: 54,
+    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 14, elevation: 5,
   },
-  payoutText: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 13, letterSpacing: 0.5 },
+  payoutText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, fontSize: 13, letterSpacing: 0.5 },
   minHint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, textAlign: "center", marginTop: 6 },
   secTitle: { color: COLORS.textDim, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8, marginTop: 20, marginBottom: 10 },
   card: {

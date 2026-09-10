@@ -143,10 +143,10 @@ export default function Manage() {
 
   if (loading) return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <LinearGradient colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.navyHeader}>
-        <Skeleton style={{ height: 22, width: 160, backgroundColor: "rgba(255,255,255,0.25)" }} />
-        <Skeleton style={{ height: 12, width: 120, marginTop: 8, backgroundColor: "rgba(255,255,255,0.25)" }} />
-      </LinearGradient>
+      <View style={styles.amberHeader}>
+        <Skeleton style={{ height: 22, width: 160, backgroundColor: "rgba(15,26,46,0.12)" }} />
+        <Skeleton style={{ height: 12, width: 120, marginTop: 8, backgroundColor: "rgba(15,26,46,0.12)" }} />
+      </View>
       <View style={{ padding: 20, gap: 12 }}>
         <Skeleton style={{ height: 70 }} />
         <Skeleton style={{ height: 70 }} />
@@ -156,29 +156,24 @@ export default function Manage() {
   );
   if (!shop) return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <LinearGradient colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.navyHeader}>
+      <View style={styles.amberHeader}>
         <Text style={styles.headerTitle}>Kelola Toko</Text>
-      </LinearGradient>
+      </View>
       <EmptyState icon="storefront-outline" title="Belum ada toko" description="Daftarkan toko terlebih dulu di Dashboard." onAction={() => router.push("/(owner)/dashboard" as any)} actionLabel="Ke Dashboard" />
     </SafeAreaView>
   );
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <LinearGradient
-        colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.navyHeader}
-      >
+      <View style={styles.amberHeader}>
         <View pointerEvents="none" style={styles.headerDeco} />
+        <Text style={styles.headerEyebrow}>{shop.name?.toUpperCase()}</Text>
         <Text style={styles.headerTitle}>Kelola Toko</Text>
-        <Text style={styles.headerSub}>{shop.name}</Text>
-      </LinearGradient>
+      </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow} style={{ maxHeight: 60 }}>
         {[["barbers", "Barber Toko", "cut"], ["services", "Layanan", "pricetag"], ["products", "Produk", "bag-handle"]].map(([k, l, i]) => (
           <PressableScale key={k} testID={`tab-${k}`} onPress={() => setTab(k as any)} style={[styles.tab, tab === k && styles.tabActive]} scaleTo={0.94}>
-            <Ionicons name={i as any} size={14} color={tab === k ? "#FFFFFF" : COLORS.textDim} />
+            <Ionicons name={i as any} size={14} color={tab === k ? COLORS.onBrand : COLORS.textDim} />
             <Text style={[styles.tabText, tab === k && styles.tabTextActive]}>{l}</Text>
           </PressableScale>
         ))}
@@ -186,9 +181,10 @@ export default function Manage() {
       <ScrollView ref={scrollRef} contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
         {tab === "barbers" && (
           <View>
+            <Text style={styles.countLabel}>{shop.barbers.filter((br: any) => !br.is_street_barber).length} barber terdaftar</Text>
             {shop.barbers.filter((br: any) => !br.is_street_barber).map((br: any) => (
               <View key={br.id} style={styles.item} testID={`brb-${br.id}`}>
-                <View style={styles.avatar}><Ionicons name="cut" size={18} color={COLORS.brand} /></View>
+                <View style={styles.avatar}><Ionicons name="cut" size={18} color={COLORS.brandLight} /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.itemName}>{br.name}</Text>
                   <View style={styles.rowInline}>
@@ -197,7 +193,7 @@ export default function Manage() {
                   </View>
                 </View>
                 <PressableScale style={styles.iconBtn} onPress={() => startEditBarber(br)} testID={`edit-brb-${br.id}`} scaleTo={0.9}>
-                  <Ionicons name="pencil" size={16} color={COLORS.brand} />
+                    <Ionicons name="pencil" size={16} color={COLORS.brandLight} />
                 </PressableScale>
                 <PressableScale style={styles.iconBtn} onPress={() => deleteBarber(br)} testID={`del-brb-${br.id}`} scaleTo={0.9}>
                   <Ionicons name="trash" size={16} color={COLORS.error} />
@@ -230,16 +226,17 @@ export default function Manage() {
         )}
         {tab === "services" && (
           <View>
+            <Text style={styles.countLabel}>{shop.services.length} layanan</Text>
             {shop.services.map((sv: any) => (
               <View key={sv.id} style={styles.item} testID={`svc-${sv.id}`}>
-                <View style={styles.avatar}><Ionicons name="pricetag" size={18} color={COLORS.brand} /></View>
+                <View style={styles.avatar}><Ionicons name="pricetag" size={18} color={COLORS.brandLight} /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.itemName}>{sv.name}</Text>
                   <Text style={styles.itemMeta}>{sv.duration} menit</Text>
                 </View>
                 <Text style={styles.itemPrice}>{rupiah(sv.price)}</Text>
                 <PressableScale style={styles.iconBtn} onPress={() => startEditService(sv)} testID={`edit-svc-${sv.id}`} scaleTo={0.9}>
-                  <Ionicons name="pencil" size={16} color={COLORS.brand} />
+                    <Ionicons name="pencil" size={16} color={COLORS.brandLight} />
                 </PressableScale>
                 <PressableScale style={styles.iconBtn} onPress={() => deleteService(sv)} testID={`del-svc-${sv.id}`} scaleTo={0.9}>
                   <Ionicons name="trash" size={16} color={COLORS.error} />
@@ -273,12 +270,13 @@ export default function Manage() {
         )}
         {tab === "products" && (
           <View>
+            <Text style={styles.countLabel}>{products.length} produk</Text>
             {products.map((pr: any) => (
               <View key={pr.id} style={styles.item} testID={`prod-${pr.id}`}>
                 {pr.image ? (
                   <Image source={{ uri: pr.image }} style={styles.productThumb} contentFit="cover" />
                 ) : (
-                  <View style={styles.avatar}><Ionicons name="bag-handle" size={18} color={COLORS.brand} /></View>
+                  <View style={styles.avatar}><Ionicons name="bag-handle" size={18} color={COLORS.brandLight} /></View>
                 )}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.itemName}>{pr.name}</Text>
@@ -286,7 +284,7 @@ export default function Manage() {
                 </View>
                 <Text style={styles.itemPrice}>{rupiah(pr.price)}</Text>
                 <PressableScale style={styles.iconBtn} onPress={() => startEditProduct(pr)} testID={`edit-prod-${pr.id}`} scaleTo={0.9}>
-                  <Ionicons name="pencil" size={16} color={COLORS.brand} />
+                    <Ionicons name="pencil" size={16} color={COLORS.brandLight} />
                 </PressableScale>
                 <PressableScale style={styles.iconBtn} onPress={() => deleteProduct(pr)} testID={`del-prod-${pr.id}`} scaleTo={0.9}>
                   <Ionicons name="trash" size={16} color={COLORS.error} />
@@ -307,7 +305,7 @@ export default function Manage() {
                   <Image source={{ uri: p.photo }} style={styles.photoPreview} contentFit="cover" />
                 ) : (
                   <>
-                    <View style={styles.photoIcon}><Ionicons name="camera-outline" size={20} color={COLORS.brand} /></View>
+                    <View style={styles.photoIcon}><Ionicons name="camera-outline" size={20} color={COLORS.brandLight} /></View>
                     <Text style={styles.photoPickText}>{editingProductId ? "Ganti foto produk (opsional)" : "Unggah foto produk"}</Text>
                   </>
                 )}
@@ -336,18 +334,23 @@ export default function Manage() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  navyHeader: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 28, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, overflow: "hidden", shadowColor: COLORS.sidebar, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8 },
-  headerDeco: { position: "absolute", width: 170, height: 170, borderRadius: 85, backgroundColor: "rgba(255,255,255,0.05)", top: -65, right: -35 },
-  headerTitle: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.extrabold },
-  headerSub: { color: COLORS.sidebarTextDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 4 },
+  amberHeader: {
+    backgroundColor: COLORS.brand, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 24,
+    borderBottomLeftRadius: 28, borderBottomRightRadius: 28, overflow: "hidden",
+    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8,
+  },
+  headerDeco: { position: "absolute", width: 170, height: 170, borderRadius: 85, backgroundColor: "rgba(255,255,255,0.18)", top: -65, right: -35 },
+  headerEyebrow: { color: "rgba(15,26,46,0.6)", fontSize: 11, fontFamily: FONT.bold, letterSpacing: 2 },
+  headerTitle: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, marginTop: 2 },
   tabRow: { paddingHorizontal: 16, gap: 8, alignItems: "center", paddingVertical: 12 },
   tab: {
     flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 6, height: 40, paddingHorizontal: 14, borderRadius: 999, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 6, elevation: 1,
   },
-  tabActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+  tabActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brandLight },
   tabText: { color: COLORS.textMuted, fontFamily: FONT.semibold, fontSize: 12 },
-  tabTextActive: { color: "#FFFFFF" },
+  tabTextActive: { color: COLORS.onBrand },
+  countLabel: { color: COLORS.textDim, fontFamily: FONT.semibold, fontSize: 12, marginBottom: 10 },
   item: {
     flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.surface, padding: 14, borderRadius: 16, marginBottom: 8, borderWidth: 1, borderColor: COLORS.border,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 8, elevation: 2,
@@ -363,10 +366,10 @@ const styles = StyleSheet.create({
   photoPreview: { width: "100%", height: "100%" },
   itemName: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 14 },
   itemMeta: { color: COLORS.textDim, fontSize: 12, marginTop: 2, fontFamily: FONT.medium },
-  itemPrice: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 14 },
+  itemPrice: { color: COLORS.brandLight, fontFamily: FONT.extrabold, fontSize: 14 },
   rowInline: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
   pill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: COLORS.brandDim },
-  pillText: { color: COLORS.brand, fontSize: 10, fontFamily: FONT.bold },
+  pillText: { color: COLORS.brandLight, fontSize: 10, fontFamily: FONT.bold },
   card: {
     backgroundColor: COLORS.surface, padding: 16, borderRadius: 18, marginTop: 12, borderWidth: 1, borderColor: COLORS.border,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 5 }, shadowOpacity: 1, shadowRadius: 12, elevation: 2,
@@ -378,7 +381,7 @@ const styles = StyleSheet.create({
   input: { backgroundColor: COLORS.surface2, color: COLORS.text, padding: 13, borderRadius: 12, marginBottom: 8, borderWidth: 1, borderColor: COLORS.border, fontFamily: FONT.medium, fontSize: 14 },
   btnWrap: { borderRadius: 14, marginTop: 4, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.25, shadowRadius: 12, elevation: 4 },
   btn: { padding: 14, alignItems: "center" },
-  btnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 1, fontSize: 13 },
+  btnText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, letterSpacing: 1, fontSize: 13 },
 
   // Applicant card
   applicantCard: {
@@ -433,18 +436,6 @@ const styles = StyleSheet.create({
   critDesc: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 1 },
   critScorePill: { width: 44, height: 32, borderRadius: 10, backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center" },
   critScoreText: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 14 },
-
-  totalCard: { flexDirection: "row", alignItems: "center", gap: 14, padding: 16, borderRadius: 18, marginTop: 12, overflow: "hidden", shadowColor: COLORS.sidebar, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 18, elevation: 6 },
-  totalDeco: { position: "absolute", width: 130, height: 130, borderRadius: 65, backgroundColor: "rgba(255,255,255,0.06)", top: -50, right: -30 },
-  totalLabel: { color: COLORS.sidebarTextDim, fontFamily: FONT.medium, fontSize: 12 },
-  totalValue: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 30, marginTop: 2 },
-  totalMax: { color: COLORS.sidebarTextDim, fontFamily: FONT.semibold, fontSize: 16 },
-  totalBar: { height: 8, borderRadius: 999, backgroundColor: "rgba(255,255,255,0.15)", marginTop: 8, overflow: "hidden" },
-  totalFill: { height: "100%", borderRadius: 999 },
-  predictBox: { alignItems: "center", paddingHorizontal: 8 },
-  predictLabel: { color: COLORS.sidebarTextDim, fontSize: 10, fontFamily: FONT.medium },
-  predictStatus: { fontFamily: FONT.extrabold, fontSize: 16, marginTop: 4, letterSpacing: 0.5 },
-  predictSkill: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 11, marginTop: 2 },
 
   hint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 12, lineHeight: 16, textAlign: "center" },
   saveBtnWrap: { borderRadius: 15, marginTop: 16, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4 },

@@ -88,10 +88,10 @@ export default function OwnerSchedule() {
 
   if (loading) return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <LinearGradient colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.navyHeader}>
-        <View style={styles.backBtn}><Ionicons name="arrow-back" size={20} color="#FFFFFF" /></View>
-        <Skeleton style={{ height: 18, width: 200, backgroundColor: "rgba(255,255,255,0.25)" }} />
-      </LinearGradient>
+      <View style={styles.amberHeader}>
+        <View style={styles.backBtn} />
+        <Skeleton style={{ height: 20, width: 200, backgroundColor: "rgba(15,26,46,0.12)" }} />
+      </View>
       <View style={{ padding: 20, gap: 10 }}>
         <Skeleton style={{ height: 76 }} />
         <Skeleton style={{ height: 76 }} />
@@ -102,18 +102,16 @@ export default function OwnerSchedule() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <LinearGradient
-        colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.navyHeader}
-      >
+      <View style={styles.amberHeader}>
         <View pointerEvents="none" style={styles.headerDeco} />
         <PressableScale onPress={() => router.back()} style={styles.backBtn} testID="schedule-back" scaleTo={0.88}>
-          <Ionicons name="arrow-back" size={20} color="#FFFFFF" />
+          <Ionicons name="arrow-back" size={20} color={COLORS.text} />
         </PressableScale>
-        <Text style={styles.headerTitle}>Atur Jadwal Buka Toko</Text>
-      </LinearGradient>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerEyebrow}>JADWAL TOKO</Text>
+          <Text style={styles.headerTitle}>Atur Jadwal</Text>
+        </View>
+      </View>
 
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
         <Text style={styles.sec}>JADWAL MINGGUAN</Text>
@@ -121,7 +119,7 @@ export default function OwnerSchedule() {
           <View key={r.day_name} style={styles.dayCard} testID={`day-row-${r.day_name}`}>
             <View style={styles.dayHead}>
               <View style={styles.dayNameRow}>
-                <View style={styles.dayIcon}><Ionicons name="calendar" size={14} color={COLORS.brand} /></View>
+                <View style={styles.dayIcon}><Ionicons name="calendar" size={14} color={COLORS.brandLight} /></View>
                 <Text style={styles.dayName}>{r.day_name}</Text>
               </View>
               <View style={styles.dayClosedRow}>
@@ -152,7 +150,7 @@ export default function OwnerSchedule() {
             end={{ x: 1, y: 1 }}
             style={styles.saveBtn}
           >
-            <Ionicons name="checkmark-circle-outline" size={16} color="#FFFFFF" />
+            <Ionicons name="checkmark-circle-outline" size={16} color={COLORS.onBrand} />
             <Text style={styles.saveBtnText}>{saving ? "MENYIMPAN..." : "SIMPAN JADWAL MINGGUAN"}</Text>
           </LinearGradient>
         </PressableScale>
@@ -165,8 +163,8 @@ export default function OwnerSchedule() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 8 }}>
           {nextDays.map((d) => (
             <PressableScale key={d.iso} testID={`ov-day-${d.iso}`} onPress={() => setPickedDate(d.iso)} style={[styles.dayChip, pickedDate === d.iso && styles.dayChipActive]} scaleTo={0.92}>
-              <Text style={[styles.dayChipLabel, pickedDate === d.iso && { color: "rgba(255,255,255,0.85)" }]}>{d.day}</Text>
-              <Text style={[styles.dayChipNum, pickedDate === d.iso && { color: "#FFFFFF" }]}>{d.date}</Text>
+                    <Text style={[styles.dayChipLabel, pickedDate === d.iso && { color: "rgba(15,26,46,0.65)" }]}>{d.day}</Text>
+                    <Text style={[styles.dayChipNum, pickedDate === d.iso && { color: COLORS.onBrand }]}>{d.date}</Text>
             </PressableScale>
           ))}
         </ScrollView>
@@ -202,7 +200,7 @@ export default function OwnerSchedule() {
             {overrides.map((o) => (
               <View key={o.date} style={styles.ovItem} testID={`ov-item-${o.date}`}>
                 <View style={styles.ovItemIcon}>
-                  <Ionicons name={o.is_closed ? "lock-closed" : "calendar"} size={16} color={o.is_closed ? COLORS.error : COLORS.brand} />
+                  <Ionicons name={o.is_closed ? "lock-closed" : "calendar"} size={16} color={o.is_closed ? COLORS.error : COLORS.brandLight} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.ovItemDate}>{o.date}</Text>
@@ -224,13 +222,18 @@ export default function OwnerSchedule() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  navyHeader: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 22, flexDirection: "row", alignItems: "center", gap: 12, overflow: "hidden", borderBottomLeftRadius: 24, borderBottomRightRadius: 24, shadowColor: COLORS.sidebar, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8 },
-  headerDeco: { position: "absolute", width: 150, height: 150, borderRadius: 75, backgroundColor: "rgba(255,255,255,0.05)", top: -55, right: -30 },
-  backBtn: {
-    width: 40, height: 40, borderRadius: 13, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
+  amberHeader: {
+    backgroundColor: COLORS.brand, paddingHorizontal: 20, paddingTop: 20, paddingBottom: 24,
+    flexDirection: "row", alignItems: "center", gap: 12, overflow: "hidden",
+    borderBottomLeftRadius: 28, borderBottomRightRadius: 28,
+    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8,
   },
-  headerTitle: { color: "#FFFFFF", fontSize: 17, fontFamily: FONT.extrabold },
+  headerDeco: { position: "absolute", width: 150, height: 150, borderRadius: 75, backgroundColor: "rgba(255,255,255,0.18)", top: -55, right: -30 },
+  backBtn: {
+    width: 44, height: 44, borderRadius: 14, backgroundColor: "#FFFFFFD9", alignItems: "center", justifyContent: "center",
+  },
+  headerEyebrow: { color: "rgba(15,26,46,0.6)", fontSize: 11, fontFamily: FONT.bold, letterSpacing: 2 },
+  headerTitle: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, marginTop: 2 },
   sec: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.bold, letterSpacing: 0.8, marginBottom: 10 },
   subSec: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.bold, letterSpacing: 0.8, marginBottom: 8 },
   hint: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium, marginTop: -4, marginBottom: 4, lineHeight: 18 },
@@ -246,7 +249,7 @@ const styles = StyleSheet.create({
   dayClosedLabel: { color: COLORS.textDim, fontFamily: FONT.semibold, fontSize: 12 },
   timeRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 },
   timeInput: {
-    flex: 1, backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border, borderRadius: 11,
+    flex: 1, backgroundColor: COLORS.surface, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 11,
     paddingHorizontal: 12, paddingVertical: 10, color: COLORS.text, fontFamily: FONT.medium, fontSize: 13, textAlign: "center",
   },
   timeDash: { color: COLORS.textDim, fontFamily: FONT.bold },
@@ -255,13 +258,13 @@ const styles = StyleSheet.create({
   saveBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, padding: 14 },
   saveBtnSmWrap: { borderRadius: 12, marginTop: 10, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.25, shadowRadius: 10, elevation: 3 },
   saveBtnSm: { padding: 12, alignItems: "center" },
-  saveBtnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 12, letterSpacing: 0.5 },
+  saveBtnText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, fontSize: 12, letterSpacing: 0.5 },
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 24 },
   dayChip: {
     width: 52, alignItems: "center", paddingVertical: 10, borderRadius: 13, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 6, elevation: 1,
   },
-  dayChipActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+  dayChipActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brandLight },
   dayChipLabel: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.semibold },
   dayChipNum: { color: COLORS.text, fontSize: 15, fontFamily: FONT.extrabold, marginTop: 2 },
   ovCard: {
@@ -269,7 +272,7 @@ const styles = StyleSheet.create({
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 5 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2,
   },
   noteInput: {
-    backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border, borderRadius: 11,
+    backgroundColor: COLORS.surface, borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 11,
     paddingHorizontal: 12, paddingVertical: 10, color: COLORS.text, fontFamily: FONT.medium, fontSize: 13, marginTop: 10,
   },
   ovItem: {
