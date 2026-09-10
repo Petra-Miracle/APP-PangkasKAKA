@@ -3580,16 +3580,27 @@ async def list_threads(user=Depends(get_current_user)):
         shops = await db.barbershops.find({"owner_id": user["id"]}, {"_id": 0}).to_list(50)
     else:
         raise HTTPException(403, "Hanya owner & admin")
+    # Sebelumnya 2 round-trip DB per toko (count + last message) — ganti jadi 1 query
+    # batch untuk semua toko sekaligus, dikelompokkan di memori.
+    shop_ids = [s["id"] for s in shops]
+    last_by_shop: dict = {}
+    unread_by_shop: dict = {}
+    if shop_ids:
+        cursor = db.chat_messages.find({"shop_id": {"$in": shop_ids}}, {"_id": 0}).sort("created_at", -1)
+        async for m in cursor:
+            sid = m["shop_id"]
+            if sid not in last_by_shop:
+                last_by_shop[sid] = m  # pesan pertama ditemukan per toko = paling baru (sudah sort desc)
+            if m["sender_id"] != user["id"] and not m.get("is_read", False):
+                unread_by_shop[sid] = unread_by_shop.get(sid, 0) + 1
     result = []
     for s in shops:
-        unread = await db.chat_messages.count_documents({"shop_id": s["id"], "sender_id": {"$ne": user["id"]}, "is_read": False})
-        last = await db.chat_messages.find({"shop_id": s["id"]}, {"_id": 0}).sort("created_at", -1).limit(1).to_list(1)
         result.append({
             "shop_id": s["id"], "shop_name": s["name"], "shop_image": s.get("image", ""),
             "owner_id": s["owner_id"], "verification_status": s.get("verification_status"),
             "closed": s.get("chat_closed", False),
-            "unread": unread,
-            "last_message": last[0] if last else None,
+            "unread": unread_by_shop.get(s["id"], 0),
+            "last_message": last_by_shop.get(s["id"]),
         })
     result.sort(key=lambda x: (x["last_message"] or {}).get("created_at", ""), reverse=True)
     return {"threads": result}
@@ -3791,14 +3802,38 @@ async def list_message_threads(user=Depends(require_role("customer"))):
     )
     barber_map = {b["id"]: b for b in barbers}
 
+    # Sebelumnya 4 round-trip DB per booking (last message + unread count, x2 jenis
+    # thread) — bisa ratusan query berurutan. Ganti jadi 2 query batch (semua pesan
+    # service_messages/owner_messages untuk semua booking sekaligus), lalu kelompokkan
+    # "terakhir" & "belum dibaca" per booking di memori.
+    booking_ids = [b["id"] for b in bookings]
+
+    async def _group_messages(collection):
+        last_by_booking: dict = {}
+        unread_by_booking: dict = {}
+        if not booking_ids:
+            return last_by_booking, unread_by_booking
+        cursor = collection.find({"booking_id": {"$in": booking_ids}}, {"_id": 0}).sort("created_at", -1)
+        async for m in cursor:
+            bid = m["booking_id"]
+            if bid not in last_by_booking:
+                last_by_booking[bid] = m  # pesan pertama yang ditemukan per booking = paling baru (sudah sort desc)
+            if m["sender_id"] != user["id"] and not m.get("is_read", False):
+                unread_by_booking[bid] = unread_by_booking.get(bid, 0) + 1
+        return last_by_booking, unread_by_booking
+
+    (last_b_by_booking, unread_b_by_booking), (last_o_by_booking, unread_o_by_booking) = await asyncio.gather(
+        _group_messages(db.service_messages), _group_messages(db.owner_messages)
+    )
+
     threads = []
     total_unread = 0
     for b in bookings:
         shop = shop_map.get(b["shop_id"], {})
         barber = barber_map.get(b.get("barber_id"), {})
 
-        last_b = await db.service_messages.find({"booking_id": b["id"]}, {"_id": 0}).sort("created_at", -1).limit(1).to_list(1)
-        unread_b = await db.service_messages.count_documents({"booking_id": b["id"], "sender_id": {"$ne": user["id"]}, "is_read": False})
+        last_b = last_b_by_booking.get(b["id"])
+        unread_b = unread_b_by_booking.get(b["id"], 0)
         total_unread += unread_b
         threads.append({
             "type": "barber",
@@ -3807,13 +3842,13 @@ async def list_message_threads(user=Depends(require_role("customer"))):
             "subtitle": shop.get("name") or "",
             "image": barber.get("photo") or shop.get("image"),
             "booking_status": b["status"],
-            "last_message": last_b[0] if last_b else None,
+            "last_message": last_b,
             "unread": unread_b,
-            "updated_at": last_b[0]["created_at"] if last_b else b["created_at"],
+            "updated_at": last_b["created_at"] if last_b else b["created_at"],
         })
 
-        last_o = await db.owner_messages.find({"booking_id": b["id"]}, {"_id": 0}).sort("created_at", -1).limit(1).to_list(1)
-        unread_o = await db.owner_messages.count_documents({"booking_id": b["id"], "sender_id": {"$ne": user["id"]}, "is_read": False})
+        last_o = last_o_by_booking.get(b["id"])
+        unread_o = unread_o_by_booking.get(b["id"], 0)
         total_unread += unread_o
         threads.append({
             "type": "owner",
@@ -3822,9 +3857,9 @@ async def list_message_threads(user=Depends(require_role("customer"))):
             "subtitle": barber.get("name") or "",
             "image": shop.get("image"),
             "booking_status": b["status"],
-            "last_message": last_o[0] if last_o else None,
+            "last_message": last_o,
             "unread": unread_o,
-            "updated_at": last_o[0]["created_at"] if last_o else b["created_at"],
+            "updated_at": last_o["created_at"] if last_o else b["created_at"],
         })
 
     threads.sort(key=lambda t: t["updated_at"], reverse=True)
@@ -3857,36 +3892,46 @@ async def analytics_owner(user=Depends(require_role("owner"))):
     week_ago = (now - timedelta(days=7)).isoformat()
     prev_week = (now - timedelta(days=14)).isoformat()
 
-    # total bookings this month + growth (7d vs prev 7d)
+    # Semua query di bawah cuma bergantung pada sid/tanggal yang sudah dihitung di atas,
+    # bukan pada hasil query lain — sebelumnya 11 round-trip DB berurutan, sekarang
+    # sekaligus lewat gather supaya latency ~1 round-trip terjauh, bukan jumlah semuanya.
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
-    total_month = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": month_start}})
-    paid_this_month = await db.bookings.find(
-        {"shop_id": sid, "payment_status": "paid", "fund_state": {"$ne": "refunded"},
-         "delivery_mode": {"$ne": "rumah"}, "created_at": {"$gte": month_start}},
-        {"_id": 0, "total_price": 1, "amount_barber_net": 1},
-    ).to_list(5000)
+    d90_ago = (now - timedelta(days=90)).isoformat()
+    wd = now.weekday()
+    day_name = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][wd]
+
+    (
+        total_month, paid_this_month, last_7, prev_7, today_bookings, active_barbers,
+        sched, b90, scheds, ball, services,
+    ) = await asyncio.gather(
+        db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": month_start}}),
+        db.bookings.find(
+            {"shop_id": sid, "payment_status": "paid", "fund_state": {"$ne": "refunded"},
+             "delivery_mode": {"$ne": "rumah"}, "created_at": {"$gte": month_start}},
+            {"_id": 0, "total_price": 1, "amount_barber_net": 1},
+        ).to_list(5000),
+        db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": week_ago}}),
+        db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": prev_week, "$lt": week_ago}}),
+        db.bookings.count_documents({"shop_id": sid, "booking_date": today, "status": {"$ne": "cancelled"}}),
+        db.barbers.count_documents({"shop_id": sid, "status": "active"}),
+        db.shop_schedules.find_one({"shop_id": sid, "day_name": day_name}),
+        db.bookings.find({"shop_id": sid, "created_at": {"$gte": d90_ago}, "status": {"$ne": "cancelled"}}, {"_id": 0, "user_id": 1}).to_list(5000),
+        db.shop_schedules.find({"shop_id": sid}).to_list(20),
+        db.bookings.find({"shop_id": sid}, {"_id": 0, "service_id": 1}).to_list(5000),
+        db.services.find({"shop_id": sid}, {"_id": 0}).to_list(200),
+    )
+
     monthly_revenue = sum(b.get("amount_barber_net", b["total_price"]) for b in paid_this_month)
-    last_7 = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": week_ago}})
-    prev_7 = await db.bookings.count_documents({"shop_id": sid, "created_at": {"$gte": prev_week, "$lt": week_ago}})
     growth = 0.0
     if prev_7 > 0: growth = round((last_7 - prev_7) / prev_7 * 100, 1)
     elif last_7 > 0: growth = 100.0
 
-    # today's fill %
-    today_bookings = await db.bookings.count_documents({"shop_id": sid, "booking_date": today, "status": {"$ne": "cancelled"}})
-    active_barbers = await db.barbers.count_documents({"shop_id": sid, "status": "active"})
-    wd = now.weekday()
-    day_name = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][wd]
-    sched = await db.shop_schedules.find_one({"shop_id": sid, "day_name": day_name})
     total_slots = 0
     if sched and not sched.get("is_closed"):
         slots = gen_time_slots(sched["open_time"], sched["close_time"], 30)
         total_slots = len(slots) * max(active_barbers, 1)
     fill_pct = round((today_bookings / total_slots) * 100) if total_slots else 0
 
-    # retention (90 days)
-    d90_ago = (now - timedelta(days=90)).isoformat()
-    b90 = await db.bookings.find({"shop_id": sid, "created_at": {"$gte": d90_ago}, "status": {"$ne": "cancelled"}}, {"_id": 0, "user_id": 1}).to_list(5000)
     counts: dict = {}
     for b in b90:
         counts[b["user_id"]] = counts.get(b["user_id"], 0) + 1
@@ -3894,8 +3939,6 @@ async def analytics_owner(user=Depends(require_role("owner"))):
     returning = sum(1 for v in counts.values() if v > 1)
     retention = round((returning / unique_customers) * 100) if unique_customers else 0
 
-    # productivity (90 days)
-    scheds = await db.shop_schedules.find({"shop_id": sid}).to_list(20)
     total_daily_slots = 0
     for s in scheds:
         if s.get("is_closed"): continue
@@ -3904,12 +3947,9 @@ async def analytics_owner(user=Depends(require_role("owner"))):
     prod = round((len(b90) / total_avail_90) * 100) if total_avail_90 else 0
     prod = min(100, prod)
 
-    # popular services (donut)
-    ball = await db.bookings.find({"shop_id": sid}, {"_id": 0, "service_id": 1}).to_list(5000)
     svc_counts: dict = {}
     for b in ball:
         svc_counts[b["service_id"]] = svc_counts.get(b["service_id"], 0) + 1
-    services = await db.services.find({"shop_id": sid}, {"_id": 0}).to_list(200)
     svc_names = {s["id"]: s["name"] for s in services}
     total_all = sum(svc_counts.values()) or 1
     donut = sorted([{"name": svc_names.get(sid_, "Lainnya"), "count": c, "pct": round(c / total_all * 100)} for sid_, c in svc_counts.items()], key=lambda x: -x["count"])[:5]

@@ -88,7 +88,12 @@ export default function Explore() {
       let c: { lat: number; lng: number } | null = null;
       if (status === "granted") {
         try {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          // Sama seperti Beranda — GPS fix bisa lama sekali (atau tidak pernah
+          // selesai) di dalam gedung, jangan biarkan itu menahan list toko.
+          const loc: any = await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("location_timeout")), 4000)),
+          ]);
           c = { lat: loc.coords.latitude, lng: loc.coords.longitude };
         } catch { c = registeredCoords(); }
       } else {

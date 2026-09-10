@@ -60,7 +60,12 @@ export default function StreetBarberMap() {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === "granted") {
           try {
-            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            // Sama seperti Beranda/Jelajah — GPS fix bisa lama sekali di dalam
+            // gedung, jangan biarkan itu menahan peta & list barber.
+            const loc: any = await Promise.race([
+              Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+              new Promise((_, reject) => setTimeout(() => reject(new Error("location_timeout")), 4000)),
+            ]);
             c = { lat: loc.coords.latitude, lng: loc.coords.longitude };
           } catch { c = registeredCoords(); }
         } else {
