@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Switch, TextInput, Modal, KeyboardAvoidingView, Platform, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -78,8 +78,11 @@ export default function StreetBarberManage() {
 
   const { scrollRef, handleFocus } = useScrollToInput();
 
+  // Refetch tiap fokus (useFocusEffect di bawah) — skeleton cuma di load pertama,
+  // supaya pindah tab-tab tidak mengosongkan layar yang sudah terisi.
+  const hasLoadedRef = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const r = await api.get("/karyawan/my");
       const apps = r.applications || [];
@@ -103,7 +106,7 @@ export default function StreetBarberManage() {
       } else {
         setHasActive(false);
       }
-    } catch {} finally { setLoading(false); }
+    } catch {} finally { setLoading(false); hasLoadedRef.current = true; }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 

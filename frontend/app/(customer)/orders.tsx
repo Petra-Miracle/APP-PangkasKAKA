@@ -85,9 +85,12 @@ export default function Orders() {
   const [comment, setComment] = useState("");
   const [paymentMode, setPaymentMode] = useState("simulation");
 
+  // Refetch tiap fokus (useFocusEffect di bawah) — skeleton cuma di load pertama,
+  // supaya pindah tab-tab tidak mengosongkan layar yang sudah terisi.
+  const hasLoadedRef = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
-    try { const r = await api.get("/bookings"); setOrders(r.bookings); } catch {} finally { setLoading(false); }
+    if (!hasLoadedRef.current) setLoading(true);
+    try { const r = await api.get("/bookings"); setOrders(r.bookings); } catch {} finally { setLoading(false); hasLoadedRef.current = true; }
   }, []);
 
   useEffect(() => { api.get("/payments/mode").then((m) => setPaymentMode(m.mode || "simulation")).catch(() => {}); }, []);

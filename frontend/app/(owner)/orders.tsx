@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Modal, Linking, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -33,8 +33,11 @@ export default function OwnerOrders() {
   const [detail, setDetail] = useState<any>(null);
   const [productDetail, setProductDetail] = useState<any>(null);
 
+  // Refetch tiap fokus (useFocusEffect di bawah) — skeleton cuma di load pertama,
+  // supaya pindah tab-tab tidak mengosongkan layar yang sudah terisi.
+  const hasLoadedRef = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const [r, rp] = await Promise.all([
         api.get("/owner/orders"),
@@ -42,7 +45,7 @@ export default function OwnerOrders() {
       ]);
       setOrders(r.orders);
       setProductOrders(rp.orders || []);
-    } catch {} finally { setLoading(false); }
+    } catch {} finally { setLoading(false); hasLoadedRef.current = true; }
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,9 +26,12 @@ export default function StreetBarberOrders() {
   const [loading, setLoading] = useState(true);
   const [completingId, setCompletingId] = useState<string | null>(null);
 
+  // Refetch tiap fokus (useFocusEffect di bawah) — skeleton cuma di load pertama,
+  // supaya pindah tab-tab tidak mengosongkan layar yang sudah terisi.
+  const hasLoadedRef = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
-    try { const r = await api.get("/karyawan/bookings"); setMyBookings(r.bookings || []); } catch {} finally { setLoading(false); }
+    if (!hasLoadedRef.current) setLoading(true);
+    try { const r = await api.get("/karyawan/bookings"); setMyBookings(r.bookings || []); } catch {} finally { setLoading(false); hasLoadedRef.current = true; }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 

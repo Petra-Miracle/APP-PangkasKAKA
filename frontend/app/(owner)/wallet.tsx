@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,8 +22,11 @@ export default function OwnerWallet() {
   const [loading, setLoading] = useState(true);
   const [payingOut, setPayingOut] = useState(false);
 
+  // Refetch tiap fokus (useFocusEffect di bawah) — skeleton cuma di load pertama,
+  // supaya pindah tab-tab tidak mengosongkan layar yang sudah terisi.
+  const hasLoadedRef = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const [w, l] = await Promise.allSettled([
         api.get("/wallets/me").catch(() => null),
@@ -31,7 +34,7 @@ export default function OwnerWallet() {
       ]);
       if (w.status === "fulfilled" && w.value) setWallet(w.value.wallet);
       if (l.status === "fulfilled") setLedger((l.value as any).entries || []);
-    } catch {} finally { setLoading(false); }
+    } catch {} finally { setLoading(false); hasLoadedRef.current = true; }
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));

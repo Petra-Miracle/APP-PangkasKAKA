@@ -72,8 +72,11 @@ export default function StreetBarberDashboard() {
 
   useEffect(() => () => { watchRef.current?.remove(); }, []);
 
+  // Refetch tiap fokus (useFocusEffect di bawah) — skeleton cuma di load pertama,
+  // supaya pindah tab-tab tidak mengosongkan layar yang sudah terisi.
+  const hasLoadedRef = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       // Kelima call ini independen satu sama lain — jalankan sekaligus, bukan
       // dua batch berurutan, supaya loading dashboard = call terlambat, bukan jumlahnya.
@@ -95,7 +98,7 @@ export default function StreetBarberDashboard() {
         list.sort((a: any, b: any) => `${a.booking_date} ${a.booking_time}`.localeCompare(`${b.booking_date} ${b.booking_time}`));
         setUpcoming(list.find((b: any) => new Date(`${b.booking_date}T00:00:00`) >= today) || null);
       } else setUpcoming(null);
-    } catch {} finally { setLoading(false); }
+    } catch {} finally { setLoading(false); hasLoadedRef.current = true; }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 

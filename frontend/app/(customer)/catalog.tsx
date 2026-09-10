@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { View, Text, StyleSheet, FlatList, RefreshControl, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -27,7 +27,13 @@ export default function ProductCatalog() {
     try { const r = await api.get("/products/catalog"); setProducts(r.products || []); } catch { setProducts([]); }
   }, []);
 
-  useFocusEffect(useCallback(() => { setLoading(true); load().finally(() => setLoading(false)); }, [load]));
+  // Refetch tiap fokus — skeleton cuma di load pertama, supaya pindah tab-tab
+  // tidak mengosongkan layar yang sudah terisi.
+  const hasLoadedRef = useRef(false);
+  useFocusEffect(useCallback(() => {
+    if (!hasLoadedRef.current) setLoading(true);
+    load().finally(() => { setLoading(false); hasLoadedRef.current = true; });
+  }, [load]));
 
   const onRefresh = async () => { setRefreshing(true); await load(); setRefreshing(false); };
 
