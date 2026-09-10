@@ -85,7 +85,7 @@ export default function ShopApply() {
           <AuthHero title="Daftarkan Toko" subtitle="Toko diverifikasi SuperAdmin sebelum aktif" />
 
           <Pressable style={styles.backLink} onPress={() => router.back()} testID="shop-apply-back">
-            <Ionicons name="arrow-back" size={18} color="#FFFFFF" />
+            <Ionicons name="arrow-back" size={18} color={COLORS.text} />
             <Text style={styles.backText}>Kembali</Text>
           </Pressable>
 
@@ -159,7 +159,7 @@ function DocPicker({ label, value, onPick, testID }: any) {
   return (
     <PressableScale testID={testID} style={[styles.docPicker, !!value && styles.docPickerDone]} onPress={onPick} scaleTo={0.98}>
       <View style={[styles.docIcon, !!value && { backgroundColor: COLORS.success }]}>
-        <Ionicons name={value ? "checkmark" : "cloud-upload"} size={18} color="#FFFFFF" />
+        <Ionicons name={value ? "checkmark" : "cloud-upload"} size={18} color={value ? "#FFFFFF" : COLORS.onBrand} />
       </View>
       <View style={{ flex: 1 }}>
         <Text style={styles.docLabel}>{label}</Text>
@@ -173,26 +173,26 @@ function DocPicker({ label, value, onPick, testID }: any) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   backLink: { position: "absolute", top: 52, left: 20, flexDirection: "row", alignItems: "center", gap: 4, zIndex: 10 },
-  backText: { color: "#FFFFFF", fontFamily: FONT.semibold, fontSize: 13 },
+  backText: { color: COLORS.text, fontFamily: FONT.semibold, fontSize: 13 },
   card: {
-    backgroundColor: COLORS.surface, marginTop: -36, marginHorizontal: 20, padding: 24, borderRadius: 24, borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 1, shadowRadius: 24, elevation: 6,
+    backgroundColor: COLORS.surface, marginTop: -40, marginHorizontal: 20, padding: 28, borderRadius: 28, borderWidth: 1, borderColor: COLORS.border,
+    shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 14 }, shadowOpacity: 1, shadowRadius: 28, elevation: 8,
   },
   sectionLabel: { color: COLORS.textDim, letterSpacing: 0.8, fontSize: 10, fontFamily: FONT.bold },
   hint: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.medium, marginTop: 4, marginBottom: 8, lineHeight: 16 },
-  label: { color: COLORS.textMuted, marginTop: 14, marginBottom: 6, fontSize: 12, fontFamily: FONT.semibold, letterSpacing: 0.3 },
-  inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface2, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
-  input: { flex: 1, color: COLORS.text, paddingVertical: 12, fontFamily: FONT.medium, fontSize: 14 },
-  divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 20 },
-  docPicker: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, borderStyle: "dashed", backgroundColor: COLORS.surface2, marginTop: 8 },
+  label: { color: COLORS.textMuted, marginTop: 14, marginBottom: 8, fontSize: 12, fontFamily: FONT.semibold, letterSpacing: 0.3 },
+  inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1.5, borderColor: COLORS.border },
+  input: { flex: 1, color: COLORS.text, paddingVertical: 14, fontFamily: FONT.medium, fontSize: 14 },
+  divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 22 },
+  docPicker: { flexDirection: "row", alignItems: "center", gap: 12, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, borderStyle: "dashed", backgroundColor: COLORS.surface2, marginTop: 10 },
   docPickerDone: { borderStyle: "solid", backgroundColor: "#F0FDF4", borderColor: COLORS.success },
-  docIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center" },
+  docIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center" },
   docLabel: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
   docStatus: { color: COLORS.textDim, fontSize: 11, marginTop: 2, fontFamily: FONT.medium },
-  errBox: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF2F2", padding: 12, borderRadius: 12, marginTop: 14 },
+  errBox: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF2F2", padding: 14, borderRadius: 14, marginTop: 16 },
   errText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium, fontSize: 13 },
-  doneWrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
-  doneIcon: { width: 88, height: 88, borderRadius: 44, backgroundColor: "#F0FDF4", alignItems: "center", justifyContent: "center", marginBottom: 20 },
-  doneTitle: { color: COLORS.text, fontSize: 20, fontFamily: FONT.extrabold, marginBottom: 10 },
-  doneText: { color: COLORS.textDim, fontSize: 13, fontFamily: FONT.medium, textAlign: "center", lineHeight: 20, marginBottom: 28 },
+  doneWrap: { flex: 1, alignItems: "center", justifyContent: "center", padding: 36 },
+  doneIcon: { width: 96, height: 96, borderRadius: 48, backgroundColor: "#F0FDF4", alignItems: "center", justifyContent: "center", marginBottom: 24, shadowColor: COLORS.success, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 14, elevation: 5 },
+  doneTitle: { color: COLORS.text, fontSize: 22, fontFamily: FONT.extrabold, marginBottom: 12 },
+  doneText: { color: COLORS.textDim, fontSize: 13, fontFamily: FONT.medium, textAlign: "center", lineHeight: 21, marginBottom: 30 },
 });

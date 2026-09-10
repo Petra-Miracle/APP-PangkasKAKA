@@ -33,6 +33,16 @@ export default function EditProfile() {
     setPhoto(`data:image/jpeg;base64,${resized.base64}`);
   };
 
+  // Layar ini hidup di grup (customer) tapi dibuka juga oleh owner/streetbarber
+  // lintas grup. router.back() polos dari stack grup yang tak punya riwayat
+  // intra-grup jatuh ke rute awal grup (Beranda customer) — jadi kembali
+  // eksplisit ke profil role masing-masing. Alur customer tidak berubah.
+  const goBackToProfile = () => {
+    if (user?.role === "owner") router.replace("/(owner)/profile" as any);
+    else if (user?.role === "streetbarber") router.replace("/(streetbarber)/profile" as any);
+    else router.back();
+  };
+
   const save = async () => {
     if (!name.trim()) { alert("Nama tidak boleh kosong"); return; }
     setSaving(true);
@@ -41,7 +51,7 @@ export default function EditProfile() {
       if (photo && photo !== user?.photo) body.photo = photo;
       await api.put("/auth/profile", body);
       await refresh();
-      router.back();
+      goBackToProfile();
     } catch (e: any) { alert(e.message); }
     setSaving(false);
   };
@@ -49,7 +59,7 @@ export default function EditProfile() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.headerBox}>
-        <PressableScale onPress={() => router.back()} style={styles.backBtn} scaleTo={0.9}>
+        <PressableScale onPress={goBackToProfile} style={styles.backBtn} scaleTo={0.9}>
           <Ionicons name="arrow-back" size={20} color={COLORS.text} />
         </PressableScale>
         <Text style={styles.title}>Edit Profil</Text>
@@ -72,7 +82,7 @@ export default function EditProfile() {
                 )}
               </View>
               <View style={styles.editBadge}>
-                <Ionicons name="camera" size={14} color="#FFFFFF" />
+                <Ionicons name="camera" size={14} color={COLORS.onBrand} />
               </View>
             </LinearGradient>
           </PressableScale>
@@ -97,7 +107,7 @@ export default function EditProfile() {
             end={{ x: 1, y: 1 }}
             style={styles.btn}
           >
-            {saving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.btnText}>SIMPAN PERUBAHAN</Text>}
+            {saving ? <ActivityIndicator color={COLORS.onBrand} /> : <Text style={styles.btnText}>SIMPAN PERUBAHAN</Text>}
           </LinearGradient>
         </PressableScale>
       </ScrollView>
@@ -107,27 +117,29 @@ export default function EditProfile() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  headerBox: { flexDirection: "row", alignItems: "center", gap: 12, padding: 20, paddingBottom: 8 },
-  backBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.border },
-  title: { color: COLORS.text, fontSize: 20, fontFamily: FONT.extrabold },
+  headerBox: { flexDirection: "row", alignItems: "center", gap: 12, padding: 20, paddingBottom: 10 },
+  backBtn: { width: 44, height: 44, borderRadius: 15, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.border, shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 10, elevation: 3 },
+  title: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, letterSpacing: -0.4 },
 
-  avatarSection: { alignItems: "center", marginTop: 12, marginBottom: 28 },
-  avatarRing: { width: 108, height: 108, borderRadius: 54, alignItems: "center", justifyContent: "center" },
-  avatar: { width: 96, height: 96, borderRadius: 48, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  avatarImg: { width: 96, height: 96, borderRadius: 48 },
-  avatarText: { color: COLORS.brand, fontSize: 36, fontFamily: FONT.extrabold },
+  avatarSection: { alignItems: "center", marginTop: 16, marginBottom: 32 },
+  avatarRing: { width: 116, height: 116, borderRadius: 58, alignItems: "center", justifyContent: "center" },
+  avatar: { width: 104, height: 104, borderRadius: 52, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  avatarImg: { width: 104, height: 104, borderRadius: 52 },
+  avatarText: { color: COLORS.brandLight, fontSize: 40, fontFamily: FONT.extrabold },
   editBadge: {
-    position: "absolute", bottom: 2, right: 2, width: 30, height: 30, borderRadius: 15, backgroundColor: COLORS.brand,
-    alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: COLORS.bg,
+    position: "absolute", bottom: 4, right: 4, width: 34, height: 34, borderRadius: 17, backgroundColor: COLORS.brand,
+    alignItems: "center", justifyContent: "center", borderWidth: 2.5, borderColor: COLORS.bg,
+    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.35, shadowRadius: 8, elevation: 4,
   },
-  avatarHint: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 12 },
+  avatarHint: { color: COLORS.textDim, fontSize: 13, fontFamily: FONT.medium, marginTop: 14 },
 
-  label: { color: COLORS.textDim, letterSpacing: 0.8, fontSize: 10, fontFamily: FONT.bold, marginBottom: 8 },
+  label: { color: COLORS.textDim, letterSpacing: 0.8, fontSize: 10, fontFamily: FONT.bold, marginBottom: 10 },
   input: {
-    backgroundColor: COLORS.surface, color: COLORS.text, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border,
-    fontFamily: FONT.medium, fontSize: 15, marginBottom: 20,
+    backgroundColor: COLORS.surface, color: COLORS.text, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border,
+    fontFamily: FONT.medium, fontSize: 15, marginBottom: 22,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 4, elevation: 1,
   },
-  btnWrap: { borderRadius: 14, marginTop: 4, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4 },
-  btn: { padding: 15, alignItems: "center" },
-  btnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 1 },
+  btnWrap: { borderRadius: 16, marginTop: 6, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.35, shadowRadius: 14, elevation: 6 },
+  btn: { padding: 17, alignItems: "center" },
+  btnText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, letterSpacing: 1, fontSize: 14 },
 });

@@ -23,14 +23,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem("token");
-      if (!token) { setUser(null); return; }
+      if (!token) { setUser(null); await AsyncStorage.removeItem("cached_user"); return; }
       const res = await api.get("/auth/me");
       setUser(res.user);
-    } catch { setUser(null); await AsyncStorage.removeItem("token"); }
+      await AsyncStorage.setItem("cached_user", JSON.stringify(res.user));
+    } catch { setUser(null); await AsyncStorage.multiRemove(["token", "cached_user"]); }
   }, []);
 
   useEffect(() => {
-    (async () => { await refresh(); setLoading(false); })();
+    (async () => {
+      // Startup lama terasa lambat karena splash menunggu round-trip
+      // /auth/me sebelum bisa navigasi. Untuk user yang sudah pernah login,
+      // tampilkan dulu dari cache lokal (loading=false langsung) lalu
+      // konfirmasi/koreksi ke server di latar belakang — bukan sebaliknya.
+      try {
+        const cached = await AsyncStorage.getItem("cached_user");
+        if (cached) { setUser(JSON.parse(cached)); setLoading(false); refresh(); return; }
+      } catch {}
+      await refresh();
+      setLoading(false);
+    })();
   }, [refresh]);
 
   useEffect(() => {
@@ -40,6 +52,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     const res = await api.post("/auth/login", { email, password });
     await AsyncStorage.setItem("token", res.token);
+    await AsyncStorage.setItem("cached_user", JSON.stringify(res.user));
     setUser(res.user);
     return res.user as User;
   };
@@ -47,13 +60,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const register = async (data: any) => {
     const res = await api.post("/auth/register", data);
     await AsyncStorage.setItem("token", res.token);
+    await AsyncStorage.setItem("cached_user", JSON.stringify(res.user));
     setUser(res.user);
     return res.user as User;
   };
 
   const logout = async () => {
     await unregisterPushToken().catch(() => {});
-    await AsyncStorage.removeItem("token");
+    await AsyncStorage.multiRemove(["token", "cached_user"]);
     setUser(null);
   };
 

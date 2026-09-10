@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
-import { api, COLORS, FONT, rupiah, tanggal, formatJarak } from "@/src/lib/api";
+import { api, COLORS, FONT, rupiah, formatJarak } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import PressableScale from "@/src/components/PressableScale";
 import EmptyState from "@/src/components/EmptyState";
@@ -36,23 +36,18 @@ function LiveLocationCard({ bookingId, onPress }: { bookingId: string; onPress?:
 
   return (
     <PressableScale onPress={onPress} disabled={!onPress} scaleTo={0.98} testID={`live-location-${bookingId}`}>
-      <LinearGradient
-        colors={[COLORS.brandGradStart, COLORS.brandGradMid]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.locCard}
-      >
+      <View style={styles.locCard}>
         <View style={styles.locPulse}>
-          <Ionicons name="navigate" size={16} color={COLORS.brand} />
+          <Ionicons name="navigate" size={16} color={COLORS.info} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.locTitle}>
-            Barber sedang menuju lokasimu{loc?.distance_km != null ? ` · ${formatJarak(loc.distance_km)}` : ""}
-          </Text>
-          {secondsAgo !== null && <Text style={styles.locSub}>Diperbarui {secondsAgo}s lalu</Text>}
+          <Text style={styles.locTitle}>Lacak lokasi</Text>
+          {loc?.distance_km != null
+            ? <Text style={styles.locSub}>Barber {formatJarak(loc.distance_km)} lagi</Text>
+            : secondsAgo !== null ? <Text style={styles.locSub}>Diperbarui {secondsAgo}s lalu</Text> : null}
         </View>
-        {onPress && <Ionicons name="chevron-forward" size={18} color={COLORS.brand} />}
-      </LinearGradient>
+        {onPress && <Ionicons name="chevron-forward" size={18} color={COLORS.info} />}
+      </View>
     </PressableScale>
   );
 }
@@ -63,12 +58,21 @@ const TABS = [
   { key: "dibatalkan", label: "Dibatalkan", statuses: ["cancelled"] },
 ];
 
+// Badge makna (§12): kuning=menunggu, biru=berlangsung, hijau=selesai, merah=batal.
 const STATUS_META: Record<string, { color: string; bg: string; label: string }> = {
-  pending: { color: COLORS.warning, bg: "#FFF7ED", label: "Menunggu Bayar" },
-  confirmed: { color: COLORS.success, bg: "#ECFDF5", label: "Terkonfirmasi" },
-  completed: { color: COLORS.info, bg: "#F0F9FF", label: "Selesai" },
+  pending: { color: "#B45309", bg: "#FFF7ED", label: "Menunggu Bayar" },
+  confirmed: { color: COLORS.info, bg: "#EFF6FF", label: "Berlangsung" },
+  completed: { color: COLORS.success, bg: "#ECFDF5", label: "Selesai" },
   cancelled: { color: COLORS.error, bg: "#FEF2F2", label: "Dibatalkan" },
 };
+
+// "Sel, 9 Sep" dari YYYY-MM-DD tanpa jebakan timezone (parse manual, bukan new Date(string)).
+function shortDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
+  if (!m) return iso || "-";
+  const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return dt.toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "short" });
+}
 
 export default function Orders() {
   const router = useRouter();
@@ -121,6 +125,15 @@ export default function Orders() {
     if (paymentMode !== "simulation") { router.push(`/payment/status/${id}` as any); return; }
     try { await api.post(`/bookings/${id}/pay`); await load(); } catch (e: any) { alert(e.message); }
   };
+  // Pesan lagi: navigasi ke halaman booking yang sudah ada (toko / detail barber),
+  // user menyusun ulang pesanan dari sana. Tanpa endpoint baru.
+  const reorder = (o: any) => {
+    if (o.delivery_mode === "rumah" && o.barber_id) {
+      router.push(`/(customer)/barber/${o.barber_id}` as any);
+    } else if (o.shop_id) {
+      router.push(`/(customer)/shop/${o.shop_id}` as any);
+    }
+  };
   const submitReview = async () => {
     try { await api.post(`/bookings/${reviewFor.id}/review`, { rating, comment }); setReviewFor(null); setComment(""); setRating(5); await load(); }
     catch (e: any) { alert(e.message); }
@@ -131,8 +144,17 @@ export default function Orders() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.headerBox}>
-        <Text style={styles.title}>Pesanan Saya</Text>
-        <Text style={styles.sub}>Riwayat semua booking Anda</Text>
+        <Text style={styles.title}>Pesanan</Text>
+        <Text style={styles.sub}>Riwayat layanan & produk kamu</Text>
+      </View>
+      {/* Segmented tipe (§1b): 2 layar tetap terpisah, tombol ini hanya navigasi antar keduanya */}
+      <View style={styles.typeSeg}>
+        <View style={[styles.typeOpt, styles.typeOptActive]}>
+          <Text style={[styles.typeText, styles.typeTextActive]}>Layanan</Text>
+        </View>
+        <PressableScale testID="type-produk" style={styles.typeOpt} onPress={() => router.push("/(customer)/product-orders" as any)} scaleTo={0.96}>
+          <Text style={styles.typeText}>Produk</Text>
+        </PressableScale>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow} style={{ maxHeight: 56 }}>
         {TABS.map((t) => (
@@ -159,20 +181,26 @@ export default function Orders() {
           )}
           {current.map((o) => {
             const meta = STATUS_META[o.status] || STATUS_META.pending;
+            const canReorder = o.status === "cancelled" && (o.delivery_mode === "rumah" ? !!o.barber_id : !!o.shop_id);
             return (
               <View key={o.id} style={styles.card} testID={`order-${o.id}`}>
                 <View style={styles.rowTop}>
                   <Image source={{ uri: o.shop?.image }} style={styles.thumb} contentFit="cover" />
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.shopName} numberOfLines={1}>{o.shop?.name}</Text>
-                    <Text style={styles.svcName} numberOfLines={1}>{o.service?.name} · {o.barber?.name}</Text>
-                    <View style={styles.dateRow}>
-                      <Ionicons name="calendar-outline" size={12} color={COLORS.textDim} />
-                      <Text style={styles.date}>{tanggal(o.booking_date)} · {o.booking_time} WITA</Text>
+                    <View style={styles.nameRow}>
+                      <Text style={styles.shopName} numberOfLines={1}>{o.shop?.name}</Text>
+                      <View style={[styles.badge, { backgroundColor: meta.bg }]}>
+                        <Text style={[styles.badgeText, { color: meta.color }]}>{meta.label}</Text>
+                      </View>
                     </View>
+                    <View style={styles.svcRow}>
+                      <Ionicons name="cut" size={12} color={COLORS.textDim} />
+                      <Text style={styles.svcName} numberOfLines={1}>{o.service?.name} · {o.barber?.name}</Text>
+                    </View>
+                    <Text style={styles.date}>{shortDate(o.booking_date)} · {o.booking_time} WITA</Text>
                     {o.delivery_mode === "rumah" && (
                       <View style={styles.homeModeRow}>
-                        <Ionicons name="home" size={12} color={COLORS.brand} />
+                        <Ionicons name="home" size={12} color={COLORS.brandLight} />
                         <Text style={styles.homeModeText}>Barber ke Rumah</Text>
                       </View>
                     )}
@@ -180,10 +208,31 @@ export default function Orders() {
                 </View>
                 <View style={styles.divider} />
                 <View style={styles.rowBottom}>
-                  <Text style={styles.price}>{rupiah(o.amount_total_charged ?? o.total_price)}</Text>
-                  <View style={[styles.badge, { backgroundColor: meta.bg }]}>
-                    <Text style={[styles.badgeText, { color: meta.color }]}>{meta.label}</Text>
+                  <View>
+                    <Text style={styles.totalLabel}>Total</Text>
+                    <Text style={styles.price}>{rupiah(o.amount_total_charged ?? o.total_price)}</Text>
                   </View>
+                  {o.status === "pending" && o.payment_status === "unpaid" && (
+                    <PressableScale testID={`pay-${o.id}`} style={styles.payBtnWrap} onPress={() => pay(o.id)} haptic scaleTo={0.96}>
+                      <View style={styles.payBtn}>
+                        <Ionicons name="wallet" size={15} color={COLORS.onBrand} />
+                        <Text style={styles.payBtnText}>{paymentMode === "simulation" ? "BAYAR SIMULASI QRIS" : "LIHAT QRIS & BAYAR"}</Text>
+                      </View>
+                    </PressableScale>
+                  )}
+                  {o.status === "completed" && !o.has_review && (
+                    <PressableScale testID={`review-${o.id}`} style={styles.reviewBtn} onPress={() => setReviewFor(o)} haptic scaleTo={0.96}>
+                      <View style={styles.reviewBtnGrad}>
+                        <Ionicons name="star" size={14} color={COLORS.brandLight} />
+                        <Text style={styles.reviewText}>Beri ulasan</Text>
+                      </View>
+                    </PressableScale>
+                  )}
+                  {canReorder && (
+                    <PressableScale testID={`reorder-${o.id}`} style={styles.reorderBtn} onPress={() => reorder(o)} scaleTo={0.96}>
+                      <Text style={styles.reorderText}>Pesan lagi</Text>
+                    </PressableScale>
+                  )}
                 </View>
                 {o.status === "confirmed" && o.delivery_mode === "rumah" && (
                   <LiveLocationCard bookingId={o.id} onPress={() => router.push(`/booking/track/${o.id}` as any)} />
@@ -191,44 +240,18 @@ export default function Orders() {
                 {(o.status === "pending" || o.status === "confirmed") && (
                   <View style={styles.chatRow}>
                     <PressableScale style={[styles.chatBtn, { flex: 1 }]} onPress={() => router.push(`/chat/booking/${o.id}` as any)} testID={`chat-barber-${o.id}`} scaleTo={0.96}>
-                      <Ionicons name="chatbubbles-outline" size={16} color={COLORS.brand} />
+                      <Ionicons name="chatbubbles-outline" size={16} color={COLORS.brandLight} />
                       <Text style={styles.chatBtnText}>Chat Barber</Text>
                     </PressableScale>
                     <PressableScale style={[styles.chatBtn, { flex: 1 }]} onPress={() => router.push(`/chat/owner/${o.id}` as any)} testID={`chat-owner-${o.id}`} scaleTo={0.96}>
-                      <Ionicons name="storefront-outline" size={16} color={COLORS.brand} />
+                      <Ionicons name="storefront-outline" size={16} color={COLORS.brandLight} />
                       <Text style={styles.chatBtnText}>Chat Toko</Text>
                     </PressableScale>
                   </View>
                 )}
-                {o.status === "pending" && o.payment_status === "unpaid" && (
-                  <PressableScale testID={`pay-${o.id}`} style={styles.payBtnWrap} onPress={() => pay(o.id)} haptic>
-                    <LinearGradient
-                      colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.payBtn}
-                    >
-                      <Ionicons name="wallet" size={16} color="#FFFFFF" />
-                      <Text style={styles.payBtnText}>{paymentMode === "simulation" ? "BAYAR SIMULASI QRIS" : "LIHAT QRIS & BAYAR"}</Text>
-                    </LinearGradient>
-                  </PressableScale>
-                )}
                 {(o.status === "pending" || o.status === "confirmed") && (
                   <PressableScale style={styles.cancelBtn} onPress={() => cancel(o)} scaleTo={0.96}>
                     <Text style={styles.cancelText}>Batalkan Pesanan</Text>
-                  </PressableScale>
-                )}
-                {o.status === "completed" && !o.has_review && (
-                  <PressableScale testID={`review-${o.id}`} style={styles.reviewBtn} onPress={() => setReviewFor(o)} haptic>
-                    <LinearGradient
-                      colors={["#FFB84D", "#F59E0B"]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.reviewBtnGrad}
-                    >
-                      <Ionicons name="star" size={14} color="#FFFFFF" />
-                      <Text style={styles.reviewText}>Beri Ulasan</Text>
-                    </LinearGradient>
                   </PressableScale>
                 )}
               </View>
@@ -275,55 +298,66 @@ export default function Orders() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  headerBox: { padding: 16, paddingBottom: 8 },
-  title: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, letterSpacing: -0.3 },
-  sub: { color: COLORS.textDim, marginTop: 2, fontFamily: FONT.medium, fontSize: 13 },
+  headerBox: { padding: 16, paddingBottom: 10 },
+  title: { color: COLORS.text, fontSize: 26, fontFamily: FONT.extrabold, letterSpacing: -0.5 },
+  sub: { color: COLORS.textDim, marginTop: 3, fontFamily: FONT.medium, fontSize: 13 },
+  typeSeg: {
+    flexDirection: "row", backgroundColor: COLORS.surface2, borderRadius: 16, padding: 4, marginHorizontal: 16, marginBottom: 4, gap: 4,
+  },
+  typeOpt: { flex: 1, paddingVertical: 10, borderRadius: 12, alignItems: "center" },
+  typeOptActive: { backgroundColor: COLORS.surface, shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 6, elevation: 2 },
+  typeText: { color: COLORS.textDim, fontFamily: FONT.semibold, fontSize: 14 },
+  typeTextActive: { color: COLORS.text, fontFamily: FONT.extrabold },
   tabRow: { paddingHorizontal: 16, gap: 8, alignItems: "center" },
   tab: {
     flexShrink: 0, height: 40, paddingHorizontal: 18, justifyContent: "center", borderRadius: 999, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 6, elevation: 1,
   },
-  tabActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+  tabActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brandLight },
   tabText: { color: COLORS.textMuted, fontFamily: FONT.semibold, fontSize: 13 },
-  tabTextActive: { color: "#FFFFFF" },
+  tabTextActive: { color: COLORS.onBrand },
   card: {
-    backgroundColor: COLORS.surface, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, padding: 14,
-    shadowColor: COLORS.cardShadowStrong, shadowOpacity: 1, shadowRadius: 14, shadowOffset: { width: 0, height: 6 }, elevation: 3,
+    backgroundColor: COLORS.surface, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 16,
+    shadowColor: COLORS.cardShadowStrong, shadowOpacity: 1, shadowRadius: 16, shadowOffset: { width: 0, height: 6 }, elevation: 4,
   },
   rowTop: { flexDirection: "row", gap: 12 },
-  thumb: { width: 64, height: 64, borderRadius: 14 },
-  shopName: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15 },
-  svcName: { color: COLORS.textMuted, fontSize: 12, marginTop: 2, fontFamily: FONT.medium },
-  dateRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
-  date: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium },
+  thumb: { width: 56, height: 56, borderRadius: 18 },
+  nameRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  shopName: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15, flex: 1 },
+  svcRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+  svcName: { color: COLORS.textMuted, fontSize: 12, fontFamily: FONT.medium, flex: 1 },
+  date: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 3 },
   homeModeRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
-  homeModeText: { color: COLORS.brand, fontSize: 11, fontFamily: FONT.bold },
+  homeModeText: { color: COLORS.brandLight, fontSize: 11, fontFamily: FONT.bold },
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 12 },
   locCard: {
-    flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 14, marginTop: 4, marginBottom: 8,
-    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.2, shadowRadius: 10, elevation: 3,
+    flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 14, marginTop: 12, marginBottom: 4,
+    backgroundColor: "#EFF6FF", borderWidth: 1, borderColor: "#BFDBFE",
   },
   locPulse: { width: 32, height: 32, borderRadius: 16, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  locTitle: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 12 },
-  locSub: { color: "rgba(255,255,255,0.8)", fontFamily: FONT.medium, fontSize: 10, marginTop: 1 },
+  locTitle: { color: COLORS.info, fontFamily: FONT.extrabold, fontSize: 14 },
+  locSub: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 1 },
   chatRow: { flexDirection: "row", gap: 8, marginTop: 4, marginBottom: 4 },
   chatBtn: {
     flexDirection: "row", justifyContent: "center", gap: 6, backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.brand, padding: 12, borderRadius: 12, alignItems: "center",
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 6, elevation: 1,
   },
-  chatBtnText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 12 },
-  rowBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  price: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 18 },
-  badge: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
+  chatBtnText: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 12 },
+  rowBottom: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 10 },
+  totalLabel: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12 },
+  price: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 18, marginTop: 1 },
+  badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, flexShrink: 0 },
   badgeText: { fontSize: 11, fontFamily: FONT.bold, letterSpacing: 0.3 },
-  payBtnWrap: { borderRadius: 14, marginTop: 12, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4 },
-  payBtn: { flexDirection: "row", justifyContent: "center", gap: 6, padding: 14, alignItems: "center" },
-  payBtnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 13 },
+  payBtnWrap: { borderRadius: 12, overflow: "hidden", backgroundColor: COLORS.brand, shadowColor: COLORS.brand, shadowOpacity: 0.35, shadowRadius: 10, elevation: 4, flexShrink: 0 },
+  payBtn: { flexDirection: "row", justifyContent: "center", gap: 6, paddingVertical: 11, paddingHorizontal: 14, alignItems: "center" },
+  payBtnText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, letterSpacing: 0.4, fontSize: 12 },
+  reorderBtn: { borderRadius: 12, backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border, paddingVertical: 11, paddingHorizontal: 16, flexShrink: 0 },
+  reorderText: { color: COLORS.textMuted, fontFamily: FONT.bold, fontSize: 13 },
   cancelBtn: { padding: 10, alignItems: "center", marginTop: 4 },
   cancelText: { color: COLORS.error, fontFamily: FONT.semibold, fontSize: 13 },
-  reviewBtn: { borderRadius: 12, marginTop: 12, overflow: "hidden", shadowColor: "#F59E0B", shadowOpacity: 0.3, shadowRadius: 10, elevation: 4 },
-  reviewBtnGrad: { flexDirection: "row", justifyContent: "center", gap: 6, padding: 14 },
-  reviewText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 0.5, fontSize: 13 },
+  reviewBtn: { borderRadius: 12, backgroundColor: COLORS.brandDim, borderWidth: 1, borderColor: COLORS.brand, flexShrink: 0 },
+  reviewBtnGrad: { flexDirection: "row", justifyContent: "center", gap: 6, paddingVertical: 11, paddingHorizontal: 14 },
+  reviewText: { color: COLORS.brandLight, fontFamily: FONT.extrabold, letterSpacing: 0.4, fontSize: 12 },
   modalBg: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: "flex-end" },
   modal: { backgroundColor: COLORS.surface, padding: 24, borderTopLeftRadius: 28, borderTopRightRadius: 28 },
   grabber: { width: 44, height: 5, borderRadius: 999, backgroundColor: COLORS.borderStrong, alignSelf: "center", marginBottom: 16 },

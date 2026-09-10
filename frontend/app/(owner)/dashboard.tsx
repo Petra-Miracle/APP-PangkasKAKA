@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, Pressable, Switch, RefreshControl, Modal, Alert } from "react-native";
+import { useState, useCallback, useEffect } from "react";
+import { View, Text, StyleSheet, ScrollView, Switch, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -14,6 +14,45 @@ import PressableScale from "@/src/components/PressableScale";
 import EmptyState from "@/src/components/EmptyState";
 import Skeleton from "@/src/components/Skeleton";
 
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 11) return "Selamat pagi,";
+  if (h < 15) return "Selamat siang,";
+  if (h < 19) return "Selamat sore,";
+  return "Selamat malam,";
+}
+
+// "Rp540rb" / "Rp2,5jt" ala mockup — format tampilan saja dari angka yang sudah ada.
+function formatSingkat(n: number): string {
+  const v = n || 0;
+  const trimNum = (x: number) => String(Math.round(x * 10) / 10).replace(".", ",");
+  if (v >= 1e9) return `Rp${trimNum(v / 1e9)}M`;
+  if (v >= 1e6) return `Rp${trimNum(v / 1e6)}jt`;
+  if (v >= 1e3) return `Rp${trimNum(v / 1e3)}rb`;
+  return rupiah(v);
+}
+
+function shortDate(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso || "");
+  if (!m) return iso || "-";
+  const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return dt.toLocaleDateString("id-ID", { weekday: "short", day: "numeric", month: "short" });
+}
+
+function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Waktu sejak pesanan masuk (m:ss) — dihitung dari created_at yang sudah ada.
+function elapsedLabel(createdAt: string | undefined, nowTs: number): string | null {
+  if (!createdAt) return null;
+  const t = new Date(createdAt).getTime();
+  if (isNaN(t)) return null;
+  const s = Math.max(0, Math.floor((nowTs - t) / 1000));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
 export default function OwnerDashboard() {
   const { user } = useAuth();
   const router = useRouter();
@@ -24,10 +63,8 @@ export default function OwnerDashboard() {
   const [togglingOpen, setTogglingOpen] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const [wallet, setWallet] = useState<any>(null);
-  const [walletModal, setWalletModal] = useState(false);
-  const [ledger, setLedger] = useState<any[]>([]);
-  const [loadingLedger, setLoadingLedger] = useState(false);
-  const [payingOut, setPayingOut] = useState(false);
+  const [inbox, setInbox] = useState<any[]>([]);
+  const [nowTs, setNowTs] = useState(Date.now());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,25 +85,29 @@ export default function OwnerDashboard() {
     } catch {} finally { setLoading(false); }
   }, []);
 
-  const openWallet = async () => {
-    setWalletModal(true);
-    setLoadingLedger(true);
-    try { const r = await api.get("/wallets/me/ledger"); setLedger(r.entries || []); } catch {} finally { setLoadingLedger(false); }
-  };
-
-  const doPayout = async () => {
-    setPayingOut(true);
+  // Inbox pesanan masuk (status pending) — endpoint yang sama dipakai (owner)/orders.
+  const loadInbox = useCallback(async () => {
     try {
-      const r = await api.post("/payouts");
-      Alert.alert("Penarikan Diajukan", `${rupiah(r.amount)} akan diproses tim secara manual (belum ada transfer otomatis).`);
-      const w = await api.get("/wallets/me").catch(() => null);
-      if (w) setWallet(w.wallet);
-      setLedger([]);
-      setWalletModal(false);
-    } catch (e: any) { Alert.alert("Penarikan Gagal", e.message); } finally { setPayingOut(false); }
-  };
+      const r = await api.get("/owner/orders");
+      setInbox(((r.orders || []) as any[]).filter((o) => o.status === "pending"));
+    } catch {}
+  }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => { load(); loadInbox(); }, [load, loadInbox]));
+
+  useEffect(() => {
+    const iv = setInterval(() => setNowTs(Date.now()), 1000);
+    const poll = setInterval(loadInbox, 15000);
+    return () => { clearInterval(iv); clearInterval(poll); };
+  }, [loadInbox]);
+
+  // Sama persis polanya dengan (owner)/orders.tsx: POST langsung + muat ulang.
+  const updateOrder = async (id: string, status: string) => {
+    try {
+      await api.post(`/owner/orders/${id}/status`, { status });
+      await loadInbox();
+    } catch (e: any) { alert(e.message); }
+  };
 
   const toggleOpen = async (val: boolean) => {
     setIsOpen(val); // optimistic
@@ -137,142 +178,152 @@ export default function OwnerDashboard() {
   }
 
   const shop = data.shop;
-  const growth = data.growth_pct;
-  const isUp = growth >= 0;
+  const today = todayIso();
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <LinearGradient
-        colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.navyHeader}
-      >
-        <View pointerEvents="none" style={styles.headerDeco} />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.headerHi}>Halo, {user?.name?.split(" ")[0]}</Text>
-          <Text style={styles.headerTitle} numberOfLines={1}>{shop.name}</Text>
-        </View>
-        <PressableScale style={styles.hIconBtn} onPress={() => router.push(`/chat/${shop.id}` as any)} scaleTo={0.9} haptic>
-          <Ionicons name="chatbubble-ellipses" size={20} color="#FFFFFF" />
-          {unread > 0 && <View style={styles.hBadge}><Text style={styles.hBadgeText}>{unread}</Text></View>}
-        </PressableScale>
-      </LinearGradient>
-
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }} refreshControl={<RefreshControl refreshing={false} onRefresh={load} tintColor={COLORS.brand} />}>
-        {/* Banner foto toko */}
-        <View style={styles.bannerWrap}>
-          {shop.image ? (
-            <Image source={{ uri: shop.image }} style={styles.bannerImg} contentFit="cover" />
-          ) : (
-            <View style={[styles.bannerImg, styles.bannerImgFallback]}>
-              <Ionicons name="storefront" size={28} color={COLORS.brand} />
-            </View>
-          )}
-          <PressableScale style={styles.bannerEditBtn} onPress={changeBanner} disabled={uploadingBanner} testID="edit-shop-banner" haptic>
-            <Ionicons name={uploadingBanner ? "hourglass-outline" : "camera"} size={16} color="#FFFFFF" />
-            <Text style={styles.bannerEditText}>{uploadingBanner ? "MENGUNGGAH..." : "GANTI FOTO TOKO"}</Text>
-          </PressableScale>
-        </View>
-
-        {/* Open/closed toggle + schedule shortcut */}
-        <View style={styles.statusCard}>
-          <View style={styles.statusDotWrap}>
-            <View style={[styles.statusDot, { backgroundColor: isOpen ? COLORS.success : COLORS.error }]} />
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }} refreshControl={<RefreshControl refreshing={false} onRefresh={() => { load(); loadInbox(); }} tintColor={COLORS.sidebarSurface} />}>
+        {/* Header toko + toggle buka/tutup */}
+        <View style={styles.shopRow}>
+          <View>
+            {shop.image ? (
+              <Image source={{ uri: shop.image }} style={styles.shopPhoto} contentFit="cover" />
+            ) : (
+              <View style={[styles.shopPhoto, styles.shopPhotoFallback]}>
+                <Ionicons name="storefront" size={24} color={COLORS.sidebar} />
+              </View>
+            )}
+            <PressableScale style={styles.photoBadge} onPress={changeBanner} disabled={uploadingBanner} testID="edit-shop-banner" scaleTo={0.9}>
+              <Ionicons name={uploadingBanner ? "hourglass-outline" : "camera"} size={12} color="#FFFFFF" />
+            </PressableScale>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={styles.statusLabel}>{isOpen ? "Toko Sedang Buka" : "Toko Tutup Sementara"}</Text>
-            <Text style={styles.statusHint}>Nonaktifkan kalau tutup mendadak, di luar jadwal rutin</Text>
+            <Text style={styles.greet}>Halo, {user?.name?.split(" ")[0]}</Text>
+            <Text style={styles.shopName} numberOfLines={1}>{greeting()} {shop.name}</Text>
           </View>
-          <Switch
-            value={isOpen}
-            onValueChange={toggleOpen}
-            disabled={togglingOpen}
-            trackColor={{ false: COLORS.border, true: COLORS.brandDim }}
-            thumbColor={isOpen ? COLORS.brand : COLORS.textDim}
-            testID="toggle-shop-open"
-          />
+          <PressableScale style={styles.hIconBtn} onPress={() => router.push(`/chat/${shop.id}` as any)} scaleTo={0.9} haptic>
+            <Ionicons name="chatbubble-ellipses" size={20} color={COLORS.text} />
+            {unread > 0 && <View style={styles.hBadge}><Text style={styles.hBadgeText}>{unread}</Text></View>}
+          </PressableScale>
+          <View style={styles.toggleCol}>
+            <Switch
+              value={isOpen}
+              onValueChange={toggleOpen}
+              disabled={togglingOpen}
+              trackColor={{ false: COLORS.border, true: COLORS.success }}
+              thumbColor="#FFFFFF"
+              testID="toggle-shop-open"
+            />
+            <Text style={[styles.toggleLabel, { color: isOpen ? COLORS.success : COLORS.textDim }]}>
+              {isOpen ? "Buka" : "Tutup"}
+            </Text>
+          </View>
         </View>
+
+        {/* Dompet toko */}
+        <LinearGradient
+          colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.walletCard}
+        >
+          <View style={styles.walletTop}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.walletLabel}>Saldo dompet toko</Text>
+              <Text style={styles.walletValue}>{rupiah(wallet?.balance_available || 0)}</Text>
+            </View>
+            <PressableScale style={styles.withdrawBtn} onPress={() => router.push("/(owner)/wallet" as any)} testID="tarik-saldo" scaleTo={0.95} haptic>
+              <Ionicons name="arrow-forward-circle-outline" size={16} color="#FFFFFF" />
+              <Text style={styles.withdrawText}>Buka Dompet</Text>
+            </PressableScale>
+          </View>
+          <View style={styles.heldStrip}>
+            <Ionicons name="lock-closed-outline" size={14} color={COLORS.gold} />
+            <Text style={styles.heldText} numberOfLines={1}>
+              {rupiah(wallet?.balance_pending || 0)} masih ditahan sampai pesanan selesai
+            </Text>
+          </View>
+        </LinearGradient>
+
+        {/* 3 stat */}
+        <View style={styles.statRow}>
+          <View style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: "#E8F0FE" }]}>
+              <Ionicons name="receipt-outline" size={20} color={COLORS.sidebarSurface} />
+            </View>
+            <Text style={styles.statValue}>{data.today_appointments}</Text>
+            <Text style={styles.statLabel}>Pesanan hari ini</Text>
+          </View>
+          <View style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: "#E8F0FE" }]}>
+              <Ionicons name="trending-up" size={20} color={COLORS.sidebarSurface} />
+            </View>
+            <Text style={styles.statValue}>{formatSingkat(data.monthly_revenue || 0)}</Text>
+            <Text style={styles.statLabel}>Pendapatan</Text>
+          </View>
+          <View style={styles.statCard}>
+            <View style={[styles.statIcon, { backgroundColor: "#E8F0FE" }]}>
+              <Ionicons name="star" size={20} color={COLORS.sidebarSurface} />
+            </View>
+            <Text style={styles.statValue}>{shop.rating?.toFixed(1) || "0.0"}</Text>
+            <Text style={styles.statLabel}>Rating toko</Text>
+          </View>
+        </View>
+
+        {/* Pesanan masuk */}
+        {inbox.length > 0 && (
+          <View>
+            <View style={styles.secHead}>
+              <Text style={styles.secTitle}>Pesanan masuk</Text>
+              <View style={styles.countBadge}><Text style={styles.countText}>{inbox.length}</Text></View>
+              <View style={{ flex: 1 }} />
+              <PressableScale onPress={() => router.push("/(owner)/orders" as any)} testID="goto-orders" scaleTo={0.95}>
+                <Text style={styles.seeAll}>Semua</Text>
+              </PressableScale>
+            </View>
+            {inbox.map((o: any) => {
+              const elapsed = elapsedLabel(o.created_at, nowTs);
+              return (
+                <View key={o.id} style={styles.inboxCard} testID={`inbox-order-${o.id}`}>
+                  <View style={styles.inboxTop}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.inboxName} numberOfLines={1}>{o.customer?.name || "Pelanggan"}</Text>
+                      <Text style={styles.inboxSvc} numberOfLines={1}>{o.service_name} · {o.barber_name}</Text>
+                      <Text style={styles.inboxMeta} numberOfLines={1}>
+                        {o.booking_date === today ? "Hari ini" : shortDate(o.booking_date)} · {o.booking_time} · {rupiah(o.amount_total_charged ?? o.total_price ?? 0)}
+                      </Text>
+                    </View>
+                    {elapsed && (
+                      <View style={styles.timerPill}>
+                        <Ionicons name="timer-outline" size={12} color={COLORS.info} />
+                        <Text style={styles.timerText}>{elapsed}</Text>
+                      </View>
+                    )}
+                  </View>
+                  <View style={styles.inboxActions}>
+                    <PressableScale style={styles.rejectBtn} onPress={() => updateOrder(o.id, "cancelled")} testID={`inbox-reject-${o.id}`} scaleTo={0.97}>
+                      <Text style={styles.rejectText}>Tolak</Text>
+                    </PressableScale>
+                    <PressableScale style={styles.acceptBtn} onPress={() => updateOrder(o.id, "confirmed")} testID={`inbox-accept-${o.id}`} scaleTo={0.97} haptic>
+                      <Text style={styles.acceptText}>Terima pesanan</Text>
+                    </PressableScale>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+        )}
+
+        {/* Pintasan jadwal (satu-satunya jalan ke layar Jadwal dari tab) */}
         <PressableScale style={styles.scheduleBtn} onPress={() => router.push("/(owner)/schedule" as any)} testID="goto-schedule" scaleTo={0.97}>
           <View style={styles.scheduleIcon}>
-            <Ionicons name="calendar-outline" size={18} color={COLORS.brand} />
+            <Ionicons name="calendar-outline" size={18} color="#FFFFFF" />
           </View>
           <Text style={styles.scheduleBtnText}>Atur Jadwal Buka Toko</Text>
           <Ionicons name="chevron-forward" size={16} color={COLORS.textDim} />
         </PressableScale>
 
-        {/* Pendapatan */}
-        <LinearGradient
-          colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.bigCard}
-        >
-          <View pointerEvents="none" style={styles.bigDeco} />
-          <View style={styles.bigIcon}><Ionicons name="cash" size={22} color={COLORS.gold} /></View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.bigLabel}>Pendapatan Bulan Ini</Text>
-            <Text style={styles.bigValue}>{rupiah(data.monthly_revenue || 0)}</Text>
-            <Text style={styles.trendTextDim}>Dari booking yang sudah dibayar</Text>
-          </View>
-        </LinearGradient>
-
-        {/* Dompet Toko */}
-        <PressableScale onPress={openWallet} scaleTo={0.98} testID="open-wallet">
-          <LinearGradient
-            colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.bigCard}
-          >
-            <View pointerEvents="none" style={styles.bigDeco} />
-            <View style={styles.bigIcon}><Ionicons name="wallet" size={22} color="#FFFFFF" /></View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.bigLabel}>Dompet Toko</Text>
-              <Text style={styles.bigValue}>{rupiah(wallet?.balance_available || 0)}</Text>
-              <Text style={styles.trendTextDim}>{rupiah(wallet?.balance_pending || 0)} masih ditahan platform · Ketuk untuk detail</Text>
-            </View>
-          </LinearGradient>
-        </PressableScale>
-
-        {/* Total Booking */}
-        <LinearGradient
-          colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.bigCard}
-        >
-          <View pointerEvents="none" style={styles.bigDeco} />
-          <View style={styles.bigIcon}><Ionicons name="receipt" size={22} color="#FFFFFF" /></View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.bigLabel}>Total Booking Bulan Ini</Text>
-            <Text style={styles.bigValue}>{data.total_bookings_month.toLocaleString("id-ID")}</Text>
-            <View style={styles.trendRow}>
-              <Ionicons name={isUp ? "arrow-up" : "arrow-down"} size={14} color={isUp ? "#00FFB0" : "#FFB4B4"} />
-              <Text style={[styles.trendText, { color: isUp ? "#00FFB0" : "#FFB4B4" }]}>{Math.abs(growth)}% dari minggu lalu</Text>
-            </View>
-          </View>
-        </LinearGradient>
-
-        {/* Today + Fill */}
-        <View style={styles.row2}>
-          <View style={styles.miniCard}>
-            <View style={styles.miniIcon}><Ionicons name="calendar" size={18} color={COLORS.brand} /></View>
-            <Text style={styles.miniLabel}>Jadwal Hari Ini</Text>
-            <Text style={styles.miniValue}>{data.today_appointments}</Text>
-            <View style={styles.miniBar}><View style={[styles.miniFill, { width: `${data.today_fill_pct}%` }]} /></View>
-            <Text style={styles.miniHint}>{data.today_fill_pct}% slot terisi</Text>
-          </View>
-          <View style={styles.miniCard}>
-            <View style={[styles.miniIcon, { backgroundColor: "#FFF7ED" }]}><Ionicons name="star" size={18} color={COLORS.warning} /></View>
-            <Text style={styles.miniLabel}>Rating Toko</Text>
-            <Text style={styles.miniValue}>{shop.rating?.toFixed(1) || "0.0"}</Text>
-            <View style={styles.miniBar}><View style={[styles.miniFill, { width: `${Math.min(100, (shop.rating || 0) * 20)}%`, backgroundColor: COLORS.warning }]} /></View>
-            <Text style={styles.miniHint}>{shop.reviews_count || 0} ulasan</Text>
-          </View>
-        </View>
-
-        {/* Retention + Productivity */}
+        {/* Analitik lanjutan (dipertahankan dari dasbor lama) */}
         <View style={styles.card}>
           <View style={styles.metricRow}>
             <View style={{ flex: 1 }}>
@@ -289,13 +340,12 @@ export default function OwnerDashboard() {
               <Text style={styles.metricLabel}>Productivity 90 Hari</Text>
               <Text style={styles.metricValue}>{data.productivity_pct}%</Text>
             </View>
-            <View style={styles.metricIcon}><Ionicons name="trending-up" size={22} color={COLORS.brand} /></View>
+            <View style={styles.metricIcon}><Ionicons name="trending-up" size={22} color={COLORS.sidebarSurface} /></View>
           </View>
-          <View style={styles.hBar}><View style={[styles.hFill, { width: `${data.productivity_pct}%`, backgroundColor: COLORS.brand }]} /></View>
+          <View style={styles.hBar}><View style={[styles.hFill, { width: `${data.productivity_pct}%`, backgroundColor: COLORS.sidebarSurface }]} /></View>
           <Text style={styles.metricHint}>Rasio slot terisi vs slot tersedia</Text>
         </View>
 
-        {/* Donut */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Layanan Terpopuler</Text>
           <View style={{ marginTop: 8 }}>
@@ -303,132 +353,101 @@ export default function OwnerDashboard() {
           </View>
         </View>
       </ScrollView>
-
-      <Modal visible={walletModal} animationType="slide" transparent onRequestClose={() => setWalletModal(false)}>
-        <View style={styles.modalBg}>
-          <View style={styles.modal}>
-            <View style={styles.grabber} />
-            <Text style={styles.mSectionTitle}>DOMPET TOKO</Text>
-            <View style={styles.walletBalRow}>
-              <View style={styles.walletBalBox}>
-                <Text style={styles.walletBalLabel}>Ditahan Platform</Text>
-                <Text style={styles.walletBalValue}>{rupiah(wallet?.balance_pending || 0)}</Text>
-              </View>
-              <View style={styles.walletBalBox}>
-                <Text style={styles.walletBalLabel}>Bisa Ditarik</Text>
-                <Text style={styles.walletBalValue}>{rupiah(wallet?.balance_available || 0)}</Text>
-              </View>
-            </View>
-            <PressableScale
-              style={[styles.feeSaveBtn, styles.payoutBtn, (payingOut || (wallet?.balance_available || 0) < 50000) && { opacity: 0.5 }]}
-              onPress={doPayout}
-              disabled={payingOut || (wallet?.balance_available || 0) < 50000}
-              testID="request-payout"
-            >
-              <Text style={styles.feeSaveText}>{payingOut ? "..." : "TARIK SALDO"}</Text>
-            </PressableScale>
-            {(wallet?.balance_available || 0) < 50000 && (
-              <Text style={styles.walletMinHint}>Minimum penarikan Rp50.000</Text>
-            )}
-            <Text style={[styles.mSectionTitle, { marginTop: 16 }]}>RIWAYAT DOMPET</Text>
-            <ScrollView style={{ maxHeight: 260 }}>
-              {loadingLedger ? (
-                <Skeleton style={{ height: 60 }} />
-              ) : ledger.length === 0 ? (
-                <Text style={styles.walletEmpty}>Belum ada riwayat</Text>
-              ) : ledger.map((l: any) => (
-                <View key={l.id} style={styles.ledgerRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.ledgerMemo}>{LEDGER_LABEL[l.entry_type] || l.entry_type}</Text>
-                    <Text style={styles.ledgerDate}>{new Date(l.created_at).toLocaleString("id-ID")}</Text>
-                  </View>
-                  <Text style={[styles.ledgerAmount, { color: l.direction === "credit" ? COLORS.success : COLORS.error }]}>
-                    {l.direction === "credit" ? "+" : "-"}{rupiah(l.amount)}
-                  </Text>
-                </View>
-              ))}
-            </ScrollView>
-            <PressableScale style={styles.closeBtn} onPress={() => setWalletModal(false)}>
-              <Text style={styles.closeText}>Tutup</Text>
-            </PressableScale>
-          </View>
-        </View>
-      </Modal>
     </SafeAreaView>
   );
 }
 
-const LEDGER_LABEL: Record<string, string> = {
-  payment_in: "Pembayaran Masuk (Ditahan)",
-  platform_commission: "Komisi Platform",
-  barber_payout: "Dana Cair ke Dompet",
-  payment_fee: "Biaya Pembayaran",
-  refund: "Pengembalian Dana",
-  withdrawal: "Penarikan Saldo",
-};
-
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   navyHeader: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 30, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, flexDirection: "row", alignItems: "center", gap: 12, overflow: "hidden", shadowColor: COLORS.sidebar, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8 },
-  headerDeco: { position: "absolute", width: 180, height: 180, borderRadius: 90, backgroundColor: "rgba(255,255,255,0.05)", top: -70, right: -40 },
-  hIconBtn: {
-    width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
-  },
-  hBadge: { position: "absolute", top: -4, right: -4, minWidth: 20, height: 20, borderRadius: 999, backgroundColor: COLORS.error, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, borderWidth: 2, borderColor: COLORS.sidebar },
-  hBadgeText: { color: "#FFFFFF", fontSize: 10, fontFamily: FONT.bold },
-  headerHi: { color: COLORS.sidebarTextDim, fontSize: 12, fontFamily: FONT.medium },
   headerTitle: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.extrabold, marginTop: 2 },
   headerSub: { color: COLORS.sidebarTextDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 4 },
-  bannerWrap: {
-    borderRadius: 20, overflow: "hidden", marginBottom: 12, backgroundColor: COLORS.surface2,
-    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3,
+
+  shopRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 },
+  shopPhoto: { width: 52, height: 52, borderRadius: 16, backgroundColor: COLORS.surface2 },
+  shopPhotoFallback: { alignItems: "center", justifyContent: "center" },
+  photoBadge: {
+    position: "absolute", right: -4, bottom: -4, width: 24, height: 24, borderRadius: 12,
+    backgroundColor: COLORS.sidebar, alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: COLORS.bg,
   },
-  bannerImg: { width: "100%", height: 150 },
-  bannerImgFallback: { alignItems: "center", justifyContent: "center", backgroundColor: COLORS.brandDim },
-  bannerEditBtn: {
-    position: "absolute", bottom: 10, right: 10, flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: "rgba(10,37,64,0.75)", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999,
+  greet: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12 },
+  shopName: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 17, marginTop: 1 },
+  hIconBtn: {
+    width: 42, height: 42, borderRadius: 14, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: COLORS.border,
   },
-  bannerEditText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.4 },
-  statusCard: {
-    flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.surface, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3,
-  },
-  statusDotWrap: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.surface2, alignItems: "center", justifyContent: "center" },
-  statusDot: { width: 12, height: 12, borderRadius: 6, shadowColor: "#000", shadowOpacity: 0.25, shadowRadius: 4 },
-  statusLabel: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 14 },
-  statusHint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 4 },
-  scheduleBtn: {
-    flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginTop: 10,
-    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2,
-  },
-  scheduleIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
-  scheduleBtnText: { flex: 1, color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
-  feeSaveBtn: { backgroundColor: COLORS.brand, paddingHorizontal: 16, paddingVertical: 13, borderRadius: 12 },
-  feeSaveText: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 12, letterSpacing: 0.5 },
-  bigCard: {
-    flexDirection: "row", alignItems: "center", gap: 16, padding: 18, borderRadius: 22, marginTop: 12, overflow: "hidden",
+  hBadge: { position: "absolute", top: -4, right: -4, minWidth: 20, height: 20, borderRadius: 999, backgroundColor: COLORS.error, alignItems: "center", justifyContent: "center", paddingHorizontal: 4, borderWidth: 2, borderColor: COLORS.bg },
+  hBadgeText: { color: "#FFFFFF", fontSize: 10, fontFamily: FONT.bold },
+  toggleCol: { alignItems: "center", gap: 2 },
+  toggleLabel: { fontFamily: FONT.bold, fontSize: 11 },
+
+  walletCard: {
+    padding: 20, borderRadius: 24, overflow: "hidden",
     shadowColor: COLORS.sidebar, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.3, shadowRadius: 22, elevation: 8,
   },
-  bigDeco: { position: "absolute", width: 140, height: 140, borderRadius: 70, backgroundColor: "rgba(255,255,255,0.06)", top: -50, right: -30 },
-  bigIcon: { width: 52, height: 52, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.14)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.2)" },
-  bigLabel: { color: "rgba(255,255,255,0.85)", fontFamily: FONT.semibold, fontSize: 12 },
-  bigValue: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 28, marginTop: 4, letterSpacing: -0.5 },
-  trendRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
-  trendText: { fontFamily: FONT.bold, fontSize: 11 },
-  trendTextDim: { color: "rgba(255,255,255,0.7)", fontFamily: FONT.medium, fontSize: 11, marginTop: 4 },
-  row2: { flexDirection: "row", gap: 12, marginTop: 12 },
-  miniCard: {
-    flex: 1, backgroundColor: COLORS.surface, padding: 14, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border,
+  walletTop: { flexDirection: "row", alignItems: "center", gap: 12 },
+  walletLabel: { color: "rgba(255,255,255,0.7)", fontFamily: FONT.medium, fontSize: 13 },
+  walletValue: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 32, marginTop: 4, letterSpacing: -0.5 },
+  withdrawBtn: {
+    flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: COLORS.sidebarSurface,
+    paddingHorizontal: 20, paddingVertical: 13, borderRadius: 14,
+  },
+  withdrawText: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 15 },
+  heldStrip: {
+    flexDirection: "row", alignItems: "center", gap: 8, marginTop: 16,
+    backgroundColor: "rgba(255,255,255,0.08)", paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14,
+  },
+  heldText: { color: "rgba(255,255,255,0.75)", fontFamily: FONT.medium, fontSize: 12, flex: 1 },
+
+  statRow: { flexDirection: "row", gap: 10, marginTop: 14 },
+  statCard: {
+    flex: 1, backgroundColor: COLORS.surface, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, padding: 14,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 5 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2,
   },
-  miniIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
-  miniLabel: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.semibold, marginTop: 10 },
-  miniValue: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, marginTop: 2 },
-  miniBar: { height: 6, backgroundColor: COLORS.surface2, borderRadius: 999, marginTop: 10, overflow: "hidden" },
-  miniFill: { height: "100%", backgroundColor: COLORS.brand, borderRadius: 999 },
-  miniHint: { color: COLORS.textDim, fontSize: 10, marginTop: 4, fontFamily: FONT.medium },
+  statIcon: { width: 36, height: 36, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  statValue: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 19, marginTop: 10 },
+  statLabel: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 2 },
+
+  secHead: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 22, marginBottom: 12 },
+  secTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 19 },
+  countBadge: { minWidth: 24, height: 24, borderRadius: 12, backgroundColor: COLORS.error, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  countText: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 13 },
+  seeAll: { color: COLORS.sidebarSurface, fontFamily: FONT.bold, fontSize: 14 },
+
+  inboxCard: {
+    backgroundColor: COLORS.surface, borderRadius: 20, borderWidth: 1.5, borderColor: COLORS.border,
+    padding: 16, marginBottom: 12,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3,
+  },
+  inboxTop: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  inboxName: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 16 },
+  inboxSvc: { color: COLORS.textMuted, fontFamily: FONT.medium, fontSize: 13, marginTop: 2 },
+  inboxMeta: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, marginTop: 3 },
+  timerPill: {
+    flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#EFF6FF",
+    paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, flexShrink: 0,
+  },
+  timerText: { color: COLORS.info, fontFamily: FONT.bold, fontSize: 12 },
+  inboxActions: { flexDirection: "row", gap: 10, marginTop: 14 },
+  rejectBtn: {
+    flex: 1, paddingVertical: 13, borderRadius: 14, alignItems: "center",
+    borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface2,
+  },
+  rejectText: { color: COLORS.textMuted, fontFamily: FONT.bold, fontSize: 14 },
+  acceptBtn: {
+    flex: 1.2, paddingVertical: 13, borderRadius: 14, alignItems: "center", backgroundColor: COLORS.sidebarSurface,
+    shadowColor: COLORS.sidebarSurface, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4,
+  },
+  acceptText: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 14 },
+
+  scheduleBtn: {
+    flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginTop: 14,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2,
+  },
+  scheduleIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: COLORS.sidebar, alignItems: "center", justifyContent: "center" },
+  scheduleBtnText: { flex: 1, color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
+
   card: {
     backgroundColor: COLORS.surface, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, marginTop: 12,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 5 }, shadowOpacity: 1, shadowRadius: 12, elevation: 2,
@@ -441,23 +460,4 @@ const styles = StyleSheet.create({
   hBar: { height: 8, backgroundColor: COLORS.surface2, borderRadius: 999, marginTop: 8, overflow: "hidden" },
   hFill: { height: "100%", borderRadius: 999 },
   metricHint: { color: COLORS.textDim, fontSize: 11, marginTop: 6, fontFamily: FONT.medium },
-
-  // Wallet modal
-  modalBg: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: "flex-end" },
-  modal: { backgroundColor: COLORS.surface, padding: 20, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: "85%", shadowColor: "#000", shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.12, shadowRadius: 24, elevation: 20 },
-  grabber: { width: 44, height: 5, borderRadius: 999, backgroundColor: COLORS.borderStrong, alignSelf: "center", marginBottom: 14 },
-  mSectionTitle: { color: COLORS.textDim, fontFamily: FONT.bold, fontSize: 11, letterSpacing: 0.8, marginBottom: 10 },
-  walletBalRow: { flexDirection: "row", gap: 10 },
-  walletBalBox: { flex: 1, backgroundColor: COLORS.surface2, borderRadius: 14, padding: 14, borderWidth: 1, borderColor: COLORS.border },
-  walletBalLabel: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11 },
-  walletBalValue: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 16, marginTop: 4 },
-  payoutBtn: { alignSelf: "stretch", alignItems: "center", marginTop: 14 },
-  walletMinHint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, textAlign: "center", marginTop: 6 },
-  walletEmpty: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, paddingVertical: 10 },
-  ledgerRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: COLORS.border, gap: 10 },
-  ledgerMemo: { color: COLORS.text, fontFamily: FONT.semibold, fontSize: 13 },
-  ledgerDate: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 2 },
-  ledgerAmount: { fontFamily: FONT.extrabold, fontSize: 13 },
-  closeBtn: { alignItems: "center", padding: 12, marginTop: 4 },
-  closeText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13 },
 });

@@ -165,7 +165,7 @@ export default function AIScan() {
             end={{ x: 1, y: 1 }}
             style={styles.iconWrap}
           >
-            <Ionicons name="sparkles" size={24} color="#FFFFFF" />
+            <Ionicons name="sparkles" size={24} color={COLORS.onBrand} />
           </LinearGradient>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>AI Face Scan</Text>
@@ -258,7 +258,7 @@ export default function AIScan() {
               end={{ x: 1, y: 1 }}
               style={styles.analyzingIcon}
             >
-              <Ionicons name="scan" size={28} color="#FFFFFF" />
+              <Ionicons name="scan" size={28} color={COLORS.onBrand} />
             </LinearGradient>
             <ActivityIndicator color={COLORS.brand} size="large" />
             <Text style={styles.analyzingText}>{statusText}</Text>
@@ -312,38 +312,41 @@ export default function AIScan() {
                 Cuma referensi. Tunjukkan ke barber saat booking, ya.
               </Text>
             </View>
-            {result.recommendations.map((h: any) => (
-              <PressableScale
-                key={h.id}
-                style={styles.recCard}
-                testID={`rec-${h.id}`}
-                onPress={() => router.push({ pathname: "/(customer)/explore", params: { q: h.name } } as any)}
-                scaleTo={0.98}
-              >
-                <Image source={{ uri: h.image_url }} style={styles.recImg} contentFit="cover" />
-                <View style={{ flex: 1, padding: 14 }}>
-                  <Text style={styles.recName}>{h.name}</Text>
-                  <Text style={styles.recDesc} numberOfLines={2}>{h.description}</Text>
-                  <PressableScale
-                    style={styles.bookBtn}
-                    onPress={() => router.push({ pathname: "/(customer)/explore", params: { q: h.name } } as any)}
-                    testID={`book-${h.id}`}
-                    scaleTo={0.94}
-                    haptic
-                  >
-                    <LinearGradient
-                      colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.bookBtnGrad}
+            {/* Grid 2 kolom (§06): tanpa badge "Cocok X%" — field itu tidak ada di response API */}
+            <View style={styles.recGrid}>
+              {result.recommendations.map((h: any) => (
+                <PressableScale
+                  key={h.id}
+                  style={styles.recCard}
+                  testID={`rec-${h.id}`}
+                  onPress={() => router.push({ pathname: "/(customer)/explore", params: { q: h.name } } as any)}
+                  scaleTo={0.98}
+                >
+                  <Image source={{ uri: h.image_url }} style={styles.recImg} contentFit="cover" />
+                  <View style={styles.recBody}>
+                    <Text style={styles.recName} numberOfLines={1}>{h.name}</Text>
+                    <Text style={styles.recDesc} numberOfLines={2}>{h.description}</Text>
+                    <PressableScale
+                      style={styles.bookBtn}
+                      onPress={() => router.push({ pathname: "/(customer)/explore", params: { q: h.name } } as any)}
+                      testID={`book-${h.id}`}
+                      scaleTo={0.94}
+                      haptic
                     >
-                      <Text style={styles.bookBtnText}>CARI BARBER TERDEKAT</Text>
-                      <Ionicons name="arrow-forward" size={12} color="#FFFFFF" />
-                    </LinearGradient>
-                  </PressableScale>
-                </View>
-              </PressableScale>
-            ))}
+                      <LinearGradient
+                        colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.bookBtnGrad}
+                      >
+                        <Text style={styles.bookBtnText}>CARI BARBER</Text>
+                        <Ionicons name="arrow-forward" size={12} color={COLORS.onBrand} />
+                      </LinearGradient>
+                    </PressableScale>
+                  </View>
+                </PressableScale>
+              ))}
+            </View>
             <PressableScale style={styles.retryBtn} onPress={retry} scaleTo={0.97}>
               <Ionicons name="refresh" size={16} color={COLORS.textMuted} />
               <Text style={styles.retryText}>Scan Ulang</Text>
@@ -368,7 +371,7 @@ const styles = StyleSheet.create({
   privacyIcon: { width: 30, height: 30, borderRadius: 10, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
   privacyText: { color: COLORS.success, fontFamily: FONT.semibold, fontSize: 12, flex: 1 },
 
-  cameraBox: { backgroundColor: "#000", borderRadius: 24, height: 420, alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 1, borderColor: "#1F2937" },
+  cameraBox: { backgroundColor: "#000", borderRadius: 28, height: 440, alignItems: "center", justifyContent: "center", overflow: "hidden", borderWidth: 2, borderColor: "#1F2937", shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 6 },
   overlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 14 },
   cornerTl: { position: "absolute", top: 16, left: 16, width: 26, height: 26, borderTopWidth: 3, borderLeftWidth: 3, borderColor: COLORS.brand, borderTopLeftRadius: 10 },
   cornerTr: { position: "absolute", top: 16, right: 16, width: 26, height: 26, borderTopWidth: 3, borderRightWidth: 3, borderColor: COLORS.brand, borderTopRightRadius: 10 },
@@ -390,36 +393,38 @@ const styles = StyleSheet.create({
   permText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13, textAlign: "center" },
   permBtn: { borderRadius: 999, overflow: "hidden", marginTop: 4, shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 10, elevation: 4 },
   permBtnGrad: { paddingHorizontal: 22, paddingVertical: 12 },
-  permBtnText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 13 },
+  permBtnText: { color: COLORS.onBrand, fontFamily: FONT.bold, fontSize: 13 },
 
   errBox: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#FEF2F2", padding: 14, borderRadius: 14, marginTop: 12 },
   errText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium },
 
   resultBox: { marginTop: 20 },
-  resultCard: { padding: 24, borderRadius: 24, shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 20, elevation: 6, overflow: "hidden" },
-  resultDeco: { position: "absolute", width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(255,255,255,0.08)", top: -60, right: -40 },
-  resultLabel: { color: "rgba(255,255,255,0.7)", fontSize: 10, letterSpacing: 1, fontFamily: FONT.bold },
-  resultShape: { color: "#FFFFFF", fontSize: 42, fontFamily: FONT.extrabold, letterSpacing: -0.5 },
+  resultCard: { padding: 28, borderRadius: 28, shadowColor: COLORS.brand, shadowOpacity: 0.35, shadowRadius: 24, elevation: 8, overflow: "hidden" },
+  resultDeco: { position: "absolute", width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(255,255,255,0.25)", top: -60, right: -40 },
+  resultLabel: { color: "rgba(15,26,46,0.65)", fontSize: 10, letterSpacing: 1, fontFamily: FONT.bold },
+  resultShape: { color: COLORS.text, fontSize: 42, fontFamily: FONT.extrabold, letterSpacing: -0.5 },
   confRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 10 },
-  confBar: { flex: 1, height: 6, backgroundColor: "rgba(255,255,255,0.25)", borderRadius: 999, overflow: "hidden" },
-  confFill: { height: "100%", backgroundColor: "#FFFFFF", borderRadius: 999 },
-  confText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 13 },
-  resultReason: { color: "rgba(255,255,255,0.9)", marginTop: 12, fontSize: 13, lineHeight: 20, fontFamily: FONT.medium },
+  confBar: { flex: 1, height: 8, backgroundColor: "rgba(15,26,46,0.15)", borderRadius: 999, overflow: "hidden" },
+  confFill: { height: "100%", backgroundColor: COLORS.text, borderRadius: 999 },
+  confText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
+  resultReason: { color: "rgba(15,26,46,0.8)", marginTop: 12, fontSize: 13, lineHeight: 20, fontFamily: FONT.medium },
   disclaimerBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: COLORS.surface2, padding: 12, borderRadius: 14, marginTop: 14 },
   disclaimerText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, flex: 1, lineHeight: 17 },
   recsTitle: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.bold, marginTop: 28, marginBottom: 12, letterSpacing: 0.8 },
   tipBox: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#FFF7ED", padding: 12, borderRadius: 14, marginBottom: 14 },
   tipText: { color: COLORS.textMuted, fontFamily: FONT.medium, fontSize: 12, flex: 1, lineHeight: 17 },
+  recGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   recCard: {
-    backgroundColor: COLORS.surface, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, flexDirection: "row", marginBottom: 12, overflow: "hidden",
+    width: "48%", flexGrow: 1, backgroundColor: COLORS.surface, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, marginBottom: 0, overflow: "hidden",
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 12, elevation: 3,
   },
-  recImg: { width: 110, height: 140 },
-  recName: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15 },
-  recDesc: { color: COLORS.textDim, fontSize: 12, marginTop: 4, fontFamily: FONT.medium, lineHeight: 18 },
-  bookBtn: { borderRadius: 10, marginTop: 10, alignSelf: "flex-start", overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.25, shadowRadius: 8, elevation: 3 },
-  bookBtnGrad: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 9, paddingHorizontal: 12 },
-  bookBtnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 10, letterSpacing: 0.5 },
+  recImg: { width: "100%", height: 130 },
+  recBody: { flex: 1, padding: 12 },
+  recName: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 14 },
+  recDesc: { color: COLORS.textDim, fontSize: 11, marginTop: 4, fontFamily: FONT.medium, lineHeight: 16 },
+  bookBtn: { borderRadius: 10, marginTop: 10, alignSelf: "stretch", overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.25, shadowRadius: 8, elevation: 3 },
+  bookBtnGrad: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, paddingVertical: 9, paddingHorizontal: 12 },
+  bookBtnText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, fontSize: 10, letterSpacing: 0.5 },
   retryBtn: {
     flexDirection: "row", justifyContent: "center", gap: 6, marginTop: 20, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: COLORS.border, alignItems: "center", backgroundColor: COLORS.surface,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 8, elevation: 2,

@@ -123,7 +123,7 @@ export default function Explore() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <LinearGradient
-        colors={["#F9F9FA", COLORS.brandDim]}
+        colors={[COLORS.bg, COLORS.brandDim]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.header}
@@ -141,16 +141,16 @@ export default function Explore() {
           />
         </View>
         <PressableScale testID="open-filter" style={styles.filterBtn} onPress={openFilter} scaleTo={0.92}>
-          <Ionicons name="options" size={18} color={COLORS.brand} />
+          <Ionicons name="options" size={18} color={COLORS.brandLight} />
           {activeFilterCount > 0 && <View style={styles.filterBadge}><Text style={styles.filterBadgeText}>{activeFilterCount}</Text></View>}
         </PressableScale>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ maxHeight: 48 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ maxHeight: 48, marginTop: 4 }}>
         {SORTS.map((s) => (
           <PressableScale key={s.key} testID={`sort-${s.key}`} onPress={async () => { setSort(s.key); await load(coords, { sort: s.key, maxDistance, minRating, maxPrice, search }); }}
             style={[styles.chip, sort === s.key && styles.chipActive]}>
-            <Ionicons name={s.icon as any} size={13} color={sort === s.key ? "#FFFFFF" : COLORS.textDim} />
+            <Ionicons name={s.icon as any} size={13} color={sort === s.key ? COLORS.onBrand : COLORS.textDim} />
             <Text style={[styles.chipText, sort === s.key && styles.chipTextActive]}>{s.label}</Text>
           </PressableScale>
         ))}
@@ -182,11 +182,10 @@ export default function Explore() {
             <Image source={{ uri: item.image }} style={styles.cardImg} contentFit="cover" />
             {item.distance_km !== null && (
               <View style={styles.distBadge}>
-                <Ionicons name="navigate" size={11} color={COLORS.brand} />
+                <Ionicons name="navigate" size={11} color={COLORS.brandLight} />
                 <Text style={styles.distText}>{formatJarak(item.distance_km)}</Text>
               </View>
             )}
-            <LinearGradient colors={["rgba(10,37,64,0)", "rgba(10,37,64,0.55)"]} style={styles.cardScrim} pointerEvents="none" />
             <View style={styles.cardBody}>
               <View style={styles.cardTitleRow}>
                 <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
@@ -227,7 +226,7 @@ export default function Explore() {
               <View style={styles.optRow}>
                 {SORTS.map((s) => (
                   <PressableScale key={s.key} onPress={() => setDraft({ ...draft, sort: s.key })} style={[styles.optChip, draft.sort === s.key && styles.optChipActive]} scaleTo={0.95}>
-                    <Ionicons name={s.icon as any} size={13} color={draft.sort === s.key ? "#FFFFFF" : COLORS.textDim} />
+                    <Ionicons name={s.icon as any} size={13} color={draft.sort === s.key ? COLORS.onBrand : COLORS.textDim} />
                     <Text style={[styles.optChipText, draft.sort === s.key && styles.optChipTextActive]}>{s.label}</Text>
                   </PressableScale>
                 ))}
@@ -273,9 +272,9 @@ export default function Explore() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 14 },
-  title: { color: COLORS.text, fontSize: 22, fontFamily: FONT.extrabold, letterSpacing: -0.3 },
-  headerSub: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 2 },
+  header: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 18 },
+  title: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, letterSpacing: -0.5 },
+  headerSub: { color: COLORS.textDim, fontSize: 13, fontFamily: FONT.medium, marginTop: 3 },
   searchRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, marginTop: 12 },
   searchWrap: {
     flex: 1, flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface, paddingHorizontal: 16,
@@ -286,38 +285,37 @@ const styles = StyleSheet.create({
   filterBtn: { width: 48, height: 48, borderRadius: 16, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.brand },
   filterBadge: { position: "absolute", top: -4, right: -4, minWidth: 18, height: 18, borderRadius: 999, backgroundColor: COLORS.error, alignItems: "center", justifyContent: "center", paddingHorizontal: 3, borderWidth: 2, borderColor: "#FFFFFF" },
   filterBadgeText: { color: "#FFFFFF", fontSize: 9, fontFamily: FONT.bold },
-  chipRow: { gap: 8, alignItems: "center", paddingHorizontal: 16, paddingVertical: 10 },
+  chipRow: { gap: 8, alignItems: "center", paddingHorizontal: 16, paddingVertical: 12 },
   chip: {
     flexShrink: 0, flexDirection: "row", alignItems: "center", gap: 6, height: 38, paddingHorizontal: 14, justifyContent: "center", borderRadius: 999,
     backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 6, elevation: 1,
   },
-  chipActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+  chipActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brandLight },
   chipText: { color: COLORS.textMuted, fontSize: 12, fontFamily: FONT.semibold },
-  chipTextActive: { color: "#FFFFFF" },
+  chipTextActive: { color: COLORS.onBrand },
   card: {
     backgroundColor: COLORS.surface, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden",
     shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 1, shadowRadius: 18, elevation: 4,
   },
-  cardImg: { width: "100%", height: 170 },
-  cardScrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: 80 },
+  cardImg: { width: "100%", height: 170, backgroundColor: COLORS.surface2 },
   distBadge: {
     position: "absolute", top: 12, right: 12, flexDirection: "row", alignItems: "center", gap: 4,
     backgroundColor: "#FFFFFF", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999,
     shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 6, elevation: 3,
   },
-  distText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 11 },
-  cardBody: { padding: 14 },
+  distText: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 11 },
+  cardBody: { padding: 16 },
   cardTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   cardName: { color: COLORS.text, fontSize: 16, fontFamily: FONT.extrabold, flex: 1 },
-  ratePill: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#FFF9EC", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  ratePill: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#FFF9EC", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: COLORS.brand },
   rateText: { color: "#B45309", fontFamily: FONT.bold, fontSize: 11 },
   addrRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
   cardAddr: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium, flex: 1 },
   cardRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 10 },
   rateBox: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1 },
   rateCount: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.medium },
-  price: { color: COLORS.brand, fontSize: 12, fontFamily: FONT.bold },
+  price: { color: COLORS.brandLight, fontSize: 13, fontFamily: FONT.extrabold },
   modalBg: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: "flex-end" },
   modal: {
     backgroundColor: COLORS.surface, padding: 24, borderTopLeftRadius: 28, borderTopRightRadius: 28, maxHeight: "80%",
@@ -326,16 +324,16 @@ const styles = StyleSheet.create({
   grabber: { width: 44, height: 5, borderRadius: 999, backgroundColor: COLORS.borderStrong, alignSelf: "center", marginBottom: 16 },
   modalHeadRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
   modalTitle: { color: COLORS.text, fontSize: 18, fontFamily: FONT.extrabold },
-  resetText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 13 },
+  resetText: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 13 },
   filterLabel: { color: COLORS.textMuted, fontSize: 12, fontFamily: FONT.bold, marginTop: 16, marginBottom: 8, letterSpacing: 0.3 },
   optRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   optChip: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999, backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border },
-  optChipActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+  optChipActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brandLight },
   optChipText: { color: COLORS.textMuted, fontSize: 12, fontFamily: FONT.semibold },
-  optChipTextActive: { color: "#FFFFFF" },
+  optChipTextActive: { color: COLORS.onBrand },
   applyBtn: {
-    backgroundColor: COLORS.brand, padding: 16, borderRadius: 16, alignItems: "center", marginTop: 24, marginBottom: 8,
+    backgroundColor: COLORS.brand, padding: 16, borderRadius: 16, alignItems: "center", marginTop: 24, marginBottom: 8, minHeight: 54, justifyContent: "center",
     shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 5,
   },
-  applyBtnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 1 },
+  applyBtnText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, letterSpacing: 1 },
 });

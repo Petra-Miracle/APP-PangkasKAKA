@@ -1,0 +1,400 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Switch, TextInput, Alert } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useFocusEffect, useRouter } from "expo-router";
+import { Image } from "expo-image";
+import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
+import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
+import { useAuth } from "@/src/lib/auth";
+import { useScrollToInput } from "@/src/lib/useScrollToInput";
+import PressableScale from "@/src/components/PressableScale";
+import Skeleton from "@/src/components/Skeleton";
+
+const LOCATION_PUSH_INTERVAL_MS = 8000;
+
+export default function StreetBarberDashboard() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const [apps, setApps] = useState<any[]>([]);
+  const [shops, setShops] = useState<any[]>([]);
+  const [showApply, setShowApply] = useState(false);
+  const [selShop, setSelShop] = useState<any>(null);
+  const [form, setForm] = useState({ portfolio_url: "", work_experience: "", certificates: "" });
+  const [ktpPhoto, setKtpPhoto] = useState("");
+  const [diplomaPhoto, setDiplomaPhoto] = useState("");
+  const [criteriaAgreed, setCriteriaAgreed] = useState(false);
+  const [applyErr, setApplyErr] = useState("");
+  const [applying, setApplying] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [sharingLocation, setSharingLocation] = useState(false);
+  const [locError, setLocError] = useState("");
+  const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const lastPushRef = useRef(0);
+  const lastCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
+  const [earnings, setEarnings] = useState<{ monthly_revenue: number; completed_count: number } | null>(null);
+  const [wallet, setWallet] = useState<any>(null);
+  const [upcoming, setUpcoming] = useState<any>(null);
+  const { scrollRef, handleFocus } = useScrollToInput();
+
+  const stopSharing = useCallback(async () => {
+    watchRef.current?.remove();
+    watchRef.current = null;
+    setSharingLocation(false);
+    if (lastCoordsRef.current) {
+      try { await api.post("/karyawan/location", { ...lastCoordsRef.current, is_online: false }); } catch {}
+    }
+  }, []);
+
+  const startSharing = useCallback(async () => {
+    setLocError("");
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== "granted") { setLocError("Izin lokasi ditolak"); return; }
+    watchRef.current = await Location.watchPositionAsync(
+      { accuracy: Location.Accuracy.Balanced, timeInterval: LOCATION_PUSH_INTERVAL_MS, distanceInterval: 20 },
+      async (loc) => {
+        const coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+        lastCoordsRef.current = coords;
+        const now = Date.now();
+        if (now - lastPushRef.current < LOCATION_PUSH_INTERVAL_MS - 500) return;
+        lastPushRef.current = now;
+        try { await api.post("/karyawan/location", { ...coords, is_online: true }); } catch {}
+      }
+    );
+    setSharingLocation(true);
+  }, []);
+
+  const toggleSharing = async (value: boolean) => {
+    if (value) await startSharing(); else await stopSharing();
+  };
+
+  useEffect(() => () => { watchRef.current?.remove(); }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [my, sh] = await Promise.allSettled([
+        api.get("/karyawan/my"),
+        api.get("/shops?sort=rating"),
+      ]);
+      if (my.status === "fulfilled") setApps(my.value.applications);
+      if (sh.status === "fulfilled") setShops(sh.value.shops);
+      const [earn, w, bk] = await Promise.allSettled([
+        api.get("/karyawan/earnings"),
+        api.get("/wallets/me"),
+        api.get("/karyawan/bookings"),
+      ]);
+      if (earn.status === "fulfilled") setEarnings(earn.value); else setEarnings(null);
+      if (w.status === "fulfilled") setWallet(w.value.wallet); else setWallet(null);
+      // Preview read-only 1 pesanan mendatang terdekat (tanpa endpoint baru).
+      if (bk.status === "fulfilled") {
+        const today = new Date(); today.setHours(0, 0, 0, 0);
+        const list = ((bk.value as any).bookings || []).filter((b: any) => b.status === "confirmed");
+        list.sort((a: any, b: any) => `${a.booking_date} ${a.booking_time}`.localeCompare(`${b.booking_date} ${b.booking_time}`));
+        setUpcoming(list.find((b: any) => new Date(`${b.booking_date}T00:00:00`) >= today) || null);
+      } else setUpcoming(null);
+    } catch {} finally { setLoading(false); }
+  }, []);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const hasActive = useMemo(() => apps.some((a) => a.status === "active"), [apps]);
+  const hasPendingTest = useMemo(() => apps.some((a) => ["menunggu_tes", "seleksi_berkas_lolos"].includes(a.status)), [apps]);
+  const hasPending = useMemo(() => apps.some((a) => a.status === "pending"), [apps]);
+  const appliedShopIds = useMemo(() => new Set(apps.map((a) => a.shop_id)), [apps]);
+  const availableShops = useMemo(() => shops.filter((s) => !appliedShopIds.has(s.id)), [shops, appliedShopIds]);
+
+  const pickPhoto = async (target: "ktp" | "diploma") => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (perm.status !== "granted") return;
+    const res = await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.5, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+    if (res.canceled) return;
+    const uri = `data:image/jpeg;base64,${res.assets[0].base64}`;
+    if (target === "ktp") setKtpPhoto(uri); else setDiplomaPhoto(uri);
+  };
+
+  const resetApplyForm = () => {
+    setForm({ portfolio_url: "", work_experience: "", certificates: "" });
+    setKtpPhoto(""); setDiplomaPhoto(""); setCriteriaAgreed(false); setApplyErr("");
+  };
+
+  const apply = async () => {
+    if (!selShop) return;
+    setApplyErr("");
+    if (!ktpPhoto) return setApplyErr("Foto KTP wajib diunggah");
+    if (form.work_experience.trim().length < 20) return setApplyErr("Pengalaman kerja wajib diisi minimal 20 karakter");
+    if (!criteriaAgreed) return setApplyErr("Anda harus menyetujui kriteria platform");
+    setApplying(true);
+    try {
+      await api.post("/karyawan/apply", { shop_id: selShop.id, ...form, ktp_photo: ktpPhoto, diploma_photo: diplomaPhoto, criteria_agreed: criteriaAgreed });
+      setShowApply(false); resetApplyForm(); await load();
+    } catch (e: any) { setApplyErr(e.message || "Gagal mengirim lamaran"); }
+    setApplying(false);
+  };
+
+  if (loading) return (
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <LinearGradient colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.navyHeader}>
+        <Skeleton style={{ height: 12, width: 90, backgroundColor: "rgba(255,255,255,0.25)" }} />
+        <Skeleton style={{ height: 20, width: 150, marginTop: 10, backgroundColor: "rgba(255,255,255,0.25)" }} />
+      </LinearGradient>
+      <View style={{ padding: 20, gap: 12 }}>
+        <Skeleton style={{ height: 76 }} />
+        <Skeleton style={{ height: 130 }} />
+      </View>
+    </SafeAreaView>
+  );
+
+  return (
+    <SafeAreaView style={styles.safe} edges={["top"]}>
+      <LinearGradient colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.navyHeader}>
+        <View pointerEvents="none" style={styles.headerDeco} />
+        <View style={{ flex: 1 }}>
+          <View style={styles.brandBadge}>
+            <Ionicons name="cut" size={12} color={COLORS.gold} />
+            <Text style={styles.brandBadgeText}>STREETBARBER PORTAL</Text>
+          </View>
+          <Text style={styles.headerTitle}>{user?.name}</Text>
+          <Text style={styles.headerSub}>{user?.email}</Text>
+        </View>
+      </LinearGradient>
+
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
+        {!hasActive && apps.length > 0 && (
+          <View style={styles.stepper}>
+            {[
+              { label: "Terkirim", done: true },
+              { label: "Verifikasi", done: hasPendingTest || hasActive },
+              { label: "Tes & Aktif", done: hasActive },
+            ].map((s, i, arr) => (
+              <View key={s.label} style={styles.stepCol}>
+                <View style={[styles.stepDot, s.done && styles.stepDotDone]}>
+                  {s.done && <Ionicons name="checkmark" size={13} color={COLORS.onBrand} />}
+                </View>
+                <Text style={[styles.stepLabel, s.done && styles.stepLabelDone]}>{s.label}</Text>
+                {i < arr.length - 1 && <View style={[styles.stepLine, s.done && arr[i + 1]?.done && styles.stepLineDone]} />}
+              </View>
+            ))}
+          </View>
+        )}
+        {!hasActive && hasPendingTest && (
+          <View style={styles.pendingBanner}>
+            <View style={styles.pendingIcon}><Ionicons name="time-outline" size={20} color={COLORS.warning} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.pendingTitle}>Berkas Lolos — Menunggu Tes Keterampilan</Text>
+              <Text style={styles.pendingSub}>Validator akan menghubungimu lewat chat untuk menjadwalkan tes keterampilan. Fitur pesanan & bagikan lokasi otomatis aktif begitu kamu lulus.</Text>
+            </View>
+          </View>
+        )}
+        {!hasActive && !hasPendingTest && hasPending && (
+          <View style={styles.pendingBanner}>
+            <View style={styles.pendingIcon}><Ionicons name="time-outline" size={20} color={COLORS.warning} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.pendingTitle}>Mohon Tunggu</Text>
+              <Text style={styles.pendingSub}>Mohon tunggu. Anda sedang dalam proses validasi oleh validator.</Text>
+            </View>
+          </View>
+        )}
+
+        {hasActive && earnings && (
+          <LinearGradient colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.earningsCard}>
+            <View pointerEvents="none" style={styles.earningsDeco} />
+            <View style={styles.earningsIcon}><Ionicons name="cash" size={20} color={COLORS.gold} /></View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.earningsLabel}>Pendapatan Bulan Ini</Text>
+              <Text style={styles.earningsValue}>{rupiah(earnings.monthly_revenue)}</Text>
+              <Text style={styles.earningsHint}>{earnings.completed_count} booking terbayar</Text>
+            </View>
+          </LinearGradient>
+        )}
+
+        {hasActive && wallet && (
+          <PressableScale onPress={() => router.push("/(streetbarber)/manage" as any)} scaleTo={0.98} testID="open-wallet">
+            <LinearGradient colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.earningsCard}>
+              <View pointerEvents="none" style={styles.walletDeco} />
+              <View style={styles.walletIcon}><Ionicons name="wallet" size={20} color={COLORS.onBrand} /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.walletLabel}>Dompet Saya</Text>
+                <Text style={styles.walletValue}>{rupiah(wallet.balance_available || 0)}</Text>
+                <Text style={styles.walletHint}>{rupiah(wallet.balance_pending || 0)} masih ditahan platform · Ketuk untuk detail</Text>
+              </View>
+            </LinearGradient>
+          </PressableScale>
+        )}
+
+        {hasActive && upcoming && (
+          <PressableScale style={styles.upcomingCard} onPress={() => router.push("/(streetbarber)/orders" as any)} testID="upcoming-booking" scaleTo={0.98}>
+            <View style={styles.upcomingHead}>
+              <Text style={styles.upcomingLabel}>PESANAN MENDATANG</Text>
+              <Ionicons name="chevron-forward" size={16} color={COLORS.brandLight} />
+            </View>
+            <Text style={styles.upcomingName} numberOfLines={1}>{upcoming.customer?.name}</Text>
+            <Text style={styles.upcomingMeta} numberOfLines={1}>{upcoming.service?.name} · {upcoming.booking_date} · {upcoming.booking_time} WITA</Text>
+            {!!upcoming.customer_address && (
+              <Text style={styles.upcomingMeta} numberOfLines={1}>{upcoming.customer_address}</Text>
+            )}
+          </PressableScale>
+        )}
+
+        {hasActive && (
+          <View style={[styles.locCard, sharingLocation && styles.locCardActive]}>
+            <View style={[styles.locIcon, sharingLocation && { backgroundColor: COLORS.brand }]}>
+              <Ionicons name={sharingLocation ? "navigate" : "navigate-outline"} size={18} color={sharingLocation ? COLORS.onBrand : COLORS.brandLight} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.locTitle}>Bagikan Lokasi Real-Time</Text>
+              <Text style={styles.locSub}>
+                {sharingLocation ? "Aktif — pelanggan bisa menemukanmu di sekitar mereka" : "Aktifkan saat kamu sedang bekerja, tetap buka aplikasi"}
+              </Text>
+              {!!locError && <Text style={styles.locErrorText}>{locError}</Text>}
+            </View>
+            <Switch value={sharingLocation} onValueChange={toggleSharing} trackColor={{ true: COLORS.brand }} testID="location-share-toggle" />
+          </View>
+        )}
+
+        {!hasActive && (
+          <>
+            <Text style={styles.sec}>PILIH TOKO VALIDATOR</Text>
+            {availableShops.length === 0 && <Text style={styles.empty}>Semua toko sudah dilamar.</Text>}
+            {availableShops.map((s: any) => (
+              <PressableScale key={s.id} style={styles.shopRow} testID={`apply-shop-${s.id}`} onPress={() => { setSelShop(s); setShowApply(true); }} scaleTo={0.98}>
+                <Image source={{ uri: s.image }} style={styles.shopImg} contentFit="cover" />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cName}>{s.name}</Text>
+                  <Text style={styles.cMeta} numberOfLines={1}>{s.address}</Text>
+                  <View style={styles.starRow}>
+                    <Ionicons name="star" size={11} color={COLORS.gold} />
+                    <Text style={styles.starText}>{s.rating?.toFixed(1)} · {s.reviews_count} ulasan</Text>
+                  </View>
+                </View>
+                <View style={styles.shopChevron}><Ionicons name="chevron-forward" size={18} color={COLORS.brandLight} /></View>
+              </PressableScale>
+            ))}
+          </>
+        )}
+      </ScrollView>
+
+      {showApply && (
+        <View style={styles.modalBg}>
+          <View style={[styles.modal, { maxHeight: "85%" }]}>
+            <View style={styles.grabber} />
+            <ScrollView ref={scrollRef} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <LinearGradient colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.modalHead}>
+                <View style={styles.modalHeadIcon}><Ionicons name="briefcase" size={20} color={COLORS.brandLight} /></View>
+                <Text style={styles.modalTitle}>Ajukan Diri sebagai StreetBarber</Text>
+                <Text style={styles.modalSub}>Divalidasi oleh {selShop?.name}</Text>
+              </LinearGradient>
+              <Text style={styles.label}>Foto KTP *</Text>
+              <PressableScale style={styles.photoPick} onPress={() => pickPhoto("ktp")} testID="pick-ktp" scaleTo={0.99}>
+                {ktpPhoto ? <Image source={{ uri: ktpPhoto }} style={styles.photoPreview} contentFit="cover" /> : (
+                  <><View style={styles.photoIcon}><Ionicons name="camera-outline" size={20} color={COLORS.brandLight} /></View><Text style={styles.photoPickText}>Unggah foto KTP</Text></>
+                )}
+              </PressableScale>
+              <Text style={styles.label}>Pengalaman Kerja * (min. 20 karakter)</Text>
+              <TextInput style={[styles.input, { minHeight: 70 }]} multiline placeholder="Ceritakan pengalaman kerjamu..." placeholderTextColor={COLORS.textDim} value={form.work_experience} onChangeText={(t) => setForm({ ...form, work_experience: t })} onFocus={handleFocus} testID="apply-experience" />
+              <Text style={styles.label}>URL Portofolio (opsional)</Text>
+              <TextInput style={styles.input} placeholder="https://..." placeholderTextColor={COLORS.textDim} value={form.portfolio_url} onChangeText={(t) => setForm({ ...form, portfolio_url: t })} onFocus={handleFocus} autoCapitalize="none" />
+              <Text style={styles.label}>Sertifikat (opsional)</Text>
+              <TextInput style={styles.input} placeholder="BNSP, kursus, dll" placeholderTextColor={COLORS.textDim} value={form.certificates} onChangeText={(t) => setForm({ ...form, certificates: t })} onFocus={handleFocus} />
+              <PressableScale style={styles.agreeRow} onPress={() => setCriteriaAgreed((v) => !v)} testID="criteria-agree" scaleTo={0.99}>
+                <View style={[styles.checkBox, criteriaAgreed && { backgroundColor: COLORS.brand, borderColor: COLORS.brandLight }]}>
+                  {criteriaAgreed && <Ionicons name="checkmark" size={14} color={COLORS.onBrand} />}
+                </View>
+                <Text style={styles.agreeText}>Saya menyetujui kriteria seleksi platform PangkasKAKA</Text>
+              </PressableScale>
+              {!!applyErr && <View style={styles.applyErrBox}><Ionicons name="alert-circle" size={16} color={COLORS.error} /><Text style={styles.applyErrText} testID="apply-error">{applyErr}</Text></View>}
+              <PressableScale style={[styles.btnWrap, applying && { opacity: 0.6 }]} onPress={apply} disabled={applying} testID="submit-apply" haptic>
+                <LinearGradient colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.btn}>
+                  <Text style={styles.btnText}>{applying ? "..." : "KIRIM LAMARAN"}</Text>
+                </LinearGradient>
+              </PressableScale>
+              <PressableScale onPress={() => { setShowApply(false); resetApplyForm(); }} style={styles.cancelBtn} scaleTo={0.97}>
+                <Text style={styles.cancelText}>Batal</Text>
+              </PressableScale>
+            </ScrollView>
+          </View>
+        </View>
+      )}
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safe: { flex: 1, backgroundColor: COLORS.bg },
+  navyHeader: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 30, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, flexDirection: "row", alignItems: "center", gap: 12, overflow: "hidden", shadowColor: COLORS.sidebar, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8 },
+  headerDeco: { position: "absolute", width: 180, height: 180, borderRadius: 90, backgroundColor: "rgba(255,255,255,0.05)", top: -70, right: -40 },
+  brandBadge: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start", backgroundColor: "rgba(255,255,255,0.12)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  brandBadgeText: { color: "#FFFFFF", fontSize: 10, fontFamily: FONT.bold, letterSpacing: 0.5 },
+  headerTitle: { color: "#FFFFFF", fontSize: 20, fontFamily: FONT.extrabold, marginTop: 8 },
+  headerSub: { color: "rgba(255,255,255,0.75)", fontSize: 12, fontFamily: FONT.medium, marginTop: 2 },
+  sec: { color: COLORS.textDim, letterSpacing: 0.8, fontSize: 11, fontFamily: FONT.bold, marginTop: 20, marginBottom: 12 },
+  stepper: { flexDirection: "row", backgroundColor: COLORS.surface, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 12, shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2 },
+  stepCol: { alignItems: "center", flex: 1 },
+  stepDot: { width: 30, height: 30, borderRadius: 15, backgroundColor: COLORS.surface2, borderWidth: 1.5, borderColor: COLORS.border, alignItems: "center", justifyContent: "center" },
+  stepDotDone: { backgroundColor: COLORS.brand, borderColor: COLORS.brandLight },
+  stepLabel: { color: COLORS.textDim, fontSize: 10, marginTop: 6, fontFamily: FONT.semibold, textAlign: "center" },
+  stepLabelDone: { color: COLORS.brandLight, fontFamily: FONT.bold },
+  stepLine: { position: "absolute", top: 14, left: "50%", width: "100%", height: 2, backgroundColor: COLORS.border, zIndex: -1 },
+  stepLineDone: { backgroundColor: COLORS.brand },
+  walletDeco: { position: "absolute", width: 130, height: 130, borderRadius: 65, backgroundColor: "rgba(255,255,255,0.25)", top: -50, right: -30 },
+  walletIcon: { width: 44, height: 44, borderRadius: 13, backgroundColor: "rgba(15,26,46,0.12)", alignItems: "center", justifyContent: "center" },
+  walletLabel: { color: "rgba(15,26,46,0.65)", fontSize: 11, fontFamily: FONT.semibold },
+  walletValue: { color: COLORS.text, fontSize: 22, fontFamily: FONT.extrabold, marginTop: 2 },
+  walletHint: { color: "rgba(15,26,46,0.6)", fontSize: 11, fontFamily: FONT.medium, marginTop: 2 },
+  upcomingCard: {
+    backgroundColor: COLORS.surface, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, padding: 16, marginBottom: 12,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 12, elevation: 3,
+  },
+  upcomingHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  upcomingLabel: { color: COLORS.textDim, letterSpacing: 0.8, fontSize: 10, fontFamily: FONT.bold },
+  upcomingName: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 16 },
+  upcomingMeta: { color: COLORS.textDim, fontSize: 12, marginTop: 3, fontFamily: FONT.medium },
+  earningsCard: { flexDirection: "row", alignItems: "center", gap: 14, padding: 16, borderRadius: 20, marginBottom: 12, overflow: "hidden", shadowColor: COLORS.sidebar, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 18, elevation: 6 },
+  earningsDeco: { position: "absolute", width: 130, height: 130, borderRadius: 65, backgroundColor: "rgba(255,255,255,0.06)", top: -50, right: -30 },
+  earningsIcon: { width: 44, height: 44, borderRadius: 13, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)" },
+  earningsLabel: { color: "rgba(255,255,255,0.7)", fontSize: 11, fontFamily: FONT.semibold },
+  earningsValue: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.extrabold, marginTop: 2 },
+  earningsHint: { color: "rgba(255,255,255,0.6)", fontSize: 11, fontFamily: FONT.medium, marginTop: 2 },
+  locCard: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.surface, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 12, elevation: 2 },
+  locCardActive: { borderColor: COLORS.brand, backgroundColor: COLORS.brandDim },
+  locIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
+  locTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 14 },
+  locSub: { color: COLORS.textDim, fontSize: 12, marginTop: 2, fontFamily: FONT.medium },
+  locErrorText: { color: COLORS.error, fontSize: 11, marginTop: 4, fontFamily: FONT.semibold },
+  pendingBanner: { flexDirection: "row", alignItems: "flex-start", gap: 10, backgroundColor: "#FFF7ED", padding: 14, borderRadius: 16, borderWidth: 1, borderColor: "#FDE4C4", marginBottom: 16 },
+  pendingIcon: { width: 38, height: 38, borderRadius: 12, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
+  pendingTitle: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
+  pendingSub: { color: COLORS.textDim, fontSize: 12, marginTop: 3, fontFamily: FONT.medium, lineHeight: 17 },
+  shopRow: { flexDirection: "row", gap: 12, padding: 12, backgroundColor: COLORS.surface, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 8, alignItems: "center", shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 8, elevation: 2 },
+  shopImg: { width: 60, height: 60, borderRadius: 12 },
+  cName: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 14 },
+  cMeta: { color: COLORS.textDim, fontSize: 12, marginTop: 2, fontFamily: FONT.medium },
+  starRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+  starText: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.medium },
+  shopChevron: { width: 30, height: 30, borderRadius: 10, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
+  empty: { color: COLORS.textDim, textAlign: "center", fontFamily: FONT.medium, fontSize: 13, marginTop: 8 },
+  modalBg: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: "flex-end" },
+  modal: { backgroundColor: COLORS.surface, padding: 24, borderTopLeftRadius: 28, borderTopRightRadius: 28, shadowColor: "#000", shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.12, shadowRadius: 24, elevation: 20 },
+  grabber: { width: 44, height: 5, borderRadius: 999, backgroundColor: COLORS.borderStrong, alignSelf: "center", marginBottom: 16 },
+  modalHead: { alignItems: "center", padding: 16, borderRadius: 18, marginBottom: 4, overflow: "hidden" },
+  modalHeadIcon: { width: 40, height: 40, borderRadius: 13, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", marginBottom: 6 },
+  modalTitle: { color: COLORS.text, fontSize: 20, fontFamily: FONT.extrabold, textAlign: "center" },
+  modalSub: { color: "rgba(15,26,46,0.7)", textAlign: "center", marginTop: 2, fontFamily: FONT.medium, fontSize: 12 },
+  label: { color: COLORS.textMuted, marginTop: 12, marginBottom: 6, fontSize: 12, fontFamily: FONT.semibold },
+  input: { backgroundColor: COLORS.surface, color: COLORS.text, padding: 13, borderRadius: 14, borderWidth: 1.5, borderColor: COLORS.border, fontFamily: FONT.medium, fontSize: 14 },
+  btnWrap: { borderRadius: 14, marginTop: 20, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4 },
+  btn: { padding: 14, alignItems: "center" },
+  btnText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, letterSpacing: 1 },
+  photoPick: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border, borderStyle: "dashed", borderRadius: 14, height: 90, overflow: "hidden" },
+  photoIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
+  photoPickText: { color: COLORS.textDim, fontFamily: FONT.semibold, fontSize: 12 },
+  photoPreview: { width: "100%", height: "100%" },
+  agreeRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 16 },
+  checkBox: { width: 22, height: 22, borderRadius: 7, borderWidth: 2, borderColor: COLORS.borderStrong, alignItems: "center", justifyContent: "center" },
+  agreeText: { flex: 1, color: COLORS.text, fontFamily: FONT.medium, fontSize: 12, lineHeight: 17 },
+  applyErrBox: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF2F2", padding: 12, borderRadius: 12, marginTop: 14 },
+  applyErrText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium, fontSize: 12 },
+  cancelBtn: { padding: 12, alignItems: "center", marginTop: 4 },
+  cancelText: { color: COLORS.textDim, fontFamily: FONT.medium },
+});

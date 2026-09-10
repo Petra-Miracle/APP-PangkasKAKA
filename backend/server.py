@@ -4819,15 +4819,19 @@ async def product_fallback_check(order_id: str, user=Depends(get_current_user)):
 
 
 # ---------- 5) SIMULATION MODE (demo only, offline) ----------
+# Diizinkan di simulation & sandbox (belum ada uang nyata di kedua mode itu) supaya
+# tombol "Saya sudah bayar" bisa dipakai untuk demo/pitching tanpa bergantung pada
+# Durianpay sandbox benar-benar dituntaskan lebih dulu. TERKUNCI TOTAL saat
+# PAYMENT_MODE=production — begitu ganti ke production, jalur ini otomatis mati
+# tanpa perlu ubah kode lagi.
 @api.post("/payments/simulate/{booking_id}")
 async def simulate_payment(booking_id: str, user=Depends(get_current_user)):
     """
-    Mode simulasi: langsung tandai pembayaran sukses TANPA panggil Durianpay.
-    Endpoint ini OTOMATIS NONAKTIF ketika PAYMENT_MODE=sandbox / production.
-    Berguna untuk demo presentasi bila akses sandbox belum ada.
+    Langsung tandai pembayaran sukses TANPA panggil Durianpay.
+    Aktif di PAYMENT_MODE ∈ {simulation, sandbox}; NONAKTIF total di production.
     """
-    if PAYMENT_MODE != "simulation":
-        raise HTTPException(403, "Endpoint simulasi hanya aktif pada PAYMENT_MODE=simulation")
+    if PAYMENT_MODE == "production":
+        raise HTTPException(403, "Endpoint simulasi nonaktif di PAYMENT_MODE=production")
 
     b = await _load_booking_for_payment(booking_id, user)
     processed = await _mark_booking_paid(
@@ -4839,8 +4843,8 @@ async def simulate_payment(booking_id: str, user=Depends(get_current_user)):
 @api.post("/payments/simulate-product/{order_id}")
 async def simulate_product_payment(order_id: str, user=Depends(get_current_user)):
     """Mirror simulate_payment untuk pesanan produk."""
-    if PAYMENT_MODE != "simulation":
-        raise HTTPException(403, "Endpoint simulasi hanya aktif pada PAYMENT_MODE=simulation")
+    if PAYMENT_MODE == "production":
+        raise HTTPException(403, "Endpoint simulasi nonaktif di PAYMENT_MODE=production")
 
     o = await _load_product_order_for_payment(order_id, user)
     processed = await _mark_product_order_paid(

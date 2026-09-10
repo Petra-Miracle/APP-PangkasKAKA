@@ -2,7 +2,6 @@ import { View, Text, StyleSheet, ScrollView } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/src/lib/auth";
 import { COLORS, FONT } from "@/src/lib/api";
@@ -16,18 +15,15 @@ export default function Profile() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const doLogout = async () => { await logout(); router.replace("/(auth)/login"); };
+  const showAccount = user?.role === "customer" || user?.role === "owner" || user?.role === "streetbarber";
+  const showActivity = user?.role === "customer" || user?.role === "streetbarber" || user?.role === "superadmin";
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 100 }}>
-        <Text style={styles.title}>Profil</Text>
-        <LinearGradient
-          colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.hero}
-        >
-          <View pointerEvents="none" style={styles.decoCircle} />
-          <View style={styles.avatarRing}>
+        <Text style={styles.title}>Akun</Text>
+
+        <View style={styles.profileCard}>
+          <View>
             {user?.photo ? (
               <Image source={{ uri: user.photo }} style={styles.avatarImg} contentFit="cover" />
             ) : (
@@ -35,45 +31,79 @@ export default function Profile() {
                 <Text style={styles.avatarText}>{user?.name?.[0]?.toUpperCase() || "?"}</Text>
               </View>
             )}
+            <PressableScale
+              style={styles.cameraBadge}
+              onPress={() => router.push("/(customer)/edit-profile" as any)}
+              scaleTo={0.9}
+            >
+              <Ionicons name="camera" size={13} color={COLORS.onBrand} />
+            </PressableScale>
           </View>
-          <Text style={styles.name} testID="profile-name">{user?.name}</Text>
-          <Text style={styles.mail}>{user?.email}</Text>
-          <View style={styles.roleBadge}>
-            <Ionicons name="shield-checkmark" size={12} color={COLORS.brand} />
-            <Text style={styles.roleText}>{ROLE_LABEL[user?.role || ""] || user?.role}</Text>
+          <View style={{ flex: 1 }}>
+            <View style={styles.rolePill}>
+              <Text style={styles.rolePillText}>{ROLE_LABEL[user?.role || ""] || user?.role}</Text>
+            </View>
+            <Text style={styles.name} testID="profile-name" numberOfLines={1}>{user?.name}</Text>
+            <Text style={styles.mail} numberOfLines={1}>{user?.email}</Text>
           </View>
-        </LinearGradient>
-        <View style={styles.menu}>
-          {user?.role === "customer" && <>
-            <MenuItem icon="person-circle-outline" label="Edit Profil" onPress={() => router.push("/(customer)/edit-profile" as any)} testID="menu-edit-profile" />
-            <MenuItem icon="lock-closed-outline" label="Ubah Password" onPress={() => router.push("/(customer)/change-password" as any)} testID="menu-change-password" />
-            <MenuItem icon="receipt-outline" label="Riwayat Pesanan" onPress={() => router.push("/(customer)/orders" as any)} />
-            <MenuItem icon="wallet-outline" label="Riwayat Pembayaran" onPress={() => router.push("/(customer)/payment-history" as any)} testID="menu-payment-history" />
-            <MenuItem icon="bag-handle-outline" label="Pesanan Produk" onPress={() => router.push("/(customer)/product-orders" as any)} testID="menu-product-orders" />
-            <MenuItem icon="sparkles-outline" label="AI Face Scan" onPress={() => router.push("/(customer)/ai-scan" as any)} />
-          </>}
-          {user?.role === "owner" && <>
-            <MenuItem icon="grid-outline" label="Dashboard Toko" onPress={() => router.push("/(owner)/dashboard" as any)} />
-            <MenuItem icon="construct-outline" label="Kelola Toko" onPress={() => router.push("/(owner)/manage" as any)} />
-          </>}
-          {user?.role === "superadmin" && <>
-            <MenuItem icon="shield-checkmark-outline" label="Verifikasi Toko" onPress={() => router.push("/(superadmin)/verification" as any)} />
-            <MenuItem icon="people-outline" label="Pengguna" onPress={() => router.push("/(superadmin)/users" as any)} />
-          </>}
-          <MenuItem icon="log-out-outline" label="Keluar" onPress={doLogout} danger testID="logout-btn" />
         </View>
+
+        {showAccount && (
+          <>
+            <Text style={styles.sectionLabel}>AKUN</Text>
+            <View style={styles.menu}>
+              <MenuItem icon="person-circle-outline" label="Edit Profil" sub="Nama dan foto profil" onPress={() => router.push("/(customer)/edit-profile" as any)} testID="menu-edit-profile" />
+              <MenuItem icon="lock-closed-outline" label="Ubah Password" sub="Ganti kata sandi akun" last onPress={() => router.push("/(customer)/change-password" as any)} testID="menu-change-password" />
+            </View>
+          </>
+        )}
+
+        {showActivity && (
+          <>
+            <Text style={styles.sectionLabel}>AKTIVITAS</Text>
+            <View style={styles.menu}>
+              {user?.role === "customer" && <>
+                <MenuItem icon="receipt-outline" label="Riwayat Pesanan" sub="Booking layanan kamu" onPress={() => router.push("/(customer)/orders" as any)} />
+                <MenuItem icon="wallet-outline" label="Riwayat Pembayaran" sub="Semua transaksi kamu" onPress={() => router.push("/(customer)/payment-history" as any)} testID="menu-payment-history" />
+                <MenuItem icon="bag-handle-outline" label="Pesanan Produk" sub="Belanja dari katalog" onPress={() => router.push("/(customer)/product-orders" as any)} testID="menu-product-orders" />
+                <MenuItem icon="sparkles-outline" label="AI Face Scan" sub="Rekomendasi gaya rambut" last onPress={() => router.push("/(customer)/ai-scan" as any)} />
+              </>}
+              {user?.role === "streetbarber" && <>
+                <MenuItem icon="briefcase-outline" label="Riwayat Lamaran" sub="Lamaran StreetBarber kamu" last onPress={() => router.push("/(streetbarber)/applications" as any)} />
+              </>}
+              {user?.role === "superadmin" && <>
+                <MenuItem icon="shield-checkmark-outline" label="Verifikasi Toko" sub="Tinjau pengajuan toko" onPress={() => router.push("/(superadmin)/verification" as any)} />
+                <MenuItem icon="people-outline" label="Pengguna" sub="Kelola pengguna aplikasi" last onPress={() => router.push("/(superadmin)/users" as any)} />
+              </>}
+            </View>
+          </>
+        )}
+
+        <PressableScale style={styles.logoutBtn} onPress={doLogout} testID="logout-btn" scaleTo={0.98}>
+          <Ionicons name="log-out-outline" size={20} color={COLORS.error} />
+          <Text style={styles.logoutText}>Keluar</Text>
+        </PressableScale>
+        <Text style={styles.footer}>PangkasKAKA v1.0.0 · Kupang, NTT</Text>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function MenuItem({ icon, label, onPress, danger, testID }: any) {
+function MenuItem({ icon, label, sub, onPress, testID, last }: any) {
   return (
-    <PressableScale style={styles.item} onPress={onPress} testID={testID} scaleTo={0.98}>
-      <View style={[styles.itemIcon, danger && { backgroundColor: "#FEF2F2" }]}>
-        <Ionicons name={icon} size={20} color={danger ? COLORS.error : COLORS.brand} />
+    <PressableScale
+      style={[styles.item, last && { borderBottomWidth: 0 }]}
+      onPress={onPress}
+      testID={testID}
+      scaleTo={0.98}
+    >
+      <View style={styles.itemIcon}>
+        <Ionicons name={icon} size={20} color={COLORS.brandLight} />
       </View>
-      <Text style={[styles.itemText, danger && { color: COLORS.error }]}>{label}</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.itemText}>{label}</Text>
+        {!!sub && <Text style={styles.itemSub}>{sub}</Text>}
+      </View>
       <Ionicons name="chevron-forward" size={18} color={COLORS.textDim} />
     </PressableScale>
   );
@@ -81,22 +111,35 @@ function MenuItem({ icon, label, onPress, danger, testID }: any) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  title: { color: COLORS.text, fontSize: 24, fontFamily: FONT.extrabold, marginBottom: 20, letterSpacing: -0.3 },
-  hero: {
-    padding: 28, borderRadius: 24, alignItems: "center", overflow: "hidden",
-    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.3, shadowRadius: 24, elevation: 8,
+  title: { color: COLORS.text, fontSize: 30, fontFamily: FONT.extrabold, marginBottom: 16, letterSpacing: -0.5 },
+  profileCard: {
+    flexDirection: "row", alignItems: "center", gap: 16,
+    backgroundColor: COLORS.surface, borderRadius: 24, borderWidth: 1, borderColor: COLORS.border, padding: 18,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3,
   },
-  decoCircle: { position: "absolute", width: 200, height: 200, borderRadius: 100, backgroundColor: "rgba(255,255,255,0.08)", top: -80, right: -60 },
-  avatarRing: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, borderColor: "rgba(255,255,255,0.5)", alignItems: "center", justifyContent: "center" },
-  avatar: { width: 86, height: 86, borderRadius: 999, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  avatarImg: { width: 86, height: 86, borderRadius: 999, backgroundColor: "#FFFFFF" },
-  avatarText: { color: COLORS.brand, fontSize: 36, fontFamily: FONT.extrabold },
-  name: { color: "#FFFFFF", fontSize: 22, fontFamily: FONT.extrabold, marginTop: 12 },
-  mail: { color: "rgba(255,255,255,0.85)", marginTop: 4, fontFamily: FONT.medium, fontSize: 13 },
-  roleBadge: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#FFFFFF", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, marginTop: 12 },
-  roleText: { color: COLORS.brand, fontSize: 12, fontFamily: FONT.bold },
-  menu: { marginTop: 20, backgroundColor: COLORS.surface, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden", shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3 },
+  avatar: { width: 84, height: 84, borderRadius: 42, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
+  avatarImg: { width: 84, height: 84, borderRadius: 42, backgroundColor: COLORS.brandDim },
+  avatarText: { color: COLORS.brandLight, fontSize: 34, fontFamily: FONT.extrabold },
+  cameraBadge: {
+    position: "absolute", right: -2, bottom: -2, width: 30, height: 30, borderRadius: 15,
+    backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center",
+    borderWidth: 2, borderColor: COLORS.surface,
+  },
+  rolePill: { alignSelf: "flex-start", backgroundColor: COLORS.brandDim, paddingHorizontal: 12, paddingVertical: 4, borderRadius: 999 },
+  rolePillText: { color: COLORS.brandLight, fontSize: 12, fontFamily: FONT.bold },
+  name: { color: COLORS.text, fontSize: 21, fontFamily: FONT.extrabold, marginTop: 8 },
+  mail: { color: COLORS.textDim, marginTop: 3, fontFamily: FONT.medium, fontSize: 13 },
+  sectionLabel: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 12, letterSpacing: 1.5, marginTop: 24, marginBottom: 10 },
+  menu: { backgroundColor: COLORS.surface, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden", shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3 },
   item: { flexDirection: "row", alignItems: "center", gap: 14, padding: 16, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  itemIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
-  itemText: { color: COLORS.text, flex: 1, fontFamily: FONT.semibold, fontSize: 14 },
+  itemIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
+  itemText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 15 },
+  itemSub: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, marginTop: 2 },
+  logoutBtn: {
+    flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 10,
+    borderWidth: 1.5, borderColor: COLORS.error, borderRadius: 18, paddingVertical: 16, marginTop: 24,
+    backgroundColor: "#FEF2F2",
+  },
+  logoutText: { color: COLORS.error, fontFamily: FONT.extrabold, fontSize: 15 },
+  footer: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, textAlign: "center", marginTop: 16 },
 });

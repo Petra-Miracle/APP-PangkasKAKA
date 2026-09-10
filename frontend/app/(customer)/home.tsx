@@ -1,11 +1,11 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { View, Text, StyleSheet, ScrollView, RefreshControl } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { api, COLORS, FONT, formatJarak, rupiah, tanggal } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import PressableScale from "@/src/components/PressableScale";
@@ -14,6 +14,8 @@ import Skeleton, { SkeletonShopCard, SkeletonRow } from "@/src/components/Skelet
 
 type Shop = { id: string; name: string; image: string; address: string; rating: number; reviews_count: number; price_range: string; distance_km: number | null; is_verified: boolean };
 type Hairstyle = { id: string; name: string; image_url: string; description: string };
+
+const NEARBY_POLL_INTERVAL = 20000; // StreetBarber bisa online/offline kapan saja — refresh berkala saat tab Beranda aktif
 
 export default function Home() {
   const router = useRouter();
@@ -26,6 +28,7 @@ export default function Home() {
   const [nearbyBarbers, setNearbyBarbers] = useState<any[]>([]);
   const [hairstyles, setHairstyles] = useState<Hairstyle[]>([]);
   const [catalog, setCatalog] = useState<any[]>([]);
+  const coordsRef = useRef<{ lat: number; lng: number } | null>(null);
 
   const loadShops = useCallback(async (c: { lat: number; lng: number } | null) => {
     let url = `/shops?sort=terpopuler`;
@@ -76,6 +79,19 @@ export default function Home() {
   }, [loadShops, loadNearbyBarbers, user?.lat, user?.lng]);
 
   useEffect(() => { init(); }, [init]);
+  useEffect(() => { coordsRef.current = coords; }, [coords]);
+
+  // "StreetBarber Online Terdekat" sifatnya live — barber bisa mengaktifkan/menonaktifkan
+  // bagikan lokasi kapan saja. Refetch tiap kali tab Beranda difokuskan + polling berkala
+  // selama tab ini aktif, supaya tidak nyangkut di data lama saat halaman sudah terbuka
+  // sebelum ada barber yang online.
+  useFocusEffect(
+    useCallback(() => {
+      loadNearbyBarbers(coordsRef.current);
+      const interval = setInterval(() => loadNearbyBarbers(coordsRef.current), NEARBY_POLL_INTERVAL);
+      return () => clearInterval(interval);
+    }, [loadNearbyBarbers])
+  );
 
   const onRefresh = async () => { setRefreshing(true); await loadShops(coords); await loadNearbyBarbers(coords); setRefreshing(false); };
 
@@ -92,10 +108,12 @@ export default function Home() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <View style={styles.header}>
-        <View style={{ flex: 1, marginRight: 12 }}>
-          <Text style={styles.hi} numberOfLines={1}>Halo, {user?.name?.split(" ")[0] || "Sobat"} 👋</Text>
-          <View style={styles.locRow}>
-            <Ionicons name="location" size={14} color={COLORS.brand} />
+        <View style={{ flex: 1, marginRight: 12, flexDirection: "row", alignItems: "center", gap: 10 }}>
+          <View style={styles.locIconBox}>
+            <Ionicons name="location" size={20} color={COLORS.brandLight} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.locLabel}>Lokasi kamu</Text>
             <Text style={styles.city} numberOfLines={1} testID="city-name">Kupang · Nusa Tenggara Timur</Text>
           </View>
         </View>
@@ -115,104 +133,33 @@ export default function Home() {
       >
         <PressableScale testID="search-shortcut" style={styles.searchWrap} onPress={() => router.push("/(customer)/explore" as any)}>
           <Ionicons name="search" size={18} color={COLORS.textDim} />
-          <Text style={styles.searchPlaceholder}>Cari barbershop di sekitarmu...</Text>
+          <Text style={styles.searchPlaceholder}>Cari barbershop atau gaya rambut</Text>
           <View style={styles.searchChip}>
-            <Ionicons name="options-outline" size={14} color={COLORS.brand} />
+            <Ionicons name="options-outline" size={14} color={COLORS.brandLight} />
           </View>
         </PressableScale>
 
-        <PressableScale testID="ai-banner" style={styles.aiBanner} onPress={() => router.push("/(customer)/ai-scan")} haptic>
-          <LinearGradient
-            colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.aiGradient}
-          >
-            <View pointerEvents="none" style={styles.aiDeco} />
-            <View style={styles.aiIconBox}>
-              <Ionicons name="sparkles" size={22} color="#FFFFFF" />
+        {/* Quick Actions (§2): murni navigasi ke halaman yang sudah ada */}
+        <View style={styles.quickRow}>
+          <PressableScale testID="quick-barbershop" style={styles.quickTile} onPress={() => router.push("/(customer)/explore" as any)} scaleTo={0.96}>
+            <View style={styles.quickIcon}>
+              <Ionicons name="storefront" size={20} color={COLORS.onBrand} />
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.aiTitle}>AI Face Scan ✨</Text>
-              <Text style={styles.aiSub}>Temukan gaya rambut yang cocok dengan wajahmu</Text>
+            <Text style={styles.quickLabel}>Barbershop</Text>
+          </PressableScale>
+          <PressableScale testID="quick-streetbarber" style={styles.quickTile} onPress={() => router.push("/(customer)/streetbarber-map" as any)} scaleTo={0.96}>
+            <View style={styles.quickIcon}>
+              <Ionicons name="bicycle" size={20} color={COLORS.onBrand} />
             </View>
-            <View style={styles.aiChevron}>
-              <Ionicons name="chevron-forward" size={20} color="#FFFFFF" />
+            <Text style={styles.quickLabel}>StreetBarber</Text>
+          </PressableScale>
+          <PressableScale testID="quick-product" style={styles.quickTile} onPress={() => router.push("/(customer)/catalog" as any)} scaleTo={0.96}>
+            <View style={styles.quickIcon}>
+              <Ionicons name="bag-handle" size={20} color={COLORS.onBrand} />
             </View>
-          </LinearGradient>
-        </PressableScale>
-
-        {catalog.length > 0 && (
-          <View>
-            <View style={styles.popularHeaderRow}>
-              <Text style={styles.sectionTitle}>Katalog Produk</Text>
-              <PressableScale testID="see-all-catalog" onPress={() => router.push("/(customer)/catalog" as any)}>
-                <View style={styles.seeAllPill}>
-                  <Text style={styles.seeAllText}>Lihat Semua</Text>
-                  <Ionicons name="arrow-forward" size={12} color={COLORS.brand} />
-                </View>
-              </PressableScale>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
-              {catalog.map((item: any) => (
-                <PressableScale
-                  key={item.id}
-                  testID={`catalog-product-${item.id}`}
-                  style={styles.productCard}
-                  onPress={() => router.push("/(customer)/catalog" as any)}
-                  scaleTo={0.95}
-                >
-                  {item.image ? (
-                    <Image source={{ uri: item.image }} style={styles.productImg} contentFit="cover" />
-                  ) : (
-                    <View style={[styles.productImg, styles.productImgFallback]}>
-                      <Ionicons name="bag-handle" size={22} color={COLORS.brand} />
-                    </View>
-                  )}
-                  {item.shop_name && (
-                    <View style={styles.productShopBadge}>
-                      <Text style={styles.productShopBadgeText} numberOfLines={1}>{item.shop_name}</Text>
-                    </View>
-                  )}
-                  <Text style={styles.productName} numberOfLines={1}>{item.name}</Text>
-                  <Text style={styles.productPrice}>{rupiah(item.price)}</Text>
-                </PressableScale>
-              ))}
-            </ScrollView>
-          </View>
-        )}
-
-        {nearbyBarbers.length > 0 && (
-          <View>
-            <View style={styles.nearbyHeaderRow}>
-              <View style={styles.liveDot} />
-              <Text style={styles.sectionTitle}>StreetBarber Online Terdekat</Text>
-              <View style={styles.livePill}>
-                <Text style={styles.livePillText}>LIVE</Text>
-              </View>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
-              {nearbyBarbers.map((b: any) => (
-                <PressableScale key={b.id} testID={`nearby-barber-${b.id}`} style={styles.barberCard} onPress={() => router.push(`/(customer)/barber/${b.id}` as any)} scaleTo={0.95}>
-                  <Image source={{ uri: b.photo }} style={styles.barberImg} contentFit="cover" />
-                  <View style={styles.onlineDot} />
-                  <Text style={styles.barberName} numberOfLines={1}>{b.name}</Text>
-                  <Text style={styles.barberShop} numberOfLines={1}>{b.shop_name}</Text>
-                  <View style={styles.barberDistRow}>
-                    <Ionicons name="navigate" size={11} color={COLORS.brand} />
-                    <Text style={styles.barberDist}>{formatJarak(b.distance_km)}</Text>
-                  </View>
-                  {b.eta_minutes != null && (
-                    <View style={styles.barberDistRow}>
-                      <Ionicons name="time-outline" size={11} color={COLORS.textDim} />
-                      <Text style={styles.barberEta}>~{b.eta_minutes} menit</Text>
-                    </View>
-                  )}
-                </PressableScale>
-              ))}
-            </ScrollView>
-          </View>
-        )}
+            <Text style={styles.quickLabel}>Produk</Text>
+          </PressableScale>
+        </View>
 
         {analytics?.active_booking ? (
           <PressableScale style={styles.activeCard} onPress={() => router.push("/(customer)/orders")} testID="active-booking-card" haptic>
@@ -226,7 +173,7 @@ export default function Home() {
               <View style={styles.activeHead}>
                 <Text style={styles.activeLabel}>BOOKING AKTIF</Text>
                 <View style={styles.countdownPill}>
-                  <Ionicons name="time" size={12} color="#FFFFFF" />
+                  <Ionicons name="time" size={12} color={COLORS.text} />
                   <Text style={styles.countdownText}>
                     {analytics.active_booking.days_until > 0 ? `${analytics.active_booking.days_until} hari lagi` :
                      analytics.active_booking.hours_until > 0 ? `${analytics.active_booking.hours_until} jam lagi` : "Segera"}
@@ -244,10 +191,10 @@ export default function Home() {
                   const done = i <= activeIdx;
                   return (
                     <View key={step} style={styles.trackerStep}>
-                      <View style={[styles.trackerDot, done && { backgroundColor: "#FFFFFF" }]}>
+                      <View style={[styles.trackerDot, done && { backgroundColor: COLORS.text }]}>
                         {done && <Ionicons name="checkmark" size={10} color={COLORS.brand} />}
                       </View>
-                      <Text style={[styles.trackerLabel, done && { color: "#FFFFFF", fontFamily: FONT.bold }]}>{step}</Text>
+                      <Text style={[styles.trackerLabel, done && { color: COLORS.text, fontFamily: FONT.bold }]}>{step}</Text>
                     </View>
                   );
                 })}
@@ -255,6 +202,79 @@ export default function Home() {
             </LinearGradient>
           </PressableScale>
         ) : null}
+
+        {catalog.length > 0 && (
+          <View>
+            <View style={styles.popularHeaderRow}>
+              <Text style={styles.sectionTitle}>Katalog Produk</Text>
+              <PressableScale testID="see-all-catalog" onPress={() => router.push("/(customer)/catalog" as any)}>
+                <View style={styles.seeAllPill}>
+                  <Text style={styles.seeAllText}>Lihat Semua</Text>
+                  <Ionicons name="arrow-forward" size={12} color={COLORS.brandLight} />
+                </View>
+              </PressableScale>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4 }}>
+              {catalog.map((item: any) => (
+                <PressableScale
+                  key={item.id}
+                  testID={`catalog-product-${item.id}`}
+                  style={styles.productCard}
+                  onPress={() => router.push("/(customer)/catalog" as any)}
+                  scaleTo={0.95}
+                >
+                  {item.image ? (
+                    <Image source={{ uri: item.image }} style={styles.productImg} contentFit="cover" />
+                  ) : (
+                    <View style={[styles.productImg, styles.productImgFallback]}>
+                      <Ionicons name="bag-handle" size={22} color={COLORS.brandLight} />
+                    </View>
+                  )}
+                  {item.shop_name && (
+                    <View style={styles.productShopBadge}>
+                      <Text style={styles.productShopBadgeText} numberOfLines={1}>{item.shop_name}</Text>
+                    </View>
+                  )}
+                  <Text style={styles.productName} numberOfLines={1}>{item.name}</Text>
+                  <Text style={styles.productPrice}>{rupiah(item.price)}</Text>
+                </PressableScale>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        {nearbyBarbers.length > 0 && (
+          <View>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitlePlain}>StreetBarber aktif</Text>
+              <PressableScale testID="see-all-streetbarber" onPress={() => router.push("/(customer)/explore" as any)} scaleTo={0.95}>
+                <Text style={styles.seeAllLink}>Lihat semua</Text>
+              </PressableScale>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingVertical: 4, paddingRight: 4 }}>
+              {nearbyBarbers.map((b: any) => (
+                <PressableScale key={b.id} testID={`nearby-barber-${b.id}`} style={styles.barberCard} onPress={() => router.push(`/(customer)/barber/${b.id}` as any)} scaleTo={0.95}>
+                  <View>
+                    <Image source={{ uri: b.photo }} style={styles.barberImg} contentFit="cover" />
+                    <View style={styles.liveBadge}>
+                      <View style={styles.liveBadgeDot} />
+                      <Text style={styles.liveBadgeText}>Live</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.barberName} numberOfLines={1}>{b.name}</Text>
+                  <Text style={styles.barberShop} numberOfLines={1}>{b.shop_name}</Text>
+                  <Text style={styles.barberMeta} numberOfLines={1}>
+                    {formatJarak(b.distance_km)}{b.eta_minutes != null ? ` · ~${b.eta_minutes} mnt` : ""}
+                  </Text>
+                  {/* Label visual: onPress ikut card (navigasi ke detail barber untuk booking) */}
+                  <View style={styles.callPill}>
+                    <Text style={styles.callPillText}>Panggil sekarang</Text>
+                  </View>
+                </PressableScale>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         {analytics?.last_booking && (
           <PressableScale testID="rebook-card" style={styles.rebookCard} onPress={rebook} scaleTo={0.98}>
@@ -267,7 +287,7 @@ export default function Home() {
               </Text>
             </View>
             <View style={styles.rebookIcon}>
-              <Ionicons name="repeat" size={18} color={COLORS.brand} />
+              <Ionicons name="repeat" size={18} color={COLORS.brandLight} />
             </View>
           </PressableScale>
         )}
@@ -287,13 +307,10 @@ export default function Home() {
           </View>
         )}
 
-        <View style={styles.popularHeaderRow}>
-          <Text style={styles.sectionTitle}>Barber Populer di Kupang</Text>
-          <PressableScale testID="see-all-explore" onPress={() => router.push("/(customer)/explore" as any)}>
-            <View style={styles.seeAllPill}>
-              <Text style={styles.seeAllText}>Lihat Semua</Text>
-              <Ionicons name="arrow-forward" size={12} color={COLORS.brand} />
-            </View>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitlePlain}>Barbershop terdekat</Text>
+          <PressableScale testID="see-all-explore" onPress={() => router.push("/(customer)/explore" as any)} scaleTo={0.95}>
+            <Text style={styles.seeAllLink}>Lihat semua</Text>
           </PressableScale>
         </View>
         {loading ? (
@@ -312,37 +329,20 @@ export default function Home() {
           />
         ) : (
           popularShops.map((item) => (
-            <PressableScale key={item.id} testID={`shop-card-${item.id}`} style={[styles.card, { marginBottom: 14 }]} onPress={() => router.push(`/(customer)/shop/${item.id}` as any)} scaleTo={0.97}>
-              <Image source={{ uri: item.image }} style={styles.cardImg} contentFit="cover" />
-              {item.distance_km !== null && (
-                <View style={styles.distBadge}>
-                  <Ionicons name="navigate" size={11} color={COLORS.brand} />
-                  <Text style={styles.distText}>{formatJarak(item.distance_km)}</Text>
-                </View>
-              )}
-              <LinearGradient
-                colors={["rgba(10,37,64,0)", "rgba(10,37,64,0.55)"]}
-                style={styles.cardScrim}
-                pointerEvents="none"
-              />
-              <View style={styles.cardBody}>
-                <View style={styles.cardTitleRow}>
-                  <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
-                  {item.rating > 0 && (
-                    <View style={styles.ratePill}>
-                      <Ionicons name="star" size={11} color={COLORS.gold} />
-                      <Text style={styles.rateText}>{item.rating?.toFixed(1)}</Text>
-                    </View>
-                  )}
-                </View>
-                <View style={styles.addrRow}>
-                  <Ionicons name="location-outline" size={12} color={COLORS.textDim} />
-                  <Text style={styles.cardAddr} numberOfLines={1}>{item.address}</Text>
-                </View>
-                <View style={styles.cardRow}>
-                  <Text style={styles.price}>{item.price_range}</Text>
-                  <Text style={styles.rateCount}>({item.reviews_count} ulasan)</Text>
-                </View>
+            <PressableScale key={item.id} testID={`shop-card-${item.id}`} style={[styles.card, { marginBottom: 12 }]} onPress={() => router.push(`/(customer)/shop/${item.id}` as any)} scaleTo={0.97}>
+              <Image source={{ uri: item.image }} style={styles.cardThumb} contentFit="cover" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cardName} numberOfLines={1}>{item.name}</Text>
+                {item.rating > 0 && (
+                  <View style={styles.rateRow}>
+                    <Ionicons name="star" size={12} color={COLORS.gold} />
+                    <Text style={styles.rateText}>{item.rating?.toFixed(1)} ({item.reviews_count})</Text>
+                  </View>
+                )}
+                <Text style={styles.cardAddr} numberOfLines={1}>
+                  {item.distance_km !== null ? `${formatJarak(item.distance_km)} · ` : ""}{item.address}
+                </Text>
+                <Text style={styles.price} numberOfLines={1}>{item.price_range}</Text>
               </View>
             </PressableScale>
           ))
@@ -355,9 +355,9 @@ export default function Home() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
-  hi: { color: COLORS.textDim, fontSize: 13, fontFamily: FONT.medium },
-  locRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 2 },
-  city: { color: COLORS.text, fontSize: 18, fontFamily: FONT.extrabold, letterSpacing: -0.3 },
+  locIconBox: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.brand },
+  locLabel: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.medium },
+  city: { color: COLORS.text, fontSize: 17, fontFamily: FONT.extrabold, letterSpacing: -0.3, marginTop: 1 },
   headerIcons: { flexDirection: "row", gap: 8, flexShrink: 0 },
   iconBtn: {
     width: 44, height: 44, borderRadius: 16, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center",
@@ -370,30 +370,38 @@ const styles = StyleSheet.create({
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 12, elevation: 2,
   },
   searchPlaceholder: { flex: 1, color: COLORS.textDim, paddingVertical: 14, fontFamily: FONT.medium, fontSize: 14 },
-  searchChip: { width: 28, height: 28, borderRadius: 9, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
+  searchChip: { width: 28, height: 28, borderRadius: 9, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.brand },
+  quickRow: { flexDirection: "row", gap: 12, marginTop: 14 },
+  quickTile: {
+    flex: 1, backgroundColor: COLORS.surface, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border,
+    paddingVertical: 14, alignItems: "center", gap: 8,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2,
+  },
+  quickIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center" },
+  quickLabel: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 11 },
   rebookCard: {
     flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: COLORS.surface,
     borderWidth: 1, borderColor: COLORS.border, borderRadius: 18, padding: 12, marginTop: 16,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3,
   },
   rebookImg: { width: 50, height: 50, borderRadius: 14 },
-  rebookLabel: { color: COLORS.brand, fontSize: 10, fontFamily: FONT.bold, letterSpacing: 0.6 },
+  rebookLabel: { color: COLORS.brandLight, fontSize: 10, fontFamily: FONT.bold, letterSpacing: 0.6 },
   rebookTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 14, marginTop: 2 },
   rebookSub: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 1 },
   rebookIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
   styleCard: { width: 112, alignItems: "center" },
   styleImg: { width: 112, height: 128, borderRadius: 18, backgroundColor: COLORS.surface2 },
-  styleImgOverlay: { position: "absolute", bottom: 26, left: 0, right: 0, height: 40, borderBottomLeftRadius: 18, borderBottomRightRadius: 18, backgroundColor: "rgba(10,37,64,0.35)" },
+  styleImgOverlay: { position: "absolute", bottom: 26, left: 0, right: 0, height: 40, borderBottomLeftRadius: 18, borderBottomRightRadius: 18, backgroundColor: "rgba(15,26,46,0.35)" },
   styleName: { color: COLORS.text, fontFamily: FONT.semibold, fontSize: 11, marginTop: 6, textAlign: "center" },
   popularHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 20 },
-  seeAllPill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: COLORS.brandDim, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999 },
-  seeAllText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 12 },
+  seeAllPill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: COLORS.brandDim, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, borderWidth: 1, borderColor: COLORS.brand },
+  seeAllText: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 12 },
   aiBanner: { marginTop: 16, borderRadius: 20, overflow: "hidden", shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20, elevation: 8 },
   aiGradient: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, overflow: "hidden" },
-  aiDeco: { position: "absolute", width: 150, height: 150, borderRadius: 75, backgroundColor: "rgba(255,255,255,0.08)", top: -60, right: -40 },
-  aiIconBox: { width: 44, height: 44, borderRadius: 14, backgroundColor: "rgba(255,255,255,0.22)", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)" },
-  aiTitle: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 15 },
-  aiSub: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontFamily: FONT.medium, marginTop: 2 },
+  aiDeco: { position: "absolute", width: 150, height: 150, borderRadius: 75, backgroundColor: "rgba(255,255,255,0.25)", top: -60, right: -40 },
+  aiIconBox: { width: 44, height: 44, borderRadius: 14, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "rgba(15,26,46,0.08)" },
+  aiTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15 },
+  aiSub: { color: "rgba(15,26,46,0.7)", fontSize: 12, fontFamily: FONT.medium, marginTop: 2 },
   productCard: {
     width: 124, backgroundColor: COLORS.surface, borderRadius: 18,
     borderWidth: 1, borderColor: COLORS.border, padding: 10,
@@ -404,58 +412,51 @@ const styles = StyleSheet.create({
   productShopBadge: { position: "absolute", top: 16, left: 16, backgroundColor: "rgba(10,37,64,0.55)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999, maxWidth: 96 },
   productShopBadgeText: { color: "#FFFFFF", fontSize: 8, fontFamily: FONT.bold },
   productName: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 12, marginTop: 8 },
-  productPrice: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 12, marginTop: 2 },
-  aiChevron: { width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.2)", alignItems: "center", justifyContent: "center" },
-  sectionTitle: { color: COLORS.text, fontSize: 16, fontFamily: FONT.bold, marginTop: 20, marginBottom: 8 },
-  nearbyHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 20, marginBottom: 8 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: COLORS.success },
-  livePill: { backgroundColor: "#ECFDF5", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
-  livePillText: { color: COLORS.success, fontSize: 9, fontFamily: FONT.bold, letterSpacing: 0.6 },
+  productPrice: { color: COLORS.brandLight, fontFamily: FONT.extrabold, fontSize: 12, marginTop: 2 },
+  aiChevron: { width: 30, height: 30, borderRadius: 15, backgroundColor: "rgba(255,255,255,0.7)", alignItems: "center", justifyContent: "center" },
+  sectionTitle: { color: COLORS.text, fontSize: 18, fontFamily: FONT.extrabold, marginTop: 24, marginBottom: 10, letterSpacing: -0.3 },
+  sectionHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 22, marginBottom: 12 },
+  sectionTitlePlain: { color: COLORS.text, fontSize: 19, fontFamily: FONT.extrabold, letterSpacing: -0.3 },
+  seeAllLink: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 13 },
   barberCard: {
-    width: 124, backgroundColor: COLORS.surface, borderRadius: 18,
+    width: 168, backgroundColor: COLORS.surface, borderRadius: 20,
     borderWidth: 1, borderColor: COLORS.border, padding: 10,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 12, elevation: 3,
   },
-  barberImg: { width: "100%", height: 92, borderRadius: 12, backgroundColor: COLORS.surface2 },
-  onlineDot: { position: "absolute", top: 16, right: 16, width: 10, height: 10, borderRadius: 5, backgroundColor: COLORS.success, borderWidth: 2, borderColor: "#FFFFFF" },
-  barberName: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 12, marginTop: 8 },
-  barberShop: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 10, marginTop: 1 },
-  barberDistRow: { flexDirection: "row", alignItems: "center", gap: 3, marginTop: 6 },
-  barberDist: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 11 },
-  barberEta: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 10 },
+  barberImg: { width: "100%", height: 118, borderRadius: 14, backgroundColor: COLORS.surface2 },
+  liveBadge: {
+    position: "absolute", top: 8, left: 8, flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: COLORS.success, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999,
+  },
+  liveBadgeDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#FFFFFF" },
+  liveBadgeText: { color: "#FFFFFF", fontSize: 10, fontFamily: FONT.bold },
+  barberName: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15, marginTop: 10 },
+  barberShop: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 1 },
+  barberMeta: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 4 },
+  callPill: { marginTop: 10, backgroundColor: COLORS.brandDim, borderRadius: 12, paddingVertical: 9, alignItems: "center" },
+  callPillText: { color: COLORS.brandLight, fontFamily: FONT.extrabold, fontSize: 12 },
   card: {
-    backgroundColor: COLORS.surface, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden",
-    shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 1, shadowRadius: 18, elevation: 4,
+    flexDirection: "row", alignItems: "center", gap: 14,
+    backgroundColor: COLORS.surface, borderRadius: 20, borderWidth: 1, borderColor: COLORS.border, padding: 12,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3,
   },
-  cardImg: { width: "100%", height: 170 },
-  cardScrim: { position: "absolute", left: 0, right: 0, bottom: 0, height: 80 },
-  distBadge: {
-    position: "absolute", top: 12, right: 12, flexDirection: "row", alignItems: "center", gap: 4,
-    backgroundColor: "#FFFFFF", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.15, shadowRadius: 6, elevation: 3,
-  },
-  distText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 11 },
-  cardBody: { padding: 14 },
-  cardTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  cardName: { color: COLORS.text, fontSize: 16, fontFamily: FONT.extrabold, flex: 1 },
-  ratePill: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: "#FFF9EC", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
-  rateText: { color: "#B45309", fontFamily: FONT.bold, fontSize: 11 },
-  addrRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
-  cardAddr: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium, flex: 1 },
-  cardRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 10 },
-  rateCount: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.medium },
-  price: { color: COLORS.brand, fontSize: 12, fontFamily: FONT.bold },
+  cardThumb: { width: 86, height: 86, borderRadius: 16, backgroundColor: COLORS.surface2 },
+  cardName: { color: COLORS.text, fontSize: 15, fontFamily: FONT.extrabold },
+  rateRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
+  rateText: { color: "#B45309", fontFamily: FONT.bold, fontSize: 12 },
+  cardAddr: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 4 },
+  price: { color: COLORS.text, fontSize: 13, fontFamily: FONT.extrabold, marginTop: 4 },
   activeCard: { borderRadius: 20, marginTop: 12, overflow: "hidden", shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.35, shadowRadius: 24, elevation: 8 },
   activeGradient: { padding: 18, overflow: "hidden" },
-  activeDeco: { position: "absolute", width: 180, height: 180, borderRadius: 90, backgroundColor: "rgba(255,255,255,0.07)", top: -70, right: -50 },
+  activeDeco: { position: "absolute", width: 180, height: 180, borderRadius: 90, backgroundColor: "rgba(255,255,255,0.25)", top: -70, right: -50 },
   activeHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  activeLabel: { color: "rgba(255,255,255,0.85)", fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.8 },
-  countdownPill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.2)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
-  countdownText: { color: "#FFFFFF", fontFamily: FONT.bold, fontSize: 11 },
-  activeShop: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 18, marginTop: 8 },
-  activeMeta: { color: "rgba(255,255,255,0.9)", fontFamily: FONT.medium, fontSize: 12, marginTop: 2 },
+  activeLabel: { color: "rgba(15,26,46,0.7)", fontFamily: FONT.bold, fontSize: 10, letterSpacing: 0.8 },
+  countdownPill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(255,255,255,0.7)", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
+  countdownText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 11 },
+  activeShop: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 18, marginTop: 8 },
+  activeMeta: { color: "rgba(15,26,46,0.75)", fontFamily: FONT.medium, fontSize: 12, marginTop: 2 },
   trackerRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 14, gap: 6 },
   trackerStep: { flex: 1, alignItems: "center", gap: 4 },
-  trackerDot: { width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(255,255,255,0.25)", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "rgba(255,255,255,0.5)" },
-  trackerLabel: { color: "rgba(255,255,255,0.7)", fontSize: 10, fontFamily: FONT.semibold },
+  trackerDot: { width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(15,26,46,0.12)", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: "rgba(15,26,46,0.2)" },
+  trackerLabel: { color: "rgba(15,26,46,0.6)", fontSize: 10, fontFamily: FONT.semibold },
 });

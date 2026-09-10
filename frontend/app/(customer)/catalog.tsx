@@ -1,5 +1,5 @@
 import { useCallback, useState } from "react";
-import { View, Text, StyleSheet, FlatList, RefreshControl } from "react-native";
+import { View, Text, StyleSheet, FlatList, RefreshControl, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -14,6 +14,14 @@ export default function ProductCatalog() {
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // Cari lokal (nama/toko/deskripsi) — endpoint katalog tidak punya param search,
+  // jadi filter dilakukan di klien dari data yang sudah di-fetch. Tanpa endpoint baru.
+  const [query, setQuery] = useState("");
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? products.filter((p: any) =>
+        `${p.name || ""} ${p.shop_name || ""} ${p.description || ""}`.toLowerCase().includes(q))
+    : products;
 
   const load = useCallback(async () => {
     try { const r = await api.get("/products/catalog"); setProducts(r.products || []); } catch { setProducts([]); }
@@ -29,10 +37,28 @@ export default function ProductCatalog() {
         <PressableScale style={styles.backBtn} onPress={() => router.back()} scaleTo={0.92}>
           <Ionicons name="arrow-back" size={22} color={COLORS.text} />
         </PressableScale>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.title}>Katalog Produk</Text>
-          <Text style={styles.sub}>Produk pangkas rambut dari barbershop rekanan</Text>
-        </View>
+        <Text style={styles.headerTitle}>Produk grooming</Text>
+        {/* Tas = pesanan produk saya (rute yang sudah ada, bukan keranjang baru) */}
+        <PressableScale testID="catalog-orders-btn" style={styles.bagBtn} onPress={() => router.push("/(customer)/product-orders" as any)} scaleTo={0.92}>
+          <Ionicons name="bag-handle" size={20} color="#FFFFFF" />
+        </PressableScale>
+      </View>
+
+      <View style={styles.searchWrap}>
+        <Ionicons name="search" size={18} color={COLORS.textDim} />
+        <TextInput
+          testID="catalog-search"
+          style={styles.searchInput}
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Cari pomade, minyak rambut..."
+          placeholderTextColor={COLORS.textDim}
+        />
+        {!!query && (
+          <PressableScale onPress={() => setQuery("")} testID="catalog-search-clear" scaleTo={0.9}>
+            <Ionicons name="close-circle" size={18} color={COLORS.textDim} />
+          </PressableScale>
+        )}
       </View>
 
       {loading ? (
@@ -48,13 +74,20 @@ export default function ProductCatalog() {
         />
       ) : (
         <FlatList
-          data={products}
+          data={filtered}
           key="grid-2"
           numColumns={2}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={{ padding: 16, gap: 12 }}
+          contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 120 }}
           columnWrapperStyle={{ gap: 12 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.brand} />}
+          ListEmptyComponent={
+            <EmptyState
+              icon="search-outline"
+              title="Tidak ketemu"
+              description={`Tidak ada produk yang cocok dengan "${query}". Coba kata kunci lain.`}
+            />
+          }
           renderItem={({ item }) => (
             <PressableScale
               testID={`catalog-item-${item.id}`}
@@ -66,18 +99,19 @@ export default function ProductCatalog() {
                 <Image source={{ uri: item.image }} style={styles.img} contentFit="cover" />
               ) : (
                 <View style={[styles.img, styles.imgFallback]}>
-                  <Ionicons name="bag-handle" size={26} color={COLORS.brand} />
+                  <Ionicons name="bag-handle" size={26} color={COLORS.brandLight} />
                 </View>
               )}
-              <Text style={styles.name} numberOfLines={1}>{item.name}</Text>
-              {!!item.description && <Text style={styles.desc} numberOfLines={2}>{item.description}</Text>}
-              <View style={styles.bottomRow}>
-                <Text style={styles.price}>{rupiah(item.price)}</Text>
-                {item.shop_name && (
-                  <View style={styles.shopBadge}>
-                    <Text style={styles.shopBadgeText} numberOfLines={1}>{item.shop_name}</Text>
+              <View style={styles.cardBody}>
+                <Text style={styles.name} numberOfLines={2}>{item.name}</Text>
+                {!!item.shop_name && <Text style={styles.shopName} numberOfLines={1}>{item.shop_name}</Text>}
+                <View style={styles.priceRow}>
+                  <Text style={styles.price}>{rupiah(item.price)}</Text>
+                  {/* Tombol tambah: pintasan visual ke halaman detail (aksi sama dgn card) */}
+                  <View style={styles.quickAdd}>
+                    <Ionicons name="add" size={18} color={COLORS.onBrand} />
                   </View>
-                )}
+                </View>
               </View>
             </PressableScale>
           )}
@@ -89,20 +123,30 @@ export default function ProductCatalog() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  headerBox: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, paddingBottom: 8 },
-  backBtn: { width: 40, height: 40, borderRadius: 14, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.border },
-  title: { color: COLORS.text, fontSize: 22, fontFamily: FONT.extrabold },
-  sub: { color: COLORS.textDim, fontSize: 12, fontFamily: FONT.medium, marginTop: 2 },
+  headerBox: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16, paddingBottom: 10 },
+  backBtn: { width: 46, height: 46, borderRadius: 16, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.border, shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 8, elevation: 2 },
+  headerTitle: { flex: 1, color: COLORS.text, fontSize: 20, fontFamily: FONT.extrabold, letterSpacing: -0.3, textAlign: "center" },
+  bagBtn: { width: 46, height: 46, borderRadius: 16, backgroundColor: COLORS.text, alignItems: "center", justifyContent: "center" },
+  searchWrap: {
+    flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface, paddingHorizontal: 16,
+    borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, marginHorizontal: 16, marginTop: 4, marginBottom: 12,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2,
+  },
+  searchInput: { flex: 1, color: COLORS.text, paddingVertical: 14, fontFamily: FONT.medium, fontSize: 14 },
   card: {
-    flex: 1, backgroundColor: COLORS.surface, borderRadius: 18, borderWidth: 1, borderColor: COLORS.border, padding: 12,
+    flex: 1, backgroundColor: COLORS.surface, borderRadius: 22, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden",
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 12, elevation: 3,
   },
-  img: { width: "100%", height: 110, borderRadius: 14, backgroundColor: COLORS.surface2 },
+  img: { width: "100%", height: 150, backgroundColor: COLORS.surface2 },
   imgFallback: { alignItems: "center", justifyContent: "center" },
-  name: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13, marginTop: 10 },
-  desc: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 3, lineHeight: 15 },
-  bottomRow: { marginTop: 8, gap: 6 },
-  price: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 14 },
-  shopBadge: { alignSelf: "flex-start", backgroundColor: COLORS.brandDim, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, maxWidth: "100%" },
-  shopBadgeText: { color: COLORS.brand, fontSize: 10, fontFamily: FONT.bold },
+  cardBody: { padding: 12 },
+  name: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15, lineHeight: 20, minHeight: 40 },
+  shopName: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, marginTop: 2 },
+  priceRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 },
+  price: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15 },
+  quickAdd: {
+    width: 34, height: 34, borderRadius: 12,
+    backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center",
+    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 8, elevation: 4,
+  },
 });

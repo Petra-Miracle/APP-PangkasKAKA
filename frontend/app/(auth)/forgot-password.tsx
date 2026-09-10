@@ -61,15 +61,15 @@ export default function ForgotPassword() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   card: {
-    backgroundColor: COLORS.surface, marginTop: -36, marginHorizontal: 20, padding: 24, borderRadius: 24,
+    backgroundColor: COLORS.surface, marginTop: -40, marginHorizontal: 20, padding: 28, borderRadius: 28,
     borderWidth: 1, borderColor: COLORS.border,
-    shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 1, shadowRadius: 24, elevation: 6,
+    shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 14 }, shadowOpacity: 1, shadowRadius: 28, elevation: 8,
   },
-  label: { color: COLORS.textMuted, marginBottom: 8, fontSize: 12, fontFamily: FONT.semibold, letterSpacing: 0.3 },
-  inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface2, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
-  input: { flex: 1, color: COLORS.text, paddingVertical: 14, fontFamily: FONT.medium, fontSize: 14 },
-  errBox: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF2F2", padding: 12, borderRadius: 12, marginTop: 14 },
+  label: { color: COLORS.textMuted, marginBottom: 10, fontSize: 12, fontFamily: FONT.semibold, letterSpacing: 0.3 },
+  inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1.5, borderColor: COLORS.border },
+  input: { flex: 1, color: COLORS.text, paddingVertical: 15, fontFamily: FONT.medium, fontSize: 14 },
+  errBox: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF2F2", padding: 14, borderRadius: 14, marginTop: 16 },
   errText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium, fontSize: 13 },
-  backLink: { alignSelf: "center", marginTop: 20, padding: 8 },
-  backLinkText: { color: COLORS.brand, fontFamily: FONT.semibold, fontSize: 13 },
+  backLink: { alignSelf: "center", marginTop: 22, padding: 8 },
+  backLinkText: { color: COLORS.brandLight, fontFamily: FONT.semibold, fontSize: 13 },
 });

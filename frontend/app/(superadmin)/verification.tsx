@@ -114,7 +114,7 @@ export default function Verification() {
           </PressableScale>
         </LinearGradient>
 
-        <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
+        <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
           <LinearGradient
             colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
             start={{ x: 0, y: 0 }}

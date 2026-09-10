@@ -60,41 +60,41 @@ export const tanggal = (s: string) => {
 export const formatJarak = (km: number | null) =>
   km == null ? "-" : km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1).replace(".", ",")} km`;
 
-// Electric Blue Theme — Hackathon PIDI.id
+// Warm Cream + Amber Theme — Migrasi Pendev (was Electric Blue)
 export const COLORS = {
-  bg: "#F9F9FA",           // main background (light gray)
-  surface: "#FFFFFF",       // card white
-  surface2: "#F3F3F4",      // soft container / input bg
-  text: "#0A2540",          // dark navy — primary text
-  textDim: "#6B7C8F",       // muted body
-  textMuted: "#2D3F55",     // secondary
-  brand: "#006FEE",         // electric blue
-  brandDim: "#E6F0FF",      // brand tint background
-  brandLight: "#3B8CFF",    // brand lighter for accents/links
-  success: "#00B27A",
+  bg: "#F7F3EC",             // krem hangat (was abu-abu)
+  surface: "#FFFFFF",       // card white — tetap
+  surface2: "#F5EFE3",      // warm soft container / input bg (was abu cool)
+  text: "#0F1A2E",          // ink gelap
+  textDim: "#6C7789",       // muted body
+  textMuted: "#3A4761",     // secondary
+  brand: "#F5A524",         // amber utama (was biru)
+  brandDim: "#FDF0D9",      // amber-soft
+  brandLight: "#C97A08",    // amber-dark — teks di atas brandDim
+  success: "#12915A",
   warning: "#F5A524",
-  info: "#0EA5E9",
-  error: "#DC2626",
-  border: "#E5E7EB",
-  borderStrong: "#D1D5DB",
-  textInverse: "#FFFFFF",   // text on brand button
-  sidebar: "#0A2540",       // dark navy for owner/admin nav
-  sidebarSurface: "#0F2E4F",// slightly lighter navy
+  info: "#2F5FD0",
+  error: "#D6382B",
+  border: "#E7E1D6",        // line krem (was abu)
+  borderStrong: "#CBCCC9",
+  textInverse: "#0F1A2E",   // teks ink di atas tombol amber (was putih)
+  sidebar: "#0059C9",       // bright blue — DIPERTAHANKAN utk Owner/StreetBarber
+  sidebarSurface: "#006FEE",// brighter blue — DIPERTAHANKAN
   sidebarText: "#FFFFFF",
-  sidebarTextDim: "#8FA5BF",
-  shadow: "rgba(10, 37, 64, 0.08)",
+  sidebarTextDim: "rgba(255,255,255,0.75)",
+  shadow: "rgba(15, 26, 46, 0.08)",
   // Derived tokens — turunan brand, jangan dipakai untuk mengganti token dasar
   gold: "#FFB84D",                  // rating / premium accent
-  brandGradStart: "#0059C9",
-  brandGradMid: "#006FEE",
-  brandGradEnd: "#4C9FFF",
-  navyGradStart: "#0A2540",
-  navyGradMid: "#0F2E4F",
-  navyGradEnd: "#1B4A7A",
-  cardShadow: "rgba(10, 37, 64, 0.06)",
-  cardShadowStrong: "rgba(10, 37, 64, 0.1)",
-  overlay: "rgba(10, 37, 64, 0.5)",
-  onBrand: "#FFFFFF",
+  brandGradStart: "#F5A524",
+  brandGradMid: "#F7B84D",
+  brandGradEnd: "#FBCB7A",
+  navyGradStart: "#0059C9",
+  navyGradMid: "#006FEE",
+  navyGradEnd: "#4C9FFF",
+  cardShadow: "rgba(15, 26, 46, 0.06)",
+  cardShadowStrong: "rgba(15, 26, 46, 0.1)",
+  overlay: "rgba(15, 26, 46, 0.5)",
+  onBrand: "#0F1A2E",
   radiusSm: 10,
   radiusMd: 14,
   radiusLg: 20,
@@ -109,3 +109,15 @@ export const FONT = {
   bold: "PlusJakartaSans-Bold",
   extrabold: "PlusJakartaSans-ExtraBold",
 };
+
+// Spacing scale — konsisten di semua halaman
+export const SPACE = { xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 } as const;
+
+// Shadow presets untuk kartu bertingkat
+export const SHADOW = {
+  sm: { shadowColor: "rgba(15,26,46,0.04)", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 1, shadowRadius: 6, elevation: 1 },
+  md: { shadowColor: "rgba(15,26,46,0.06)", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 12, elevation: 3 },
+  lg: { shadowColor: "rgba(15,26,46,0.08)", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 1, shadowRadius: 18, elevation: 5 },
+  xl: { shadowColor: "rgba(15,26,46,0.10)", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 1, shadowRadius: 24, elevation: 8 },
+  brand: { shadowColor: "#F5A524", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 16, elevation: 6 },
+} as const;

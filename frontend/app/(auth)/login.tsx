@@ -29,7 +29,7 @@ export default function Login() {
       }
       else if (u.role === "superadmin") router.replace("/(superadmin)/dashboard");
       else if (u.role === "owner") router.replace("/(owner)/dashboard");
-      else if (u.role === "streetbarber") router.replace("/(streetbarber)/status");
+      else if (u.role === "streetbarber") router.replace("/(streetbarber)/dashboard" as any);
       else router.replace("/(customer)/home");
     } catch (e: any) { setErr(e.message || "Login gagal"); }
     setLoading(false);
@@ -78,7 +78,7 @@ export default function Login() {
             <Link href="/(auth)/register" asChild>
               <Pressable testID="goto-register" style={styles.regLink}>
                 <Text style={styles.regLinkText}>Belum punya akun? </Text>
-                <Text style={[styles.regLinkText, { color: COLORS.brand, fontFamily: FONT.bold }]}>Daftar Sekarang</Text>
+                <Text style={[styles.regLinkText, { color: COLORS.brandLight, fontFamily: FONT.bold }]}>Daftar Sekarang</Text>
               </Pressable>
             </Link>
           </View>
@@ -92,23 +92,23 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   card: {
     backgroundColor: COLORS.surface,
-    marginTop: -36,
+    marginTop: -40,
     marginHorizontal: 20,
-    padding: 24,
-    borderRadius: 24,
+    padding: 28,
+    borderRadius: 28,
     borderWidth: 1,
     borderColor: COLORS.border,
-    shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 1, shadowRadius: 24, elevation: 6,
+    shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 14 }, shadowOpacity: 1, shadowRadius: 28, elevation: 8,
   },
-  heading: { color: COLORS.text, fontSize: 22, fontFamily: FONT.extrabold, letterSpacing: -0.3 },
-  headingSub: { color: COLORS.textDim, fontFamily: FONT.medium, marginTop: 4, fontSize: 13, marginBottom: 8 },
-  label: { color: COLORS.textMuted, marginTop: 14, marginBottom: 8, fontSize: 12, fontFamily: FONT.semibold, letterSpacing: 0.3 },
-  inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface2, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
-  input: { flex: 1, color: COLORS.text, paddingVertical: 14, fontFamily: FONT.medium, fontSize: 14 },
-  errBox: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF2F2", padding: 12, borderRadius: 12, marginTop: 14 },
+  heading: { color: COLORS.text, fontSize: 26, fontFamily: FONT.extrabold, letterSpacing: -0.5 },
+  headingSub: { color: COLORS.textDim, fontFamily: FONT.medium, marginTop: 8, fontSize: 13, marginBottom: 12 },
+  label: { color: COLORS.textMuted, marginTop: 16, marginBottom: 10, fontSize: 12, fontFamily: FONT.semibold, letterSpacing: 0.3 },
+  inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface, paddingHorizontal: 16, borderRadius: 14, borderWidth: 1.5, borderColor: COLORS.border },
+  input: { flex: 1, color: COLORS.text, paddingVertical: 15, fontFamily: FONT.medium, fontSize: 14 },
+  errBox: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#FEF2F2", padding: 14, borderRadius: 14, marginTop: 16 },
   errText: { color: COLORS.error, flex: 1, fontFamily: FONT.medium, fontSize: 13 },
-  forgotBtn: { alignSelf: "center", marginTop: 12 },
-  forgotText: { color: COLORS.brand, fontFamily: FONT.semibold, fontSize: 13 },
-  regLink: { flexDirection: "row", justifyContent: "center", marginTop: 24, padding: 8 },
+  forgotBtn: { alignSelf: "center", marginTop: 14 },
+  forgotText: { color: COLORS.brandLight, fontFamily: FONT.semibold, fontSize: 13 },
+  regLink: { flexDirection: "row", justifyContent: "center", marginTop: 26, padding: 8 },
   regLinkText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13 },
 });

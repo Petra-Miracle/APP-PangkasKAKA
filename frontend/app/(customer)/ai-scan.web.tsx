@@ -22,7 +22,7 @@ export default function AIScanWeb() {
             end={{ x: 1, y: 1 }}
             style={styles.iconWrap}
           >
-            <Ionicons name="sparkles" size={24} color="#FFFFFF" />
+            <Ionicons name="sparkles" size={24} color={COLORS.onBrand} />
           </LinearGradient>
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>AI Face Scan</Text>
@@ -32,7 +32,7 @@ export default function AIScanWeb() {
 
         <View style={styles.box}>
           <View style={styles.iconCircle}>
-            <Ionicons name="phone-portrait-outline" size={40} color={COLORS.brand} />
+            <Ionicons name="phone-portrait-outline" size={40} color={COLORS.brandLight} />
           </View>
           <Text style={styles.boxTitle}>Tersedia di Aplikasi Mobile</Text>
           <Text style={styles.boxText}>
@@ -46,7 +46,7 @@ export default function AIScanWeb() {
               style={styles.btn}
             >
               <Text style={styles.btnText}>JELAJAHI BARBER</Text>
-              <Ionicons name="arrow-forward" size={14} color="#FFFFFF" />
+              <Ionicons name="arrow-forward" size={14} color={COLORS.onBrand} />
             </LinearGradient>
           </PressableScale>
         </View>
@@ -74,5 +74,5 @@ const styles = StyleSheet.create({
   boxText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13, textAlign: "center", marginTop: 8, lineHeight: 19 },
   btnWrap: { borderRadius: 14, marginTop: 20, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4 },
   btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 24, paddingVertical: 14 },
-  btnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 13 },
+  btnText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 13 },
 });

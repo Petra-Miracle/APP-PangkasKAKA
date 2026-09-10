@@ -233,9 +233,9 @@ export default function BarberProfile() {
               <View key={label} style={styles.stepCol}>
                 <View style={[styles.stepDot, step > i + 1 && styles.stepDotDone, step === i + 1 && styles.stepDotActive]}>
                   {step > i + 1 ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> :
-                    <Text style={[styles.stepNum, step === i + 1 && { color: "#FFFFFF" }]}>{i + 1}</Text>}
+                    <Text style={[styles.stepNum, step === i + 1 && { color: COLORS.onBrand }]}>{i + 1}</Text>}
                 </View>
-                <Text style={[styles.stepLabel, step === i + 1 && { color: COLORS.brand, fontFamily: FONT.bold }]}>{label}</Text>
+                <Text style={[styles.stepLabel, step === i + 1 && { color: COLORS.brandLight, fontFamily: FONT.bold }]}>{label}</Text>
                 {i < 2 && <View style={[styles.stepLine, step > i + 1 && styles.stepLineDone]} />}
               </View>
             ))}
@@ -248,7 +248,7 @@ export default function BarberProfile() {
               {(barber.services || []).map((s: any) => (
                 <PressableScale key={s.id} testID={`svc-${s.id}`} style={[styles.item, service?.id === s.id && styles.itemActive]} onPress={() => setService(s)} scaleTo={0.98}>
                   <View style={[styles.svcIcon, service?.id === s.id && { backgroundColor: COLORS.brand }]}>
-                    <Ionicons name="cut" size={18} color={service?.id === s.id ? "#FFFFFF" : COLORS.brand} />
+                    <Ionicons name="cut" size={18} color={service?.id === s.id ? COLORS.onBrand : COLORS.brandLight} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text style={styles.itemName}>{s.name}</Text>
@@ -257,7 +257,7 @@ export default function BarberProfile() {
                   <Text style={styles.itemPrice}>{rupiah(s.price)}</Text>
                   {service?.id === s.id && (
                     <View style={styles.checkedPill}>
-                      <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                      <Ionicons name="checkmark" size={12} color={COLORS.onBrand} />
                     </View>
                   )}
                 </PressableScale>
@@ -349,8 +349,8 @@ export default function BarberProfile() {
                       </Text>
                       {sl.available ? (
                         <View style={[styles.slotBadge, selected && styles.slotBadgeActive]}>
-                          <Ionicons name="checkmark-circle" size={14} color={selected ? "#FFFFFF" : COLORS.success} />
-                          <Text style={[styles.slotBadgeText, selected && { color: "#FFFFFF" }]}>Anti-bentrok</Text>
+                          <Ionicons name="checkmark-circle" size={14} color={selected ? COLORS.onBrand : COLORS.success} />
+                          <Text style={[styles.slotBadgeText, selected && { color: COLORS.onBrand }]}>Anti-bentrok</Text>
                         </View>
                       ) : (
                         <Text style={styles.slotBookedText}>Sudah dipesan</Text>
@@ -361,7 +361,7 @@ export default function BarberProfile() {
                 {!showAllSlots && slots.length > 5 && (
                   <PressableScale testID="slots-see-more" style={styles.seeMoreBtn} onPress={() => setShowAllSlots(true)} scaleTo={0.97}>
                     <Text style={styles.seeMoreText}>Lihat Lebih Banyak</Text>
-                    <Ionicons name="chevron-down" size={16} color={COLORS.brand} />
+                    <Ionicons name="chevron-down" size={16} color={COLORS.brandLight} />
                   </PressableScale>
                 )}
               </View>
@@ -380,7 +380,7 @@ export default function BarberProfile() {
                     {customerCoords && (
                       <Marker id="home-pin" lngLat={[customerCoords.lng, customerCoords.lat]}>
                         <View style={styles.mapPin}>
-                          <Ionicons name="home" size={16} color="#FFFFFF" />
+                          <Ionicons name="home" size={16} color={COLORS.onBrand} />
                         </View>
                       </Marker>
                     )}
@@ -396,7 +396,7 @@ export default function BarberProfile() {
                   multiline
                 />
                 <PressableScale style={styles.gpsBtn} onPress={useCurrentLocation} disabled={gpsLoading} testID="use-current-location" scaleTo={0.97}>
-                  <Ionicons name={customerCoords ? "checkmark-circle" : "locate"} size={16} color={customerCoords ? COLORS.success : COLORS.brand} />
+                  <Ionicons name={customerCoords ? "checkmark-circle" : "locate"} size={16} color={customerCoords ? COLORS.success : COLORS.brandLight} />
                   <Text style={[styles.gpsBtnText, customerCoords && { color: COLORS.success }]}>
                     {gpsLoading ? "Mengambil lokasi..." : customerCoords ? "Titik lokasi tersimpan" : "Pakai Lokasi Saat Ini"}
                   </Text>
@@ -444,7 +444,7 @@ export default function BarberProfile() {
                   style={styles.navPriGrad}
                 >
                   <Text style={styles.navPriText}>LANJUT</Text>
-                  <Ionicons name="arrow-forward" size={16} color="#FFFFFF" />
+                  <Ionicons name="arrow-forward" size={16} color={COLORS.onBrand} />
                 </LinearGradient>
               </PressableScale>
             )}
@@ -464,7 +464,7 @@ export default function BarberProfile() {
                   <Text style={[styles.navPriText, styles.navPriTextPay]} numberOfLines={1} adjustsFontSizeToFit>
                     {creating ? "..." : "BAYAR SEKARANG"}
                   </Text>
-                  <Ionicons name="wallet" size={16} color="#FFFFFF" />
+                  <Ionicons name="wallet" size={16} color={COLORS.onBrand} />
                 </LinearGradient>
               </PressableScale>
             )}
@@ -483,13 +483,13 @@ export default function BarberProfile() {
               style={styles.modalHead}
             >
               <View style={styles.modalHeadIcon}>
-                <Ionicons name="qr-code" size={22} color={COLORS.brand} />
+                <Ionicons name="qr-code" size={22} color={COLORS.brandLight} />
               </View>
               <Text style={styles.modalTitle}>Pembayaran QRIS</Text>
               <Text style={styles.modalSub}>Scan QR code di bawah ini untuk membayar</Text>
             </LinearGradient>
             <View style={styles.timerBox}>
-              <Ionicons name="time-outline" size={18} color={COLORS.warning} />
+              <Ionicons name="time-outline" size={18} color={COLORS.brandLight} />
               <Text style={styles.timerText}>{String(Math.floor(countdown / 60)).padStart(2, "0")}:{String(countdown % 60).padStart(2, "0")}</Text>
               <Text style={styles.timerLabel}>sisa waktu</Text>
             </View>
@@ -513,7 +513,7 @@ export default function BarberProfile() {
                 end={{ x: 1, y: 1 }}
                 style={styles.payBtnGrad}
               >
-                <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
+                <Ionicons name="checkmark-circle" size={18} color={COLORS.onBrand} />
                 <Text style={styles.navPriText}>SIMULASI BAYAR</Text>
               </LinearGradient>
             </PressableScale>
@@ -538,12 +538,12 @@ function SummaryRow({ label, value }: any) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
-  hero: { alignItems: "center", paddingTop: 12, paddingBottom: 20, paddingHorizontal: 20, backgroundColor: COLORS.surface, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
+  hero: { alignItems: "center", paddingTop: 12, paddingBottom: 24, paddingHorizontal: 20, backgroundColor: COLORS.surface, borderBottomLeftRadius: 28, borderBottomRightRadius: 28, shadowColor: COLORS.cardShadowStrong, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 4 },
   backBtn: { position: "absolute", top: 12, left: 12, width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.surface2, alignItems: "center", justifyContent: "center" },
   backBtnFlat: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.surface2, alignItems: "center", justifyContent: "center", marginBottom: 16 },
-  heroAvatar: { width: 88, height: 88, borderRadius: 44, backgroundColor: COLORS.surface2, marginTop: 24 },
+  heroAvatar: { width: 92, height: 92, borderRadius: 46, backgroundColor: COLORS.surface2, marginTop: 24 },
   heroAvatarFallback: { alignItems: "center", justifyContent: "center", backgroundColor: COLORS.brandDim },
-  heroInitial: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 32 },
+  heroInitial: { color: COLORS.brandLight, fontFamily: FONT.extrabold, fontSize: 32 },
   heroName: { color: COLORS.text, fontSize: 20, fontFamily: FONT.extrabold, marginTop: 12 },
   validatorHint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 8, textAlign: "center" },
   body: { padding: 20, backgroundColor: COLORS.bg },
@@ -551,7 +551,7 @@ const styles = StyleSheet.create({
   stepper: { flexDirection: "row", justifyContent: "space-between", marginVertical: 24, backgroundColor: COLORS.surface, padding: 14, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 1, shadowRadius: 10, elevation: 2 },
   stepCol: { alignItems: "center", flex: 1 },
   stepDot: { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.surface2, borderWidth: 1, borderColor: COLORS.border, alignItems: "center", justifyContent: "center" },
-  stepDotActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+  stepDotActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brandLight },
   stepDotDone: { backgroundColor: COLORS.success, borderColor: COLORS.success },
   stepNum: { color: COLORS.textDim, fontFamily: FONT.bold },
   stepLabel: { color: COLORS.textDim, fontSize: 10, marginTop: 6, fontFamily: FONT.semibold },
@@ -563,14 +563,14 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", gap: 12, padding: 14, backgroundColor: COLORS.surface, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 8,
     shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 3 }, shadowOpacity: 1, shadowRadius: 8, elevation: 1,
   },
-  itemActive: { borderColor: COLORS.brand, backgroundColor: COLORS.brandDim, shadowColor: COLORS.brand, shadowOpacity: 0.12 },
+  itemActive: { borderColor: COLORS.brandLight, backgroundColor: COLORS.brandDim, shadowColor: COLORS.brand, shadowOpacity: 0.12 },
   svcIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
   itemName: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 14 },
   itemMeta: { color: COLORS.textDim, fontSize: 12, marginTop: 2, fontFamily: FONT.medium },
-  itemPrice: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 14 },
+  itemPrice: { color: COLORS.brandLight, fontFamily: FONT.extrabold, fontSize: 14 },
   checkedPill: { width: 22, height: 22, borderRadius: 11, backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center", position: "absolute", top: -6, right: -6, borderWidth: 2, borderColor: "#FFFFFF" },
-  skillBadge: { alignSelf: "center", backgroundColor: COLORS.brandDim, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginTop: 8 },
-  skillText: { color: COLORS.brand, fontSize: 11, fontFamily: FONT.bold },
+  skillBadge: { alignSelf: "center", backgroundColor: COLORS.brandDim, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginTop: 8, borderWidth: 1, borderColor: COLORS.brand },
+  skillText: { color: COLORS.brandLight, fontSize: 11, fontFamily: FONT.bold },
 
   calendarCard: {
     backgroundColor: COLORS.surface, borderRadius: 18, padding: 16, borderWidth: 1, borderColor: COLORS.border, marginBottom: 16,
@@ -594,20 +594,20 @@ const styles = StyleSheet.create({
   },
   slotRowAvailable: { backgroundColor: "#ECFDF5", borderColor: "#BBF0D9" },
   slotRowOff: { backgroundColor: COLORS.surface2, borderColor: COLORS.border, opacity: 0.6 },
-  slotRowActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brand },
+  slotRowActive: { backgroundColor: COLORS.brand, borderColor: COLORS.brandLight },
   slotRowTime: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15 },
   slotRowTimeOff: { color: COLORS.textDim, textDecorationLine: "line-through" },
-  slotRowTimeActive: { color: "#FFFFFF" },
+  slotRowTimeActive: { color: COLORS.onBrand },
   slotBadge: { flexDirection: "row", alignItems: "center", gap: 4 },
   slotBadgeActive: {},
   slotBadgeText: { color: COLORS.success, fontFamily: FONT.bold, fontSize: 12 },
   slotBookedText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12 },
   empty: { color: COLORS.textDim, marginVertical: 20, textAlign: "center", width: "100%", fontFamily: FONT.medium },
   seeMoreBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: 14, backgroundColor: COLORS.brandDim, marginTop: 2 },
-  seeMoreText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 13 },
+  seeMoreText: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 13 },
 
-  homeBox: { backgroundColor: COLORS.brandDim, padding: 14, borderRadius: 16, marginBottom: 14, gap: 10 },
-  homeFeeNote: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 12 },
+  homeBox: { backgroundColor: COLORS.brandDim, padding: 14, borderRadius: 16, marginBottom: 14, gap: 10, borderWidth: 1, borderColor: COLORS.brand },
+  homeFeeNote: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 12 },
   mapHint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11 },
   mapBox: { height: 200, borderRadius: 14, overflow: "hidden", borderWidth: 1, borderColor: COLORS.border },
   mapPin: {
@@ -616,7 +616,7 @@ const styles = StyleSheet.create({
   },
   addrInput: { backgroundColor: COLORS.surface, color: COLORS.text, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, fontFamily: FONT.medium, fontSize: 13, minHeight: 60, textAlignVertical: "top" },
   gpsBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.surface, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
-  gpsBtnText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 13 },
+  gpsBtnText: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 13 },
   summaryCard: { backgroundColor: COLORS.surface, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3 },
   sumRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 8 },
   sumLabel: { color: COLORS.textDim, fontFamily: FONT.medium },
@@ -624,12 +624,12 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 10 },
   totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
   totalLabel: { color: COLORS.textMuted, fontFamily: FONT.semibold },
-  totalValue: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 22 },
+  totalValue: { color: COLORS.brandLight, fontFamily: FONT.extrabold, fontSize: 22 },
 
   navRow: { flexDirection: "row", gap: 12, marginTop: 24 },
   navPri: { flex: 1, borderRadius: 16, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.25, shadowRadius: 14, elevation: 5 },
   navPriGrad: { flex: 1, flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, paddingVertical: 16, paddingHorizontal: 8 },
-  navPriText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 13 },
+  navPriText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 13 },
   navPriTextPay: { letterSpacing: 0.2, fontSize: 12, flexShrink: 1 },
   navSec: { flex: 1, padding: 16, borderRadius: 16, alignItems: "center", borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.surface },
   navSecText: { color: COLORS.textMuted, fontFamily: FONT.bold, letterSpacing: 0.8, fontSize: 13 },
@@ -639,10 +639,10 @@ const styles = StyleSheet.create({
   grabber: { width: 44, height: 5, borderRadius: 999, backgroundColor: COLORS.borderStrong, alignSelf: "center", marginBottom: 16 },
   modalHead: { alignItems: "center", padding: 20, borderRadius: 18, marginBottom: 16, overflow: "hidden" },
   modalHeadIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", marginBottom: 8 },
-  modalTitle: { color: "#FFFFFF", fontSize: 20, fontFamily: FONT.extrabold },
-  modalSub: { color: "rgba(255,255,255,0.85)", textAlign: "center", marginTop: 4, fontFamily: FONT.medium, fontSize: 12 },
+  modalTitle: { color: COLORS.text, fontSize: 20, fontFamily: FONT.extrabold },
+  modalSub: { color: "rgba(15,26,46,0.7)", textAlign: "center", marginTop: 4, fontFamily: FONT.medium, fontSize: 12 },
   timerBox: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, marginBottom: 16, backgroundColor: "#FFF7ED", paddingVertical: 10, borderRadius: 12, borderWidth: 1, borderColor: "#FED7AA" },
-  timerText: { color: COLORS.warning, fontSize: 22, fontFamily: FONT.extrabold, letterSpacing: 1 },
+  timerText: { color: COLORS.brandLight, fontSize: 22, fontFamily: FONT.extrabold, letterSpacing: 1 },
   timerLabel: { color: COLORS.textDim, fontSize: 11, fontFamily: FONT.medium },
   qrBox: { backgroundColor: "#FFFFFF", padding: 32, borderRadius: 20, alignItems: "center", marginBottom: 16, borderWidth: 2, borderColor: COLORS.border, borderStyle: "dashed" },
   qrCode: { color: COLORS.text, fontSize: 11, marginTop: 12, letterSpacing: 1, fontFamily: FONT.bold },

@@ -3,6 +3,7 @@ import { View, StyleSheet, Text, Alert } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Animated, { useAnimatedStyle, useSharedValue, withRepeat, withSequence, withTiming, withDelay, Easing } from "react-native-reanimated";
 import { useAuth } from "@/src/lib/auth";
 import { COLORS, FONT } from "@/src/lib/api";
@@ -41,7 +42,16 @@ export default function Index() {
 
   useEffect(() => {
     if (loading) return;
-    if (!user) { router.replace("/(auth)/login"); return; }
+    // Onboarding (§6): hanya cabang !user yang ditambah pengecekan flag.
+    // Cabang role di bawah tetap identik seperti sebelumnya.
+    if (!user) {
+      (async () => {
+        let seen: string | null = null;
+        try { seen = await AsyncStorage.getItem("onboarding_seen"); } catch {}
+        router.replace(seen ? "/(auth)/login" : ("/(auth)/onboarding" as any));
+      })();
+      return;
+    }
     if (user.role === "admin") {
       // Akun Admin (validator StreetBarber per-toko) hanya dipakai lewat website Admin
       // terpisah, bukan di aplikasi mobile ini.
@@ -51,14 +61,14 @@ export default function Index() {
     }
     else if (user.role === "superadmin") router.replace("/(superadmin)/dashboard");
     else if (user.role === "owner") router.replace("/(owner)/dashboard");
-    else if (user.role === "streetbarber") router.replace("/(streetbarber)/status");
+    else if (user.role === "streetbarber") router.replace("/(streetbarber)/dashboard" as any);
     else router.replace("/(customer)/home");
   }, [user, loading, router, logout]);
 
   return (
     <View style={styles.center} testID="splash-view">
       <LinearGradient
-        colors={[COLORS.navyGradStart, COLORS.navyGradMid, COLORS.navyGradEnd]}
+        colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={styles.bg}
@@ -70,12 +80,13 @@ export default function Index() {
           <Image source={require("@/assets/images/icon-app.png")} style={styles.logoImg} contentFit="contain" />
         </Animated.View>
         <Text style={styles.brand}>PangkasKAKA</Text>
-        <Text style={styles.tag}>Barbershop · Kupang NTT</Text>
+        <Text style={styles.tag}>Potong rambut, kamu yang atur.</Text>
         <View style={styles.spinner}>
           <LoadingDot delay={0} />
           <LoadingDot delay={140} />
           <LoadingDot delay={280} />
         </View>
+        <Text style={styles.footer}>Melayani Kota Kupang, NTT</Text>
       </LinearGradient>
     </View>
   );
@@ -83,17 +94,18 @@ export default function Index() {
 const styles = StyleSheet.create({
   center: { flex: 1 },
   bg: { flex: 1, alignItems: "center", justifyContent: "center", overflow: "hidden" },
-  decoBig: { position: "absolute", width: 280, height: 280, borderRadius: 140, backgroundColor: "rgba(255,255,255,0.05)", top: -90, right: -80 },
-  decoSmall: { position: "absolute", width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(255,255,255,0.04)", bottom: -50, left: -40 },
+  decoBig: { position: "absolute", width: 280, height: 280, borderRadius: 140, backgroundColor: "rgba(15,26,46,0.06)", top: -90, right: -80 },
+  decoSmall: { position: "absolute", width: 160, height: 160, borderRadius: 80, backgroundColor: "rgba(15,26,46,0.05)", bottom: -50, left: -40 },
   logo: {
-    width: 108, height: 108, borderRadius: 34, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center",
-    borderWidth: 1, borderColor: "rgba(255,255,255,0.18)",
-    shadowColor: "#000000", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.4, shadowRadius: 20, elevation: 10,
+    width: 108, height: 108, borderRadius: 34, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center",
+    borderWidth: 1, borderColor: "rgba(15,26,46,0.08)",
+    shadowColor: "#0F1A2E", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.25, shadowRadius: 20, elevation: 10,
   },
-  logoRing: { position: "absolute", width: 92, height: 92, borderRadius: 30, borderWidth: 2, borderColor: COLORS.gold, opacity: 0.55 },
+  logoRing: { position: "absolute", width: 92, height: 92, borderRadius: 30, borderWidth: 2, borderColor: COLORS.brandLight, opacity: 0.5 },
   logoImg: { width: 72, height: 72, borderRadius: 18 },
-  brand: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 28, marginTop: 18, letterSpacing: -0.5 },
-  tag: { color: COLORS.sidebarTextDim, fontFamily: FONT.medium, fontSize: 13, marginTop: 4, letterSpacing: 1 },
-  spinner: { flexDirection: "row", gap: 8, marginTop: 40 },
-  dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.gold },
+  brand: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 28, marginTop: 18, letterSpacing: -0.5 },
+  tag: { color: COLORS.textMuted, fontFamily: FONT.semibold, fontSize: 14, marginTop: 6 },
+  spinner: { flexDirection: "row", gap: 8, marginTop: 36 },
+  footer: { position: "absolute", bottom: 40, color: "rgba(15,26,46,0.6)", fontFamily: FONT.medium, fontSize: 12 },
+  dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.text },
 });

@@ -152,63 +152,51 @@ export default function ProductDetail() {
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 40 }}>
-        <View style={styles.backRow}>
-          <PressableScale onPress={() => router.back()} style={styles.back} scaleTo={0.9}>
-            <Ionicons name="arrow-back" size={20} color={COLORS.text} />
+      <ScrollView contentContainerStyle={{ paddingBottom: 120 }} showsVerticalScrollIndicator={false}>
+        <View>
+          {product.image ? (
+            <Image source={{ uri: product.image }} style={styles.hero} contentFit="cover" />
+          ) : (
+            <View style={[styles.hero, styles.heroFallback]}>
+              <Ionicons name="bag-handle" size={56} color={COLORS.brandLight} />
+            </View>
+          )}
+          <PressableScale onPress={() => router.back()} style={styles.backFab} scaleTo={0.9}>
+            <Ionicons name="arrow-back" size={22} color={COLORS.text} />
           </PressableScale>
-          <Text style={styles.backTitle}>Detail Produk</Text>
         </View>
 
-        {product.image ? (
-          <Image source={{ uri: product.image }} style={styles.img} contentFit="cover" />
-        ) : (
-          <View style={[styles.img, styles.imgFallback]}>
-            <Ionicons name="bag-handle" size={40} color={COLORS.brand} />
-          </View>
-        )}
+        <View style={styles.body}>
+          {!!product.shop_name && (
+            <View style={styles.shopPill}>
+              <Ionicons name="storefront" size={14} color={COLORS.brandLight} />
+              <Text style={styles.shopPillText} numberOfLines={1}>{product.shop_name}</Text>
+            </View>
+          )}
 
-        <Text style={styles.name}>{product.name}</Text>
-        <Text style={styles.price}>{rupiah(product.price)}</Text>
-        {!!product.shop_name && (
-          <View style={styles.shopRow}>
-            <Ionicons name="storefront-outline" size={14} color={COLORS.textDim} />
-            <Text style={styles.shopName}>{product.shop_name}</Text>
-          </View>
-        )}
-        {!!product.description && <Text style={styles.desc}>{product.description}</Text>}
+          <Text style={styles.name}>{product.name}</Text>
+          <Text style={styles.price}>{rupiah(product.price)}</Text>
+          {!!product.description && <Text style={styles.desc}>{product.description}</Text>}
 
-        <View style={styles.card}>
-          <Text style={styles.sec}>KUANTITAS</Text>
-          <View style={styles.qtyRow}>
-            <PressableScale style={styles.qtyBtn} onPress={() => setQuantity((q) => Math.max(1, q - 1))} scaleTo={0.9}>
-              <Ionicons name="remove" size={18} color={COLORS.brand} />
-            </PressableScale>
-            <Text style={styles.qtyVal}>{quantity}</Text>
-            <PressableScale style={styles.qtyBtn} onPress={() => setQuantity((q) => q + 1)} scaleTo={0.9}>
-              <Ionicons name="add" size={18} color={COLORS.brand} />
-            </PressableScale>
-          </View>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.sec}>PENGAMBILAN</Text>
+          <Text style={styles.secTitle}>Metode pengambilan</Text>
           <View style={styles.toggleRow}>
             <PressableScale
               style={[styles.toggleChip, fulfillment === "pickup" && styles.toggleChipActive]}
               onPress={() => setFulfillment("pickup")}
               scaleTo={0.97}
             >
-              <Ionicons name="storefront" size={16} color={fulfillment === "pickup" ? "#FFFFFF" : COLORS.brand} />
-              <Text style={[styles.toggleText, fulfillment === "pickup" && styles.toggleTextActive]}>Ambil di Toko</Text>
+              <Ionicons name="storefront" size={22} color={fulfillment === "pickup" ? COLORS.brandLight : COLORS.textDim} />
+              <Text style={[styles.toggleText, fulfillment === "pickup" && styles.toggleTextActive]}>Ambil di toko</Text>
+              <Text style={styles.toggleSub}>Gratis</Text>
             </PressableScale>
             <PressableScale
               style={[styles.toggleChip, fulfillment === "delivery" && styles.toggleChipActive]}
               onPress={() => setFulfillment("delivery")}
               scaleTo={0.97}
             >
-              <Ionicons name="bicycle" size={16} color={fulfillment === "delivery" ? "#FFFFFF" : COLORS.brand} />
-              <Text style={[styles.toggleText, fulfillment === "delivery" && styles.toggleTextActive]}>Diantar ke Alamat</Text>
+              <Ionicons name="bicycle" size={22} color={fulfillment === "delivery" ? COLORS.brandLight : COLORS.textDim} />
+              <Text style={[styles.toggleText, fulfillment === "delivery" && styles.toggleTextActive]}>Diantar</Text>
+              <Text style={styles.toggleSub}>Ke alamatmu</Text>
             </PressableScale>
           </View>
 
@@ -226,7 +214,7 @@ export default function ProductDetail() {
                   {coords && (
                     <Marker id="delivery-pin" lngLat={[coords.lng, coords.lat]}>
                       <View style={styles.mapPin}>
-                        <Ionicons name="home" size={16} color="#FFFFFF" />
+                        <Ionicons name="home" size={16} color={COLORS.onBrand} />
                       </View>
                     </Marker>
                   )}
@@ -241,37 +229,43 @@ export default function ProductDetail() {
                 multiline
               />
               <PressableScale style={styles.gpsBtn} onPress={useCurrentLocation} disabled={gpsLoading} scaleTo={0.97}>
-                <Ionicons name={coords ? "checkmark-circle" : "locate"} size={16} color={coords ? COLORS.success : COLORS.brand} />
+                <Ionicons name={coords ? "checkmark-circle" : "locate"} size={16} color={coords ? COLORS.success : COLORS.brandLight} />
                 <Text style={[styles.gpsBtnText, coords ? { color: COLORS.success } : null]}>
                   {gpsLoading ? "Mengambil lokasi..." : coords ? "Titik lokasi tersimpan" : "Pakai Lokasi Saat Ini"}
                 </Text>
               </PressableScale>
             </View>
           )}
-        </View>
 
-        <View style={styles.card}>
-          <Text style={styles.sec}>RINGKASAN PEMBAYARAN</Text>
-          <SummaryRow label={`Harga Produk x${quantity}`} value={rupiah(amountProduct)} />
-          <SummaryRow label="Biaya Admin" value={rupiah(amountAdminFee)} />
-          <View style={styles.divider} />
-          <View style={styles.totalRow}>
-            <Text style={styles.totalLabel}>Total</Text>
-            <Text style={styles.totalValue}>{rupiah(amountTotal)}</Text>
+          <View style={styles.qtyRow}>
+            <Text style={styles.qtyLabel}>Jumlah</Text>
+            <View style={styles.stepper}>
+              <PressableScale style={styles.qtyBtn} onPress={() => setQuantity((q) => Math.max(1, q - 1))} scaleTo={0.9}>
+                <Ionicons name="remove" size={18} color={COLORS.textDim} />
+              </PressableScale>
+              <Text style={styles.qtyVal}>{quantity}</Text>
+              <PressableScale style={styles.qtyBtnAmber} onPress={() => setQuantity((q) => q + 1)} scaleTo={0.9}>
+                <Ionicons name="add" size={18} color={COLORS.onBrand} />
+              </PressableScale>
+            </View>
+          </View>
+
+          <View style={styles.summaryCard}>
+            <SummaryRow label={`Harga Produk x${quantity}`} value={rupiah(amountProduct)} />
+            <SummaryRow label="Biaya Admin" value={rupiah(amountAdminFee)} />
+          </View>
+
+          <View style={styles.bottomBar}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.totalSmall}>Total</Text>
+              <Text style={styles.totalBig} numberOfLines={1}>{rupiah(amountTotal)}</Text>
+            </View>
+            <PressableScale style={styles.buyBtn} onPress={createOrder} disabled={creating} scaleTo={0.98}>
+              <Ionicons name="bag-handle" size={18} color={COLORS.onBrand} />
+              <Text style={styles.buyBtnText}>{creating ? "MEMPROSES..." : "Beli sekarang"}</Text>
+            </PressableScale>
           </View>
         </View>
-
-        <PressableScale style={styles.orderBtnWrap} onPress={createOrder} disabled={creating} scaleTo={0.98}>
-          <LinearGradient
-            colors={[COLORS.brandGradStart, COLORS.brandGradMid, COLORS.brandGradEnd]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.orderBtn}
-          >
-            <Ionicons name="bag-check" size={18} color="#FFFFFF" />
-            <Text style={styles.orderBtnText}>{creating ? "MEMPROSES..." : "BUAT PESANAN"}</Text>
-          </LinearGradient>
-        </PressableScale>
       </ScrollView>
 
       <Modal visible={!!payModal} transparent animationType="slide">
@@ -285,7 +279,7 @@ export default function ProductDetail() {
               style={styles.modalHead}
             >
               <View style={styles.modalHeadIcon}>
-                <Ionicons name="qr-code" size={22} color={COLORS.brand} />
+                <Ionicons name="qr-code" size={22} color={COLORS.brandLight} />
               </View>
               <Text style={styles.modalTitle}>Pembayaran QRIS</Text>
               <Text style={styles.modalSub}>Mode simulasi — tekan tombol di bawah untuk mensimulasikan pembayaran</Text>
@@ -304,7 +298,7 @@ export default function ProductDetail() {
                 end={{ x: 1, y: 1 }}
                 style={styles.payBtnGrad}
               >
-                <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
+                <Ionicons name="checkmark-circle" size={18} color={COLORS.onBrand} />
                 <Text style={styles.payBtnText}>SIMULASI BAYAR</Text>
               </LinearGradient>
             </PressableScale>
@@ -331,37 +325,36 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: COLORS.bg },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20 },
   err: { color: COLORS.textDim, fontFamily: FONT.medium },
-  backRow: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 16 },
-  back: {
-    width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.border,
+
+  hero: { width: "100%", height: 340, backgroundColor: COLORS.surface2, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
+  heroFallback: { alignItems: "center", justifyContent: "center" },
+  backFab: {
+    position: "absolute", top: 12, left: 16, width: 46, height: 46, borderRadius: 16,
+    backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center",
+    shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 10, elevation: 4,
   },
-  backTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 16 },
+  body: { padding: 20, paddingTop: 16 },
 
-  img: { width: "100%", height: 200, borderRadius: 18, backgroundColor: COLORS.surface2 },
-  imgFallback: { alignItems: "center", justifyContent: "center" },
-  name: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 20, marginTop: 16 },
-  price: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 18, marginTop: 4 },
-  shopRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 },
-  shopName: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12 },
-  desc: { color: COLORS.textMuted, fontFamily: FONT.medium, fontSize: 13, marginTop: 10, lineHeight: 20 },
-
-  card: {
-    backgroundColor: COLORS.surface, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginTop: 16,
+  shopPill: {
+    flexDirection: "row", alignItems: "center", alignSelf: "flex-start", gap: 6,
+    backgroundColor: COLORS.surface, borderWidth: 1, borderColor: COLORS.border,
+    paddingHorizontal: 12, paddingVertical: 7, borderRadius: 999,
   },
-  sec: { color: COLORS.textDim, letterSpacing: 0.8, fontSize: 11, fontFamily: FONT.bold, marginBottom: 12 },
+  shopPillText: { color: COLORS.textMuted, fontFamily: FONT.bold, fontSize: 13 },
+  name: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 26, letterSpacing: -0.4, marginTop: 14, lineHeight: 32 },
+  price: { color: COLORS.brandLight, fontFamily: FONT.extrabold, fontSize: 26, marginTop: 8 },
+  desc: { color: COLORS.textMuted, fontFamily: FONT.medium, fontSize: 14, marginTop: 12, lineHeight: 22 },
 
-  qtyRow: { flexDirection: "row", alignItems: "center", gap: 16 },
-  qtyBtn: { width: 36, height: 36, borderRadius: 12, backgroundColor: COLORS.brandDim, alignItems: "center", justifyContent: "center" },
-  qtyVal: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 16, minWidth: 24, textAlign: "center" },
-
-  toggleRow: { flexDirection: "row", gap: 10 },
+  secTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 17, marginTop: 22, marginBottom: 12 },
+  toggleRow: { flexDirection: "row", gap: 12 },
   toggleChip: {
-    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 10, borderRadius: 12,
-    borderWidth: 1, borderColor: COLORS.brand, backgroundColor: COLORS.brandDim,
+    flex: 1, padding: 16, borderRadius: 18,
+    borderWidth: 1.5, borderColor: COLORS.border, backgroundColor: COLORS.surface, gap: 6,
   },
-  toggleChipActive: { backgroundColor: COLORS.brand },
-  toggleText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 12 },
-  toggleTextActive: { color: "#FFFFFF" },
+  toggleChipActive: { backgroundColor: COLORS.brandDim, borderColor: COLORS.brand },
+  toggleText: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15 },
+  toggleTextActive: { color: COLORS.text },
+  toggleSub: { color: COLORS.brandLight, fontFamily: FONT.semibold, fontSize: 13 },
 
   pickupBox: { flexDirection: "row", alignItems: "flex-start", gap: 8, marginTop: 12 },
   pickupAddr: { color: COLORS.textMuted, fontFamily: FONT.medium, fontSize: 12, flex: 1, lineHeight: 18 },
@@ -372,34 +365,51 @@ const styles = StyleSheet.create({
     width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center",
     borderWidth: 2, borderColor: "#FFFFFF", shadowColor: "#000", shadowOpacity: 0.3, shadowRadius: 4, elevation: 4,
   },
-  addrInput: { backgroundColor: COLORS.bg, color: COLORS.text, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, fontFamily: FONT.medium, fontSize: 13, minHeight: 60, textAlignVertical: "top" },
-  gpsBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.bg, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
-  gpsBtnText: { color: COLORS.brand, fontFamily: FONT.bold, fontSize: 13 },
+  addrInput: { backgroundColor: COLORS.surface, color: COLORS.text, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border, fontFamily: FONT.medium, fontSize: 13, minHeight: 60, textAlignVertical: "top" },
+  gpsBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.surface, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: COLORS.border },
+  gpsBtnText: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 13 },
 
+  qtyRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 22 },
+  qtyLabel: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 17 },
+  stepper: {
+    flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: COLORS.surface,
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 16, padding: 4,
+  },
+  qtyBtn: { width: 38, height: 38, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  qtyBtnAmber: { width: 38, height: 38, borderRadius: 12, backgroundColor: COLORS.brand, alignItems: "center", justifyContent: "center" },
+  qtyVal: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 16, minWidth: 28, textAlign: "center" },
+
+  summaryCard: { backgroundColor: COLORS.surface, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border, marginTop: 18 },
   sumRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 6 },
   sumLabel: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13 },
   sumVal: { color: COLORS.text, fontFamily: FONT.semibold, fontSize: 13 },
-  divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 8 },
-  totalRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  totalLabel: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 14 },
-  totalValue: { color: COLORS.brand, fontFamily: FONT.extrabold, fontSize: 18 },
 
-  orderBtnWrap: { borderRadius: 14, overflow: "hidden", marginTop: 20, shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4 },
-  orderBtn: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, padding: 16 },
-  orderBtnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 13 },
+  bottomBar: {
+    flexDirection: "row", alignItems: "center", gap: 14, backgroundColor: COLORS.surface,
+    borderWidth: 1, borderColor: COLORS.border, borderRadius: 20, padding: 14, marginTop: 16,
+    shadowColor: COLORS.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 1, shadowRadius: 14, elevation: 3,
+  },
+  totalSmall: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12 },
+  totalBig: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 20, marginTop: 2 },
+  buyBtn: {
+    flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: COLORS.brand,
+    paddingVertical: 16, paddingHorizontal: 24, borderRadius: 16, minHeight: 54,
+    shadowColor: COLORS.brand, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 14, elevation: 5,
+  },
+  buyBtnText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, fontSize: 15 },
 
   modalBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
   modal: { backgroundColor: COLORS.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, alignItems: "center" },
   grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: COLORS.border, marginBottom: 12 },
   modalHead: { width: "100%", borderRadius: 18, padding: 18, alignItems: "center", marginBottom: 14 },
   modalHeadIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center", marginBottom: 8 },
-  modalTitle: { color: "#FFFFFF", fontFamily: FONT.extrabold, fontSize: 16 },
-  modalSub: { color: "rgba(255,255,255,0.85)", fontFamily: FONT.medium, fontSize: 12, marginTop: 4, textAlign: "center" },
+  modalTitle: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 16 },
+  modalSub: { color: "rgba(15,26,46,0.7)", fontFamily: FONT.medium, fontSize: 12, marginTop: 4, textAlign: "center" },
   payBreakdown: { width: "100%", marginBottom: 14 },
   payTotal: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 20, textAlign: "right", marginTop: 8 },
   payBtn: { width: "100%", borderRadius: 14, overflow: "hidden" },
   payBtnGrad: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 8, padding: 16 },
-  payBtnText: { color: "#FFFFFF", fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 13 },
+  payBtnText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 13 },
   cancelBtn: { padding: 14 },
   cancelText: { color: COLORS.textDim, fontFamily: FONT.bold, fontSize: 13 },
 });
