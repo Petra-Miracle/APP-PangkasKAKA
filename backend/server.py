@@ -1243,31 +1243,40 @@ async def list_shops(
     min_rating: Optional[float] = None, max_price: Optional[float] = None,
     max_distance_km: Optional[float] = None, q: Optional[str] = None,
 ):
-    await expire_stale_bookings()
-    shops = await db.barbershops.find(
-        {"is_verified": True, "verification_status": "approved"}, {"_id": 0}
-    ).to_list(500)
-    shop_ids = [s["id"] for s in shops]
-
-    # Cheapest service price per shop (for numeric price sort/filter - price_range is
-    # a free-text label like "Rp 25.000 - Rp 75.000" and can't be sorted/filtered on).
-    min_price_by_shop: dict = {}
-    if shop_ids:
-        cursor = db.services.find({"shop_id": {"$in": shop_ids}}, {"_id": 0, "shop_id": 1, "price": 1})
+    # expire_stale_bookings() dan kedua query enrichment di bawah tidak saling
+    # bergantung — jalankan sekaligus lewat gather, bukan menunggu satu-satu,
+    # supaya latency endpoint ini ~1 round-trip terjauh, bukan jumlah semuanya.
+    async def _fetch_min_price(ids: list) -> dict:
+        out: dict = {}
+        if not ids:
+            return out
+        cursor = db.services.find({"shop_id": {"$in": ids}}, {"_id": 0, "shop_id": 1, "price": 1})
         async for svc in cursor:
-            cur = min_price_by_shop.get(svc["shop_id"])
+            cur = out.get(svc["shop_id"])
             if cur is None or svc["price"] < cur:
-                min_price_by_shop[svc["shop_id"]] = svc["price"]
+                out[svc["shop_id"]] = svc["price"]
+        return out
 
-    # Booking count per shop (for "terpopuler" sort).
-    booking_count_by_shop: dict = {}
-    if shop_ids:
+    async def _fetch_booking_count(ids: list) -> dict:
+        out: dict = {}
+        if not ids:
+            return out
         cursor = db.bookings.find(
-            {"shop_id": {"$in": shop_ids}, "status": {"$in": ["confirmed", "completed"]}},
+            {"shop_id": {"$in": ids}, "status": {"$in": ["confirmed", "completed"]}},
             {"_id": 0, "shop_id": 1},
         )
         async for bk in cursor:
-            booking_count_by_shop[bk["shop_id"]] = booking_count_by_shop.get(bk["shop_id"], 0) + 1
+            out[bk["shop_id"]] = out.get(bk["shop_id"], 0) + 1
+        return out
+
+    shops, _ = await asyncio.gather(
+        db.barbershops.find({"is_verified": True, "verification_status": "approved"}, {"_id": 0}).to_list(500),
+        expire_stale_bookings(),
+    )
+    shop_ids = [s["id"] for s in shops]
+    min_price_by_shop, booking_count_by_shop = await asyncio.gather(
+        _fetch_min_price(shop_ids), _fetch_booking_count(shop_ids)
+    )
 
     for s in shops:
         s["distance_km"] = haversine_km(lat, lng, s["latitude"], s["longitude"]) if (lat is not None and lng is not None) else None
@@ -1307,6 +1316,11 @@ async def nearby_barbers(lat: float, lng: float):
     barbers = await db.barbers.find(
         {"karyawan_id": {"$in": list(loc_by_karyawan.keys())}, "status": "active"}, {"_id": 0}
     ).to_list(500)
+    shop_ids = list({b["shop_id"] for b in barbers if b.get("shop_id")})
+    shops_by_id: dict = {}
+    if shop_ids:
+        async for s in db.barbershops.find({"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1, "address": 1}):
+            shops_by_id[s["id"]] = s
     result = []
     for b in barbers:
         loc = loc_by_karyawan.get(b["karyawan_id"])
@@ -1317,7 +1331,7 @@ async def nearby_barbers(lat: float, lng: float):
         # Batas layanan 30 menit perjalanan (README §3.3) — difilter di server, bukan di klien.
         if eta > MAX_ETA_MINUTES:
             continue
-        shop = await db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0, "name": 1, "address": 1})
+        shop = shops_by_id.get(b["shop_id"])
         result.append({
             **b,
             "lat": loc["lat"], "lng": loc["lng"], "updated_at": loc["updated_at"],
@@ -1375,10 +1389,14 @@ async def shop_detail(shop_id: str):
         {"shop_id": shop_id, "date": {"$gte": today_str}}, {"_id": 0}
     ).sort("date", 1).to_list(60)
     reviews = await db.reviews.find({"shop_id": shop_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
-    # enrich reviews with reviewer names
+    # enrich reviews with reviewer names — satu query batch, bukan satu per review
+    reviewer_ids = list({r["user_id"] for r in reviews})
+    reviewers_by_id: dict = {}
+    if reviewer_ids:
+        async for u in db.profiles.find({"id": {"$in": reviewer_ids}}, {"_id": 0, "id": 1, "name": 1, "photo": 1}):
+            reviewers_by_id[u["id"]] = u
     for r in reviews:
-        u = await db.profiles.find_one({"id": r["user_id"]}, {"_id": 0, "name": 1, "photo": 1})
-        r["reviewer"] = u
+        r["reviewer"] = reviewers_by_id.get(r["user_id"])
     shop["services"] = services
     shop["barbers"] = barbers
     shop["schedules"] = schedules
@@ -2004,21 +2022,31 @@ async def owner_dashboard(user=Depends(require_role("owner"))):
         return {"shop": None}
     today = datetime.now(WITA).date().isoformat()
     month_start = datetime.now(WITA).replace(day=1, hour=0, minute=0, second=0).isoformat()
-    today_count = await db.bookings.count_documents({"shop_id": shop["id"], "booking_date": today})
-    paid_this_month = await db.bookings.find({
-        "shop_id": shop["id"], "payment_status": "paid",
-        "fund_state": {"$ne": "refunded"},  # booking yang dibatalkan+refund tidak lagi dihitung pendapatan
-        "delivery_mode": {"$ne": "rumah"},  # revenue StreetBarber (panggilan rumah) mandiri, bukan milik toko
-        "created_at": {"$gte": month_start}
-    }, {"_id": 0, "total_price": 1, "amount_barber_net": 1}).to_list(2000)
+    # 4 query ini independen satu sama lain — jalankan sekaligus, bukan bergantian.
+    today_count, paid_this_month, barbers_active, latest = await asyncio.gather(
+        db.bookings.count_documents({"shop_id": shop["id"], "booking_date": today}),
+        db.bookings.find({
+            "shop_id": shop["id"], "payment_status": "paid",
+            "fund_state": {"$ne": "refunded"},  # booking yang dibatalkan+refund tidak lagi dihitung pendapatan
+            "delivery_mode": {"$ne": "rumah"},  # revenue StreetBarber (panggilan rumah) mandiri, bukan milik toko
+            "created_at": {"$gte": month_start}
+        }, {"_id": 0, "total_price": 1, "amount_barber_net": 1}).to_list(2000),
+        db.barbers.count_documents({"shop_id": shop["id"], "status": "active"}),
+        db.bookings.find({"shop_id": shop["id"]}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5),
+    )
     revenue = sum(b.get("amount_barber_net", b["total_price"]) for b in paid_this_month)
-    barbers_active = await db.barbers.count_documents({"shop_id": shop["id"], "status": "active"})
-    latest = await db.bookings.find({"shop_id": shop["id"]}, {"_id": 0}).sort("created_at", -1).limit(5).to_list(5)
+    user_ids = list({b["user_id"] for b in latest})
+    service_ids = list({b["service_id"] for b in latest})
+    users_by_id, services_by_id = {}, {}
+    if user_ids:
+        async for u in db.profiles.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            users_by_id[u["id"]] = u
+    if service_ids:
+        async for s in db.services.find({"id": {"$in": service_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            services_by_id[s["id"]] = s
     for b in latest:
-        u = await db.profiles.find_one({"id": b["user_id"]}, {"_id": 0, "name": 1})
-        s = await db.services.find_one({"id": b["service_id"]}, {"_id": 0, "name": 1})
-        b["customer_name"] = u["name"] if u else ""
-        b["service_name"] = s["name"] if s else ""
+        b["customer_name"] = users_by_id.get(b["user_id"], {}).get("name", "")
+        b["service_name"] = services_by_id.get(b["service_id"], {}).get("name", "")
     return {
         "shop": shop,
         "stats": {
@@ -2037,13 +2065,25 @@ async def owner_orders(user=Depends(require_role("owner"))):
     if not shop:
         return {"orders": []}
     orders = await db.bookings.find({"shop_id": shop["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # Sebelumnya 3 find_one per order (bisa ratusan round-trip DB untuk toko sibuk) —
+    # ganti jadi 3 query batch + lookup dict di memori.
+    user_ids = list({o["user_id"] for o in orders})
+    service_ids = list({o["service_id"] for o in orders})
+    barber_ids = list({o["barber_id"] for o in orders})
+    users_by_id, services_by_id, barbers_by_id = {}, {}, {}
+    if user_ids:
+        async for u in db.profiles.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1, "phone": 1, "email": 1, "photo": 1, "address": 1}):
+            users_by_id[u["id"]] = u
+    if service_ids:
+        async for s in db.services.find({"id": {"$in": service_ids}}, {"_id": 0, "id": 1, "name": 1, "duration": 1}):
+            services_by_id[s["id"]] = s
+    if barber_ids:
+        async for br in db.barbers.find({"id": {"$in": barber_ids}}, {"_id": 0, "id": 1, "name": 1, "photo": 1}):
+            barbers_by_id[br["id"]] = br
     for o in orders:
-        u = await db.profiles.find_one(
-            {"id": o["user_id"]},
-            {"_id": 0, "name": 1, "phone": 1, "email": 1, "photo": 1, "address": 1}
-        )
-        s = await db.services.find_one({"id": o["service_id"]}, {"_id": 0, "name": 1, "duration": 1})
-        br = await db.barbers.find_one({"id": o["barber_id"]}, {"_id": 0, "name": 1, "photo": 1})
+        u = users_by_id.get(o["user_id"])
+        s = services_by_id.get(o["service_id"])
+        br = barbers_by_id.get(o["barber_id"])
         o["customer"] = u
         o["service_name"] = s["name"] if s else ""
         o["service_duration"] = s.get("duration") if s else 0
@@ -2086,12 +2126,13 @@ async def owner_product_orders(user=Depends(require_role("owner"))):
     if not shop:
         return {"orders": []}
     orders = await db.product_orders.find({"shop_id": shop["id"]}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    user_ids = list({o["user_id"] for o in orders})
+    users_by_id: dict = {}
+    if user_ids:
+        async for u in db.profiles.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1, "phone": 1, "email": 1, "photo": 1}):
+            users_by_id[u["id"]] = u
     for o in orders:
-        u = await db.profiles.find_one(
-            {"id": o["user_id"]},
-            {"_id": 0, "name": 1, "phone": 1, "email": 1, "photo": 1}
-        )
-        o["customer"] = u
+        o["customer"] = users_by_id.get(o["user_id"])
     return {"orders": orders}
 
 
@@ -2438,9 +2479,13 @@ async def karyawan_apply(body: KaryawanApplyIn, user=Depends(require_role("stree
 @api.get("/karyawan/my")
 async def karyawan_my(user=Depends(require_role("streetbarber"))):
     rows = await db.karyawan.find({"profile_id": user["id"]}, {"_id": 0}).to_list(50)
+    shop_ids = list({r["shop_id"] for r in rows})
+    shops_by_id: dict = {}
+    if shop_ids:
+        async for s in db.barbershops.find({"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1, "image": 1}):
+            shops_by_id[s["id"]] = s
     for r in rows:
-        s = await db.barbershops.find_one({"id": r["shop_id"]}, {"_id": 0, "name": 1, "image": 1})
-        r["shop"] = s
+        r["shop"] = shops_by_id.get(r["shop_id"])
     return {"applications": rows}
 
 
@@ -2490,10 +2535,23 @@ async def karyawan_bookings(user=Depends(require_role("streetbarber"))):
     bookings = await db.bookings.find(
         {"barber_id": {"$in": barber_ids}, "status": {"$in": ["pending", "confirmed"]}}, {"_id": 0}
     ).sort("created_at", -1).to_list(200)
+    shop_ids = list({b["shop_id"] for b in bookings})
+    service_ids = list({b["service_id"] for b in bookings})
+    user_ids = list({b["user_id"] for b in bookings})
+    shops_by_id, services_by_id, users_by_id = {}, {}, {}
+    if shop_ids:
+        async for s in db.barbershops.find({"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            shops_by_id[s["id"]] = s
+    if service_ids:
+        async for sv in db.services.find({"id": {"$in": service_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            services_by_id[sv["id"]] = sv
+    if user_ids:
+        async for u in db.profiles.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1, "phone": 1}):
+            users_by_id[u["id"]] = u
     for b in bookings:
-        b["shop"] = await db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0, "name": 1})
-        b["service"] = await db.services.find_one({"id": b["service_id"]}, {"_id": 0, "name": 1})
-        b["customer"] = await db.profiles.find_one({"id": b["user_id"]}, {"_id": 0, "name": 1, "phone": 1})
+        b["shop"] = shops_by_id.get(b["shop_id"])
+        b["service"] = services_by_id.get(b["service_id"])
+        b["customer"] = users_by_id.get(b["user_id"])
     return {"bookings": bookings}
 
 
@@ -3875,13 +3933,23 @@ async def owner_appointments(date: str, user=Depends(require_role("owner"))):
     shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
     if not shop: return {"appointments": []}
     rows = await db.bookings.find({"shop_id": shop["id"], "booking_date": date}, {"_id": 0}).sort("booking_time", 1).to_list(500)
+    user_ids = list({r["user_id"] for r in rows})
+    service_ids = list({r["service_id"] for r in rows})
+    barber_ids = list({r["barber_id"] for r in rows})
+    users_by_id, services_by_id, barbers_by_id = {}, {}, {}
+    if user_ids:
+        async for u in db.profiles.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1, "phone": 1, "photo": 1}):
+            users_by_id[u["id"]] = u
+    if service_ids:
+        async for sv in db.services.find({"id": {"$in": service_ids}}, {"_id": 0, "id": 1, "name": 1, "duration": 1, "price": 1}):
+            services_by_id[sv["id"]] = sv
+    if barber_ids:
+        async for br in db.barbers.find({"id": {"$in": barber_ids}}, {"_id": 0, "id": 1, "name": 1, "photo": 1}):
+            barbers_by_id[br["id"]] = br
     for r in rows:
-        u = await db.profiles.find_one({"id": r["user_id"]}, {"_id": 0, "name": 1, "phone": 1, "photo": 1})
-        sv = await db.services.find_one({"id": r["service_id"]}, {"_id": 0, "name": 1, "duration": 1, "price": 1})
-        br = await db.barbers.find_one({"id": r["barber_id"]}, {"_id": 0, "name": 1, "photo": 1})
-        r["customer"] = u
-        r["service"] = sv
-        r["barber"] = br
+        r["customer"] = users_by_id.get(r["user_id"])
+        r["service"] = services_by_id.get(r["service_id"])
+        r["barber"] = barbers_by_id.get(r["barber_id"])
     return {"appointments": rows}
 
 

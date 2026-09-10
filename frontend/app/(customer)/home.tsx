@@ -66,15 +66,21 @@ export default function Home() {
       let c: { lat: number; lng: number } | null = null;
       if (status === "granted") {
         try {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          // GPS fix bisa lama sekali (bahkan tidak pernah selesai) di dalam gedung —
+          // jangan biarkan itu menahan seluruh halaman. Race lawan timeout, jatuh ke
+          // koordinat terdaftar kalau GPS belum dapat fix dalam 4 detik.
+          const loc: any = await Promise.race([
+            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error("location_timeout")), 4000)),
+          ]);
           c = { lat: loc.coords.latitude, lng: loc.coords.longitude };
         } catch { c = registeredCoords(); }
       } else {
         c = registeredCoords();
       }
       setCoords(c);
-      await loadShops(c);
-      await loadNearbyBarbers(c);
+      // Dua call ini independen — jalankan sekaligus, bukan satu-satu.
+      await Promise.all([loadShops(c), loadNearbyBarbers(c)]);
     } catch {} finally { setLoading(false); }
   }, [loadShops, loadNearbyBarbers, user?.lat, user?.lng]);
 

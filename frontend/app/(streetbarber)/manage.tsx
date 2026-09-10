@@ -89,13 +89,17 @@ export default function StreetBarberManage() {
         setHasActive(true);
         setBankForm({ bank_name: active.bank_name || "", account_number: active.bank_account_number || "", account_holder: active.bank_account_holder || "" });
         setHomeFeeInput(String(active.home_service_fee ?? 0));
-        try { const w = await api.get("/wallets/me"); setWallet(w.wallet); } catch { setWallet(null); }
-        try {
-          const s = await api.get("/streetbarber/services");
-          const list = s.services || [];
+        // Dua call ini independen satu sama lain (cuma bergantung pada "active"
+        // di atas) — jalankan sekaligus, bukan menunggu satu-satu.
+        const [w, s] = await Promise.allSettled([api.get("/wallets/me"), api.get("/streetbarber/services")]);
+        setWallet(w.status === "fulfilled" ? w.value.wallet : null);
+        if (s.status === "fulfilled") {
+          const list = s.value.services || [];
           const prices = list.map((x: any) => x.price).filter((p: any) => typeof p === "number");
           setSvcSummary({ count: list.length, minPrice: prices.length ? Math.min(...prices) : null });
-        } catch { setSvcSummary({ count: 0, minPrice: null }); }
+        } else {
+          setSvcSummary({ count: 0, minPrice: null });
+        }
       } else {
         setHasActive(false);
       }

@@ -1,9 +1,9 @@
-import { useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TextInput, ActivityIndicator } from "react-native";
+import { useCallback, useState } from "react";
+import { View, Text, StyleSheet, ScrollView, TextInput, ActivityIndicator, BackHandler } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import { useAuth } from "@/src/lib/auth";
 import { useScrollToInput } from "@/src/lib/useScrollToInput";
@@ -25,6 +25,20 @@ export default function ChangePassword() {
     else if (user?.role === "streetbarber") router.replace("/(streetbarber)/profile" as any);
     else router.back();
   };
+
+  // Tombol back di header sudah pakai goBackToProfile, tapi tombol back
+  // fisik/gesture Android lewat jalur default navigator — yang untuk layar
+  // lintas grup ini jatuh ke tab awal (customer), bukan balik ke profil role
+  // asal. Tangkap hardware back di sini juga supaya perilakunya sama.
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+        goBackToProfile();
+        return true;
+      });
+      return () => sub.remove();
+    }, [user?.role])
+  );
 
   const save = async () => {
     if (!oldPassword || !newPassword || !confirmPassword) { alert("Semua kolom wajib diisi"); return; }

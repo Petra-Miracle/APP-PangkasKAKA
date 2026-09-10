@@ -75,17 +75,17 @@ export default function StreetBarberDashboard() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [my, sh] = await Promise.allSettled([
+      // Kelima call ini independen satu sama lain — jalankan sekaligus, bukan
+      // dua batch berurutan, supaya loading dashboard = call terlambat, bukan jumlahnya.
+      const [my, sh, earn, w, bk] = await Promise.allSettled([
         api.get("/karyawan/my"),
         api.get("/shops?sort=rating"),
-      ]);
-      if (my.status === "fulfilled") setApps(my.value.applications);
-      if (sh.status === "fulfilled") setShops(sh.value.shops);
-      const [earn, w, bk] = await Promise.allSettled([
         api.get("/karyawan/earnings"),
         api.get("/wallets/me"),
         api.get("/karyawan/bookings"),
       ]);
+      if (my.status === "fulfilled") setApps(my.value.applications);
+      if (sh.status === "fulfilled") setShops(sh.value.shops);
       if (earn.status === "fulfilled") setEarnings(earn.value); else setEarnings(null);
       if (w.status === "fulfilled") setWallet(w.value.wallet); else setWallet(null);
       // Preview read-only 1 pesanan mendatang terdekat (tanpa endpoint baru).
