@@ -31,20 +31,29 @@ function LiveLocationCard({ bookingId, onPress }: { bookingId: string; onPress?:
     return () => clearInterval(pollRef.current);
   }, [fetchLoc]);
 
-  if (!sharing) return null;
+  // Dulu kartu ini disembunyikan total kalau barber belum menyalakan "bagikan
+  // lokasi" (sharing === false) — hasilnya use case "lacak posisi StreetBarber
+  // real-time" tidak pernah terlihat oleh customer sama sekali begitu booking
+  // confirmed, karena tombolnya sendiri hilang. Sekarang kartu SELALU tampil
+  // untuk booking confirmed & rumah; layar /booking/track sudah menangani state
+  // "menunggu lokasi barber" dengan baik, jadi biarkan itu yang tampil di sana.
   const secondsAgo = loc ? Math.max(0, Math.round((Date.now() - new Date(loc.updated_at).getTime()) / 1000)) : null;
 
   return (
     <PressableScale onPress={onPress} disabled={!onPress} scaleTo={0.98} testID={`live-location-${bookingId}`}>
       <View style={styles.locCard}>
         <View style={styles.locPulse}>
-          <Ionicons name="navigate" size={16} color={COLORS.info} />
+          <Ionicons name={sharing ? "navigate" : "time-outline"} size={16} color={COLORS.info} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.locTitle}>Lacak lokasi</Text>
-          {loc?.distance_km != null
-            ? <Text style={styles.locSub}>Barber {formatJarak(loc.distance_km)} lagi</Text>
-            : secondsAgo !== null ? <Text style={styles.locSub}>Diperbarui {secondsAgo}s lalu</Text> : null}
+          <Text style={styles.locTitle}>Lacak lokasi StreetBarber</Text>
+          {sharing && loc?.distance_km != null ? (
+            <Text style={styles.locSub}>Barber {formatJarak(loc.distance_km)} lagi</Text>
+          ) : sharing && secondsAgo !== null ? (
+            <Text style={styles.locSub}>Diperbarui {secondsAgo}s lalu</Text>
+          ) : (
+            <Text style={styles.locSub}>Menunggu barber mulai membagikan lokasi</Text>
+          )}
         </View>
         {onPress && <Ionicons name="chevron-forward" size={18} color={COLORS.info} />}
       </View>
