@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TextInput, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,8 +20,11 @@ export default function AdminAccounts() {
   const [saving, setSaving] = useState(false);
   const { scrollRef, handleFocus } = useScrollToInput();
 
+  // Refetch tiap fokus (useFocusEffect di bawah) — skeleton cuma di load pertama,
+  // supaya pindah tab-tab tidak mengosongkan layar yang sudah terisi.
+  const hasLoadedRef = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const [a, s] = await Promise.all([
         api.get("/superadmin/admins"),
@@ -29,7 +32,7 @@ export default function AdminAccounts() {
       ]);
       setAdmins(a.admins);
       setShops(s.shops);
-    } catch {} finally { setLoading(false); }
+    } catch {} finally { setLoading(false); hasLoadedRef.current = true; }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 

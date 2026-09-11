@@ -25,10 +25,13 @@ export default function Users() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [searchQ, setSearchQ] = useState("");
 
+  // Refetch tiap fokus (useFocusEffect di bawah) — skeleton cuma di load pertama,
+  // supaya pindah tab-tab tidak mengosongkan layar yang sudah terisi.
+  const hasLoadedRef = useRef(false);
   const load = useCallback(async (search?: string) => {
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     const query = search !== undefined ? search : q;
-    try { const r = await api.get(`/admin/users?role=${tab}&search=${encodeURIComponent(query)}`); setUsers(r.users); } catch {} finally { setLoading(false); }
+    try { const r = await api.get(`/admin/users?role=${tab}&search=${encodeURIComponent(query)}`); setUsers(r.users); } catch {} finally { setLoading(false); hasLoadedRef.current = true; }
   }, [tab, q]);
 
   const onSearchChange = useCallback((text: string) => {

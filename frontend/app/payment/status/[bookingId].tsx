@@ -183,16 +183,13 @@ export default function PaymentStatusScreen() {
               </View>
               <Text style={styles.qrHeadSub}>Semua bank & e-wallet</Text>
             </View>
-            {data.payment?.qr_string ? (
-              <Image source={{ uri: data.payment.qr_string }} style={styles.qrImg} contentFit="contain" />
-            ) : (
-              <>
-                {/* QR buatan untuk pitching (sandbox belum memberi QR asli).
-                    Bukan kode bayar sungguhan — pembayaran nyata via tombol link di bawah. */}
-                <FauxQr />
-                <Text style={styles.qrDemoNote}>QR demo untuk pitching · bayar via tombol link di bawah</Text>
-              </>
-            )}
+            {/* QR buatan untuk pitching — selalu dipakai, bukan cuma fallback saat
+                qr_string kosong. Sandbox Durianpay tidak konsisten mengembalikan QR
+                asli, dan untuk demo fungsional kita butuh tampilan yang pasti muncul
+                tiap kali, bukan tergantung respons API pihak ketiga. Bukan kode bayar
+                sungguhan — pembayaran nyata tetap lewat tombol link Durianpay di bawah. */}
+            <FauxQr />
+            <Text style={styles.qrDemoNote}>QR demo untuk pitching · bayar via tombol link di bawah</Text>
             <Text style={styles.qrAmount}>
               {rupiah(data.booking?.amount_total_charged ?? data.booking?.total_price ?? 0)}
             </Text>

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, Pressable, TextInput, Modal } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -32,8 +32,11 @@ export default function Verification() {
   const [previewImg, setPreviewImg] = useState<string | null>(null);
   const [threads, setThreads] = useState<any[]>([]);
 
+  // Refetch tiap fokus (useFocusEffect di bawah) — skeleton cuma di load pertama,
+  // supaya pindah tab-tab tidak mengosongkan layar yang sudah terisi.
+  const hasLoadedRef = useRef(false);
   const load = useCallback(async () => {
-    setLoading(true);
+    if (!hasLoadedRef.current) setLoading(true);
     try {
       const [r, t] = await Promise.allSettled([
         api.get("/admin/pending-shops"),
@@ -41,7 +44,7 @@ export default function Verification() {
       ]);
       if (r.status === "fulfilled") setShops(r.value.shops);
       if (t.status === "fulfilled") setThreads(t.value.threads);
-    } catch {} finally { setLoading(false); }
+    } catch {} finally { setLoading(false); hasLoadedRef.current = true; }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
