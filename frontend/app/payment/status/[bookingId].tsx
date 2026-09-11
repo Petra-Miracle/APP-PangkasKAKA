@@ -7,6 +7,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { File, Paths } from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import Svg, { Rect } from "react-native-svg";
 import { api, COLORS, FONT, rupiah } from "@/src/lib/api";
 import PressableScale from "@/src/components/PressableScale";
 
@@ -426,12 +427,26 @@ function PendingCard({ mm, ss }: { mm: number; ss: number }) {
 
 // QR buatan untuk pitching — mosaik deterministik mirip QRIS, BUKAN kode bayar.
 // Tidak memakai library QR & tidak mengklaim bisa di-scan untuk membayar.
+// Digambar lewat react-native-svg (koordinat piksel eksplisit), BUKAN grid View
+// dengan flexWrap+aspectRatio — kombinasi itu terbukti kadang gagal dihitung
+// oleh Yoga di build release (kotak QR tampil kosong di device asli walau
+// benar di kode), sementara Svg+Rect posisinya pasti karena tidak lewat flexbox.
+const QR_SIZE = 180;
 const QR_N = 21;
+const QR_CELL = QR_SIZE / QR_N;
 function FauxQr() {
   const cells = useMemo(() => {
     const arr: boolean[] = [];
+    // xorshift32 — tetap di rentang integer 32-bit lewat >>> 0 di tiap langkah,
+    // jadi tidak kehilangan presisi seperti LCG sebelumnya (seed * angka besar
+    // bisa lewat Number.MAX_SAFE_INTEGER setelah beberapa iterasi).
     let seed = 42;
-    const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    const rnd = () => {
+      seed ^= seed << 13; seed >>>= 0;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5; seed >>>= 0;
+      return seed / 4294967296;
+    };
     for (let i = 0; i < QR_N * QR_N; i++) arr.push(rnd() > 0.52);
     const finder = (r: number, c: number) => {
       for (let y = 0; y < 7; y++) for (let x = 0; x < 7; x++) {
@@ -447,9 +462,15 @@ function FauxQr() {
   }, []);
   return (
     <View style={styles.fauxQr}>
-      {cells.map((on, i) => (
-        <View key={i} style={[styles.fauxCell, { backgroundColor: on ? "#0F1A2E" : "#FFFFFF" }]} />
-      ))}
+      <Svg width={QR_SIZE} height={QR_SIZE}>
+        <Rect x={0} y={0} width={QR_SIZE} height={QR_SIZE} fill="#FFFFFF" />
+        {cells.map((on, i) => {
+          if (!on) return null;
+          const row = Math.floor(i / QR_N);
+          const col = i % QR_N;
+          return <Rect key={i} x={col * QR_CELL} y={row * QR_CELL} width={QR_CELL} height={QR_CELL} fill="#0F1A2E" />;
+        })}
+      </Svg>
     </View>
   );
 }
@@ -519,10 +540,9 @@ const styles = StyleSheet.create({
   qrHeadSub: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 13 },
   qrImg: { width: 180, height: 180, backgroundColor: "#FFFFFF", borderRadius: 8 },
   fauxQr: {
-    width: 180, flexDirection: "row", flexWrap: "wrap", backgroundColor: "#FFFFFF",
-    padding: 10, borderRadius: 8, borderWidth: 1, borderColor: COLORS.border,
+    width: QR_SIZE, height: QR_SIZE, alignSelf: "center", backgroundColor: "#FFFFFF",
+    borderRadius: 8, borderWidth: 1, borderColor: COLORS.border, overflow: "hidden",
   },
-  fauxCell: { width: `${100 / QR_N}%`, aspectRatio: 1 },
   qrDemoNote: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 8, textAlign: "center" },
   qrAmount: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 30, marginTop: 14, letterSpacing: -0.5 },
   qrShop: { color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 15, marginTop: 8 },

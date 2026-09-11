@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Dimensions } fro
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Map, Camera, Marker } from "@maplibre/maplibre-react-native";
+import { Map, Camera, Marker, GeoJSONSource, Layer } from "@maplibre/maplibre-react-native";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import PressableScale from "@/src/components/PressableScale";
 
@@ -26,6 +26,16 @@ const OSM_STYLE = {
   },
   layers: [{ id: "osm", type: "raster" as const, source: "osm" }],
 };
+
+// Garis penghubung barber-pelanggan diberi warna sesuai jaraknya — makin dekat
+// makin "hangat" (hijau), biar dari sekilas peta terasa seberapa dekat barber
+// sudah sampai, mirip indikator jarak di aplikasi ojek online.
+function routeColorFor(distanceKm: number | null | undefined): string {
+  if (distanceKm == null) return COLORS.info;
+  if (distanceKm <= 1) return COLORS.success;
+  if (distanceKm <= 3) return COLORS.warning;
+  return COLORS.info;
+}
 
 export default function TrackBarberScreen() {
   const { bookingId } = useLocalSearchParams<{ bookingId: string }>();
@@ -92,12 +102,36 @@ export default function TrackBarberScreen() {
       <View style={StyleSheet.absoluteFillObject}>
         {bounds ? (
           <Map mapStyle={OSM_STYLE} style={{ flex: 1 }} attribution logo={false} compass={false} scaleBar={false}>
+            {/* bounds sebagai prop reaktif (bukan initialViewState, yang cuma berlaku
+                sekali saat mount) — kamera otomatis mengikuti tiap kali posisi barber
+                atau pelanggan berubah, bukan cuma nge-frame sekali di awal. */}
             <Camera
-              initialViewState={{
-                bounds,
-                padding: { top: 130, bottom: SHEET_MAX_HEIGHT + 30, left: 40, right: 40 },
-              }}
+              bounds={bounds ?? undefined}
+              padding={{ top: 130, bottom: SHEET_MAX_HEIGHT + 30, left: 40, right: 40 }}
+              duration={1200}
+              easing="ease"
             />
+            {customerCoord && barberCoord && (
+              <GeoJSONSource
+                id="routeLine"
+                data={{
+                  type: "Feature",
+                  properties: {},
+                  geometry: { type: "LineString", coordinates: [customerCoord, barberCoord] },
+                }}
+              >
+                <Layer
+                  id="routeLineLayer"
+                  type="line"
+                  layout={{ "line-cap": "round", "line-join": "round" }}
+                  paint={{
+                    "line-color": routeColorFor(loc?.distance_km),
+                    "line-width": 4,
+                    "line-dasharray": [2, 1.5],
+                  }}
+                />
+              </GeoJSONSource>
+            )}
             {customerCoord && (
               <Marker id="customer" lngLat={customerCoord}>
                 <View style={styles.pinCustomer}>
