@@ -175,8 +175,8 @@ export default function TrackBarberScreen() {
 
             <View style={styles.divider} />
 
-            <Row label="Toko" value={booking?.shop?.name} />
-            <Row label="Barber" value={booking?.barber?.name} />
+            <Row label="StreetBarber" value={booking?.barber?.name} />
+            <Row label="Divalidasi oleh" value={booking?.shop?.name} />
             <Row label="Layanan" value={booking?.service?.name} />
             <Row label="Alamat Tujuan" value={booking?.customer_address || "-"} />
             <Row label="Jam" value={booking?.booking_time ? `${booking.booking_time} WITA` : "-"} />

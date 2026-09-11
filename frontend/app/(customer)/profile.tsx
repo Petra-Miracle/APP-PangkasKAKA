@@ -69,6 +69,7 @@ export default function Profile() {
                 <MenuItem icon="sparkles-outline" label="AI Face Scan" sub="Rekomendasi gaya rambut" last onPress={() => router.push("/(customer)/ai-scan" as any)} />
               </>}
               {user?.role === "streetbarber" && <>
+                <MenuItem icon="cut-outline" label="Riwayat Layanan" sub="Jumlah & jenis layanan yang sudah diberikan" onPress={() => router.push("/(streetbarber)/service-history" as any)} />
                 <MenuItem icon="briefcase-outline" label="Riwayat Lamaran" sub="Lamaran StreetBarber kamu" last onPress={() => router.push("/(streetbarber)/applications" as any)} />
               </>}
               {user?.role === "superadmin" && <>

@@ -2508,6 +2508,68 @@ async def karyawan_earnings(user=Depends(require_role("streetbarber"))):
     return {"monthly_revenue": sum(b.get("amount_barber_net", b["total_price"]) for b in paid), "completed_count": len(paid)}
 
 
+@api.get("/karyawan/service-history")
+async def karyawan_service_history(user=Depends(require_role("streetbarber"))):
+    """Riwayat sepanjang menjadi StreetBarber (bukan cuma bulan berjalan) — total
+    layanan yang sudah diselesaikan, rincian per jenis layanan, dan daftar terbaru.
+    Merangkum SEMUA lamaran (aktif maupun lampau) milik profil ini, bukan cuma
+    yang aktif sekarang, supaya riwayat tidak hilang kalau pernah pindah toko validator."""
+    apps = await db.karyawan.find({"profile_id": user["id"]}, {"_id": 0, "id": 1}).to_list(50)
+    if not apps:
+        return {"total_completed": 0, "total_revenue": 0, "by_service": [], "recent": []}
+    barbers = await db.barbers.find({"karyawan_id": {"$in": [a["id"] for a in apps]}}, {"_id": 0, "id": 1}).to_list(50)
+    barber_ids = [b["id"] for b in barbers]
+    if not barber_ids:
+        return {"total_completed": 0, "total_revenue": 0, "by_service": [], "recent": []}
+    completed = await db.bookings.find(
+        {"barber_id": {"$in": barber_ids}, "status": "completed"},
+        {"_id": 0, "id": 1, "service_id": 1, "user_id": 1, "total_price": 1, "amount_barber_net": 1,
+         "booking_date": 1, "booking_time": 1},
+    ).sort("booking_date", -1).to_list(5000)
+
+    service_ids = list({b["service_id"] for b in completed})
+    services_by_id: dict = {}
+    if service_ids:
+        async for s in db.services.find({"id": {"$in": service_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            services_by_id[s["id"]] = s
+
+    by_service_count: dict = {}
+    by_service_revenue: dict = {}
+    total_revenue = 0
+    for b in completed:
+        name = services_by_id.get(b["service_id"], {}).get("name", "Layanan")
+        net = b.get("amount_barber_net", b["total_price"])
+        by_service_count[name] = by_service_count.get(name, 0) + 1
+        by_service_revenue[name] = by_service_revenue.get(name, 0) + net
+        total_revenue += net
+    by_service = sorted(
+        [{"name": k, "count": v, "revenue": by_service_revenue[k]} for k, v in by_service_count.items()],
+        key=lambda x: x["count"], reverse=True,
+    )
+
+    recent_raw = completed[:20]
+    user_ids = list({b["user_id"] for b in recent_raw})
+    users_by_id: dict = {}
+    if user_ids:
+        async for u in db.profiles.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "name": 1}):
+            users_by_id[u["id"]] = u
+    recent = [{
+        "id": b["id"],
+        "service_name": services_by_id.get(b["service_id"], {}).get("name", "Layanan"),
+        "customer_name": users_by_id.get(b["user_id"], {}).get("name", ""),
+        "booking_date": b["booking_date"],
+        "booking_time": b["booking_time"],
+        "amount": b.get("amount_barber_net", b["total_price"]),
+    } for b in recent_raw]
+
+    return {
+        "total_completed": len(completed),
+        "total_revenue": total_revenue,
+        "by_service": by_service,
+        "recent": recent,
+    }
+
+
 @api.post("/karyawan/location")
 async def update_karyawan_location(body: KaryawanLocationIn, user=Depends(require_role("streetbarber"))):
     rate_limit(f"karyawan_location:{user['id']}", max_requests=20, window_seconds=60)

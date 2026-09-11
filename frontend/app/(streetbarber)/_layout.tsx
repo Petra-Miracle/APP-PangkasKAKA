@@ -13,6 +13,7 @@ export default function StreetBarberLayout() {
       <Tabs.Screen name="manage" options={{ title: "Kelola", tabBarIcon: ({ color, size }) => <Ionicons name="construct" color={color} size={size} /> }} />
       <Tabs.Screen name="profile" options={{ title: "Profil", tabBarIcon: ({ color, size }) => <Ionicons name="person" color={color} size={size} /> }} />
       <Tabs.Screen name="applications" options={{ href: null }} />
+      <Tabs.Screen name="service-history" options={{ href: null }} />
     </Tabs>
   );
 }

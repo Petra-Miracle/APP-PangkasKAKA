@@ -185,20 +185,25 @@ export default function Orders() {
           {current.map((o) => {
             const meta = STATUS_META[o.status] || STATUS_META.pending;
             const canReorder = o.status === "cancelled" && (o.delivery_mode === "rumah" ? !!o.barber_id : !!o.shop_id);
+            // StreetBarber mandiri, bukan milik toko (toko cuma validator) — booking
+            // panggilan ke rumah tampil atas nama StreetBarber-nya, bukan toko.
+            const isHomeService = o.delivery_mode === "rumah";
             return (
               <View key={o.id} style={styles.card} testID={`order-${o.id}`}>
                 <View style={styles.rowTop}>
-                  <Image source={{ uri: o.shop?.image }} style={styles.thumb} contentFit="cover" />
+                  <Image source={{ uri: isHomeService ? o.barber?.photo : o.shop?.image }} style={styles.thumb} contentFit="cover" />
                   <View style={{ flex: 1 }}>
                     <View style={styles.nameRow}>
-                      <Text style={styles.shopName} numberOfLines={1}>{o.shop?.name}</Text>
+                      <Text style={styles.shopName} numberOfLines={1}>{isHomeService ? o.barber?.name : o.shop?.name}</Text>
                       <View style={[styles.badge, { backgroundColor: meta.bg }]}>
                         <Text style={[styles.badgeText, { color: meta.color }]}>{meta.label}</Text>
                       </View>
                     </View>
                     <View style={styles.svcRow}>
                       <Ionicons name="cut" size={12} color={COLORS.textDim} />
-                      <Text style={styles.svcName} numberOfLines={1}>{o.service?.name} · {o.barber?.name}</Text>
+                      <Text style={styles.svcName} numberOfLines={1}>
+                        {isHomeService ? o.service?.name : `${o.service?.name} · ${o.barber?.name}`}
+                      </Text>
                     </View>
                     <Text style={styles.date}>{shortDate(o.booking_date)} · {o.booking_time} WITA</Text>
                     {o.delivery_mode === "rumah" && (
@@ -272,7 +277,7 @@ export default function Orders() {
                 <Ionicons name="star" size={22} color={COLORS.warning} />
               </View>
               <Text style={styles.modalTitle}>Beri Ulasan</Text>
-              <Text style={styles.modalSub}>{reviewFor?.shop?.name}</Text>
+              <Text style={styles.modalSub}>{reviewFor?.delivery_mode === "rumah" ? reviewFor?.barber?.name : reviewFor?.shop?.name}</Text>
               <View style={{ flexDirection: "row", gap: 8, marginVertical: 20, justifyContent: "center" }}>
                 {[1, 2, 3, 4, 5].map((n) => (
                   <PressableScale key={n} onPress={() => setRating(n)} testID={`star-${n}`} scaleTo={0.85} haptic>

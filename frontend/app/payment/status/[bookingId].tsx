@@ -149,6 +149,11 @@ export default function PaymentStatusScreen() {
   const isPaid = data.payment_status === "paid" && data.booking_status === "confirmed";
   const isForfeited = data.payment_status === "forfeited" || data.booking_status === "cancelled";
   const isPending = !isPaid && !isForfeited;
+  // StreetBarber mandiri, bukan milik toko — toko cuma validator dokumen & tes
+  // keterampilan. Booking panggilan ke rumah harus tampil atas nama StreetBarber,
+  // bukan toko (dana juga langsung ke wallet karyawan, lihat payout_wallet_type
+  // di server.py, bukan wallet toko).
+  const isHomeService = data.booking?.delivery_mode === "rumah";
 
   const mm = Math.floor((data.remaining_seconds || 0) / 60);
   const ss = (data.remaining_seconds || 0) % 60;
@@ -191,7 +196,7 @@ export default function PaymentStatusScreen() {
             <Text style={styles.qrAmount}>
               {rupiah(data.booking?.amount_total_charged ?? data.booking?.total_price ?? 0)}
             </Text>
-            <Text style={styles.qrShop} numberOfLines={1}>{data.shop?.name}</Text>
+            <Text style={styles.qrShop} numberOfLines={1}>{isHomeService ? data.barber?.name : data.shop?.name}</Text>
             <Text style={styles.qrMeta} numberOfLines={2}>
               {data.service?.name} · {shortDate(data.booking?.booking_date)} · {data.booking?.booking_time} WITA
             </Text>
@@ -216,7 +221,9 @@ export default function PaymentStatusScreen() {
           <View style={styles.escrowBox}>
             <Ionicons name="shield-checkmark-outline" size={22} color={COLORS.info} />
             <Text style={styles.escrowText}>
-              Uangmu ditahan PangkasKAKA dan baru diteruskan ke barbershop setelah potong rambut selesai.
+              {isHomeService
+                ? "Uangmu ditahan PangkasKAKA dan baru diteruskan ke StreetBarber setelah potong rambut selesai."
+                : "Uangmu ditahan PangkasKAKA dan baru diteruskan ke barbershop setelah potong rambut selesai."}
             </Text>
           </View>
         )}
@@ -241,19 +248,33 @@ export default function PaymentStatusScreen() {
         <View style={styles.card}>
           <Text style={styles.sec}>DETAIL BOOKING</Text>
           <View style={styles.shopRow}>
-            {data.shop?.image ? (
+            {isHomeService ? (
+              data.barber?.photo ? (
+                <Image source={{ uri: data.barber.photo }} style={styles.shopImg} contentFit="cover" />
+              ) : (
+                <View style={[styles.shopImg, styles.shopImgFallback]}><Ionicons name="person" size={24} color={COLORS.brand} /></View>
+              )
+            ) : data.shop?.image ? (
               <Image source={{ uri: data.shop.image }} style={styles.shopImg} contentFit="cover" />
             ) : (
               <View style={[styles.shopImg, styles.shopImgFallback]}><Ionicons name="storefront" size={24} color={COLORS.brand} /></View>
             )}
             <View style={{ flex: 1 }}>
-              <Text style={styles.shopName}>{data.shop?.name}</Text>
-              <Text style={styles.shopAddr} numberOfLines={2}>{data.shop?.address}</Text>
+              <Text style={styles.shopName}>{isHomeService ? data.barber?.name : data.shop?.name}</Text>
+              {isHomeService ? (
+                <Text style={styles.shopAddr} numberOfLines={2}>StreetBarber · Panggilan ke rumah</Text>
+              ) : (
+                <Text style={styles.shopAddr} numberOfLines={2}>{data.shop?.address}</Text>
+              )}
             </View>
           </View>
 
           <Row label="Layanan" value={data.service?.name} />
-          <Row label="Barber" value={data.barber?.name} />
+          {isHomeService ? (
+            <Row label="Divalidasi oleh" value={data.shop?.name} />
+          ) : (
+            <Row label="Barber" value={data.barber?.name} />
+          )}
           <Row label="Tanggal" value={data.booking?.booking_date} />
           <Row label="Jam" value={`${data.booking?.booking_time} WITA`} />
           <View style={styles.divider} />
