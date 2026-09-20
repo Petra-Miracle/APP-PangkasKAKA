@@ -1,0 +1,57 @@
+@import "tailwindcss";
+
+/* Token disalin persis dari COLORS di frontend/src/lib/api.ts (app mobile) —
+   tema krem hangat + amber, BUKAN dark/orange dari design_guidelines.json
+   yang sudah usang/tidak dipakai lagi oleh app yang jalan sekarang. */
+:root {
+  --surface: #f7f3ec;
+  --surface-2: #ffffff;
+  --surface-3: #f5efe3;
+  --on-surface: #0f1a2e;
+  --on-surface-2: #3a4761;
+  --on-surface-3: #6c7789;
+
+  --brand: #f5a524;
+  --brand-primary: #f5a524;
+  --on-brand-primary: #0f1a2e;
+  --brand-secondary: #c97a08;
+  --brand-dim: #fdf0d9;
+  --brand-tertiary: #c97a08;
+
+  --success: #12915a;
+  --warning: #f5a524;
+  --error: #d6382b;
+
+  --border: #e7e1d6;
+  --border-strong: #cbccc9;
+  --divider: #e7e1d6;
+}
+
+@theme inline {
+  --color-surface: var(--surface);
+  --color-on-surface: var(--on-surface);
+  --color-surface-2: var(--surface-2);
+  --color-on-surface-2: var(--on-surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-on-surface-3: var(--on-surface-3);
+  --color-brand: var(--brand);
+  --color-brand-primary: var(--brand-primary);
+  --color-on-brand-primary: var(--on-brand-primary);
+  --color-brand-secondary: var(--brand-secondary);
+  --color-brand-dim: var(--brand-dim);
+  --color-brand-tertiary: var(--brand-tertiary);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-divider: var(--divider);
+  --font-display: var(--font-jakarta);
+  --font-sans: var(--font-jakarta);
+}
+
+body {
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: var(--font-jakarta), Arial, Helvetica, sans-serif;
+}

@@ -1,4 +1,6 @@
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { useState } from "react";
+import { View, Text, StyleSheet, ScrollView, Pressable } from "react-native";
+import { Image } from "expo-image";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -6,12 +8,17 @@ import { useRouter } from "expo-router";
 import { COLORS, FONT } from "@/src/lib/api";
 import PressableScale from "@/src/components/PressableScale";
 
+const APK_URL =
+  "https://github.com/Petra-Miracle/APP-PangkasKAKA/releases/latest";
+
 // AI Face Scan butuh akses kamera native (react-native-vision-camera) yang
 // tidak punya implementasi web — file .web.tsx ini otomatis dipilih Metro saat
 // build untuk web, supaya modul native itu tidak ikut ter-bundle/dieksekusi di
 // browser (yang akan crash). Fitur asli tetap jalan penuh di aplikasi mobile.
 export default function AIScanWeb() {
   const router = useRouter();
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
@@ -51,6 +58,33 @@ export default function AIScanWeb() {
           </PressableScale>
         </View>
       </ScrollView>
+
+      {!bannerDismissed && (
+        <View style={styles.a2hsWrap}>
+          <View style={styles.a2hsCard}>
+            <Image
+              source={require("@/assets/images/icon-app.png")}
+              style={styles.a2hsIcon}
+              contentFit="cover"
+            />
+            <Text style={styles.a2hsText} numberOfLines={1}>
+              Pasang aplikasi PangkasKAKA untuk coba AI Face Scan
+            </Text>
+            <Pressable
+              onPress={() => {
+                if (typeof window !== "undefined") window.open(APK_URL, "_blank");
+              }}
+              style={styles.a2hsAction}
+              hitSlop={8}
+            >
+              <Ionicons name="download-outline" size={18} color={COLORS.onBrand} />
+            </Pressable>
+            <Pressable onPress={() => setBannerDismissed(true)} style={styles.a2hsClose} hitSlop={8}>
+              <Ionicons name="close" size={16} color={COLORS.textDim} />
+            </Pressable>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -75,4 +109,22 @@ const styles = StyleSheet.create({
   btnWrap: { borderRadius: 14, marginTop: 20, overflow: "hidden", shadowColor: COLORS.brand, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4 },
   btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingHorizontal: 24, paddingVertical: 14 },
   btnText: { color: COLORS.onBrand, fontFamily: FONT.extrabold, letterSpacing: 0.8, fontSize: 13 },
+
+  // Banner ala "Add to Home Screen" — pola familiar yang sudah dikenal user
+  // dari PWA/app install prompt di browser lain, dipakai ulang di sini
+  // sebagai ajakan install aplikasi khusus untuk fitur AI Face Scan.
+  a2hsWrap: { position: "absolute", left: 0, right: 0, bottom: 16, paddingHorizontal: 16, alignItems: "center" },
+  a2hsCard: {
+    flexDirection: "row", alignItems: "center", gap: 10, width: "100%", maxWidth: 380,
+    backgroundColor: COLORS.surface, borderRadius: 16, borderWidth: 1, borderColor: COLORS.border,
+    paddingVertical: 10, paddingHorizontal: 12,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.35, shadowRadius: 20, elevation: 8,
+  },
+  a2hsIcon: { width: 36, height: 36, borderRadius: 10 },
+  a2hsText: { flex: 1, color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 13 },
+  a2hsAction: {
+    width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center",
+    backgroundColor: COLORS.brand,
+  },
+  a2hsClose: { width: 24, height: 24, alignItems: "center", justifyContent: "center" },
 });
