@@ -1393,13 +1393,9 @@ async def barber_profile(barber_id: str):
     barber = await db.barbers.find_one({"id": barber_id, "status": "active"}, {"_id": 0})
     if not barber or not barber.get("karyawan_id"):
         raise HTTPException(404, "StreetBarber tidak ditemukan")
-    # 3 query independen (tidak saling bergantung) — paralel lewat gather,
-    # bukan sequential, karena tiap round-trip ke Atlas berbiaya ~200ms.
-    karyawan, shop, services = await asyncio.gather(
-        db.karyawan.find_one({"id": barber["karyawan_id"]}, {"_id": 0}),
-        db.barbershops.find_one({"id": barber["shop_id"]}, {"_id": 0, "name": 1}),
-        db.streetbarber_services.find({"karyawan_id": barber["karyawan_id"]}, {"_id": 0}).to_list(200),
-    )
+    karyawan = await db.karyawan.find_one({"id": barber["karyawan_id"]}, {"_id": 0})
+    shop = await db.barbershops.find_one({"id": barber["shop_id"]}, {"_id": 0, "name": 1})
+    services = await db.streetbarber_services.find({"karyawan_id": barber["karyawan_id"]}, {"_id": 0}).to_list(200)
     barber["services"] = services
     barber["home_service_fee"] = (karyawan or {}).get("home_service_fee", 0)
     barber["shop_name"] = shop["name"] if shop else ""
