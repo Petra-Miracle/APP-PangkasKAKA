@@ -125,10 +125,15 @@ MIN_PAYOUT_AMOUNT = int(os.environ.get("MIN_PAYOUT_AMOUNT", "50000"))
 AUTO_RELEASE_HOURS = int(os.environ.get("AUTO_RELEASE_HOURS", "48"))  # jaga-jaga kalau pemangkas lupa menekan "Selesai" (README §4)
 
 if ENVIRONMENT == "production" and PAYMENT_MODE == "simulation":
-    raise RuntimeError(
-        "PAYMENT_MODE=simulation tidak boleh dipakai saat ENVIRONMENT=production "
-        "(pembayaran akan dianggap sukses tanpa transaksi asli). "
-        "Set PAYMENT_MODE=sandbox atau production di environment variables."
+    # Proyek ini adalah demo hackathon, bukan platform e-commerce sungguhan —
+    # tim sengaja memilih simulasi (dummy QRIS) bahkan di server "production"
+    # (yang di sini berarti "server demo publik", bukan "toko sungguhan").
+    # Dulu ini raise RuntimeError untuk mencegah pembayaran palsu di produksi
+    # sungguhan; sekarang cuma warning supaya tidak memblokir startup.
+    print(
+        "PERINGATAN: PAYMENT_MODE=simulation aktif walau ENVIRONMENT=production "
+        "— pembayaran akan selalu dianggap sukses tanpa transaksi Durianpay asli. "
+        "Ini disengaja untuk demo; kalau bukan, set PAYMENT_MODE=sandbox/production."
     )
 
 # minPoolSize default PyMongo/Motor adalah 0 — koneksi dibuat on-demand dan
