@@ -3132,7 +3132,9 @@ async def admin_suspend_user(user_id: str, body: SuspendUserIn, user=Depends(req
     if not target:
         raise HTTPException(404, "User tidak ditemukan")
     if target["role"] == "superadmin":
-        raise HTTPException(400, "Tidak bisa menangguhkan akun admin")
+        remaining = await db.profiles.count_documents({"role": "superadmin"})
+        if remaining <= 1:
+            raise HTTPException(400, "Tidak bisa menangguhkan superadmin terakhir")
     await db.profiles.update_one({"id": user_id}, {"$set": {
         "is_suspended": True,
         "suspended_reason": body.reason or "",
@@ -3162,6 +3164,10 @@ async def admin_update_user_role(user_id: str, body: UpdateUserRoleIn, user=Depe
     target = await db.profiles.find_one({"id": user_id}, {"_id": 0})
     if not target:
         raise HTTPException(404, "User tidak ditemukan")
+    if target["role"] == "superadmin" and body.role != "superadmin":
+        remaining = await db.profiles.count_documents({"role": "superadmin"})
+        if remaining <= 1:
+            raise HTTPException(400, "Tidak bisa menurunkan role superadmin terakhir")
     await db.profiles.update_one({"id": user_id}, {"$set": {"role": body.role}})
     await send_notif(user_id, "Role akun diperbarui", f"Role akun Anda diubah menjadi {body.role} oleh admin.", "system")
     return {"ok": True, "role": body.role}
@@ -3175,7 +3181,9 @@ async def admin_delete_user(user_id: str, user=Depends(require_role("superadmin"
     if not target:
         raise HTTPException(404, "User tidak ditemukan")
     if target["role"] == "superadmin":
-        raise HTTPException(400, "Tidak bisa menghapus akun admin")
+        remaining = await db.profiles.count_documents({"role": "superadmin"})
+        if remaining <= 1:
+            raise HTTPException(400, "Tidak bisa menghapus superadmin terakhir")
     if target["role"] == "owner" and await db.barbershops.find_one({"owner_id": user_id}):
         raise HTTPException(400, "Pemilik ini masih punya toko terdaftar — hapus atau alihkan tokonya dulu sebelum menghapus akun")
     await db.profiles.delete_one({"id": user_id})
