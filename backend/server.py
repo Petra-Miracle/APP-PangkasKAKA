@@ -131,7 +131,14 @@ if ENVIRONMENT == "production" and PAYMENT_MODE == "simulation":
         "Set PAYMENT_MODE=sandbox atau production di environment variables."
     )
 
-client = AsyncIOMotorClient(MONGO_URL)
+# minPoolSize default PyMongo/Motor adalah 0 — koneksi dibuat on-demand dan
+# ditutup saat idle, jadi tiap request yang tidak kebetulan reuse koneksi
+# yang masih hidup bayar penuh biaya TCP+TLS handshake baru ke Atlas (bisa
+# beberapa detik, terlihat dari latensi production yang jauh lebih tinggi
+# & lebih bervariasi daripada saat diuji lokal). minPoolSize menjaga
+# sejumlah koneksi tetap terbuka di background supaya request normal
+# selalu dapat koneksi yang sudah hangat.
+client = AsyncIOMotorClient(MONGO_URL, minPoolSize=10)
 db = client[DB_NAME]
 
 app = FastAPI(title="PangkasKAKA API")
