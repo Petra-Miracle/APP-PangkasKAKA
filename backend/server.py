@@ -915,13 +915,21 @@ async def compute_available_slots(shop_id: str, barber_id: str, date_str: str, s
     shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0, "is_open": 1})
     if shop and shop.get("is_open") is False:
         return []
-    override = await db.shop_schedule_overrides.find_one({"shop_id": shop_id, "date": date_str}, {"_id": 0})
+    d = datetime.strptime(date_str, "%Y-%m-%d").date()
+    # override & bookings tidak saling bergantung — jalankan paralel (lihat
+    # catatan yang sama di compute_available_slots_barber).
+    override, bookings = await asyncio.gather(
+        db.shop_schedule_overrides.find_one({"shop_id": shop_id, "date": date_str}, {"_id": 0}),
+        db.bookings.find(
+            {"barber_id": barber_id, "booking_date": date_str, "status": {"$ne": "cancelled"}},
+            {"_id": 0, "booking_time": 1, "duration": 1},
+        ).to_list(500),
+    )
     if override:
         if override.get("is_closed"):
             return []
         open_time, close_time = override["open_time"], override["close_time"]
     else:
-        d = datetime.strptime(date_str, "%Y-%m-%d").date()
         wd = d.weekday()  # Mon=0..Sun=6
         day_name = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][wd]
         sched = await db.shop_schedules.find_one({"shop_id": shop_id, "day_name": day_name}, {"_id": 0})
@@ -929,11 +937,6 @@ async def compute_available_slots(shop_id: str, barber_id: str, date_str: str, s
             return []
         open_time, close_time = sched["open_time"], sched["close_time"]
     all_slots = gen_time_slots(open_time, close_time, 30)
-    # existing bookings
-    bookings = await db.bookings.find(
-        {"barber_id": barber_id, "booking_date": date_str, "status": {"$ne": "cancelled"}},
-        {"_id": 0, "booking_time": 1, "duration": 1},
-    ).to_list(500)
     booked_ranges = []
     for b in bookings:
         bt = time_to_min(b["booking_time"])
@@ -958,7 +961,17 @@ async def compute_available_slots_barber(barber_id: str, karyawan_id: str, date_
     jadwal dibaca dari karyawan_schedules/karyawan_schedule_overrides milik
     barber itu sendiri, bukan jam buka toko manapun."""
     d = datetime.strptime(date_str, "%Y-%m-%d").date()
-    override = await db.karyawan_schedule_overrides.find_one({"karyawan_id": karyawan_id, "date": date_str}, {"_id": 0})
+    # override & bookings tidak saling bergantung — jalankan paralel. Kalau
+    # ternyata override menutup hari ini, bookings yang sudah terlanjur
+    # diambil dibuang saja (query murah, biaya sebenarnya di latensi round-trip
+    # yang sudah dibayar bersamaan, bukan di query itu sendiri).
+    override, bookings = await asyncio.gather(
+        db.karyawan_schedule_overrides.find_one({"karyawan_id": karyawan_id, "date": date_str}, {"_id": 0}),
+        db.bookings.find(
+            {"barber_id": barber_id, "booking_date": date_str, "status": {"$ne": "cancelled"}},
+            {"_id": 0, "booking_time": 1, "duration": 1},
+        ).to_list(500),
+    )
     if override:
         if override.get("is_closed"):
             return []
@@ -971,10 +984,6 @@ async def compute_available_slots_barber(barber_id: str, karyawan_id: str, date_
             return []
         open_time, close_time = sched["open_time"], sched["close_time"]
     all_slots = gen_time_slots(open_time, close_time, 30)
-    bookings = await db.bookings.find(
-        {"barber_id": barber_id, "booking_date": date_str, "status": {"$ne": "cancelled"}},
-        {"_id": 0, "booking_time": 1, "duration": 1},
-    ).to_list(500)
     booked_ranges = []
     for b in bookings:
         bt = time_to_min(b["booking_time"])
@@ -1384,9 +1393,13 @@ async def barber_profile(barber_id: str):
     barber = await db.barbers.find_one({"id": barber_id, "status": "active"}, {"_id": 0})
     if not barber or not barber.get("karyawan_id"):
         raise HTTPException(404, "StreetBarber tidak ditemukan")
-    karyawan = await db.karyawan.find_one({"id": barber["karyawan_id"]}, {"_id": 0})
-    shop = await db.barbershops.find_one({"id": barber["shop_id"]}, {"_id": 0, "name": 1})
-    services = await db.streetbarber_services.find({"karyawan_id": barber["karyawan_id"]}, {"_id": 0}).to_list(200)
+    # 3 query independen (tidak saling bergantung) — paralel lewat gather,
+    # bukan sequential, karena tiap round-trip ke Atlas berbiaya ~200ms.
+    karyawan, shop, services = await asyncio.gather(
+        db.karyawan.find_one({"id": barber["karyawan_id"]}, {"_id": 0}),
+        db.barbershops.find_one({"id": barber["shop_id"]}, {"_id": 0, "name": 1}),
+        db.streetbarber_services.find({"karyawan_id": barber["karyawan_id"]}, {"_id": 0}).to_list(200),
+    )
     barber["services"] = services
     barber["home_service_fee"] = (karyawan or {}).get("home_service_fee", 0)
     barber["shop_name"] = shop["name"] if shop else ""
@@ -1395,11 +1408,15 @@ async def barber_profile(barber_id: str):
 
 @api.get("/barbers/{barber_id}/slots")
 async def get_barber_slots(barber_id: str, date: str, service_id: str):
-    await expire_stale_bookings()
-    barber = await db.barbers.find_one({"id": barber_id}, {"_id": 0, "karyawan_id": 1})
+    # Housekeeping lazy-cleanup, tidak perlu diblokir menunggu selesai —
+    # dijalankan di background supaya tidak menambah latensi respons ini.
+    asyncio.create_task(expire_stale_bookings())
+    barber, svc = await asyncio.gather(
+        db.barbers.find_one({"id": barber_id}, {"_id": 0, "karyawan_id": 1}),
+        db.streetbarber_services.find_one({"id": service_id}, {"_id": 0}),
+    )
     if not barber or not barber.get("karyawan_id"):
         raise HTTPException(404, "StreetBarber tidak ditemukan")
-    svc = await db.streetbarber_services.find_one({"id": service_id}, {"_id": 0})
     if not svc:
         raise HTTPException(404, "Layanan tidak ditemukan")
     slots = await compute_available_slots_barber(barber_id, barber["karyawan_id"], date, svc["duration"])
@@ -1440,7 +1457,7 @@ async def shop_detail(shop_id: str):
 
 @api.get("/shops/{shop_id}/slots")
 async def get_slots(shop_id: str, barber_id: str, date: str, service_id: str):
-    await expire_stale_bookings()
+    asyncio.create_task(expire_stale_bookings())
     svc = await db.services.find_one({"id": service_id}, {"_id": 0})
     if not svc:
         raise HTTPException(404, "Layanan tidak ditemukan")
@@ -1453,7 +1470,7 @@ async def get_slots(shop_id: str, barber_id: str, date: str, service_id: str):
 # ============================================================
 @api.post("/bookings")
 async def create_booking(body: BookingIn, user=Depends(get_current_user)):
-    await expire_stale_bookings()
+    asyncio.create_task(expire_stale_bookings())
     barber = await db.barbers.find_one({"id": body.barber_id}, {"_id": 0})
     if not barber:
         raise HTTPException(404, "Barber tidak ditemukan")
@@ -1486,12 +1503,15 @@ async def create_booking(body: BookingIn, user=Depends(get_current_user)):
     home_service_fee = 0
     eta_minutes_at_booking = None
     if body.delivery_mode == "rumah":
-        karyawan = await db.karyawan.find_one({"id": barber["karyawan_id"]}, {"_id": 0, "home_service_fee": 1})
+        # karyawan & loc tidak saling bergantung — jalankan paralel.
+        karyawan, loc = await asyncio.gather(
+            db.karyawan.find_one({"id": barber["karyawan_id"]}, {"_id": 0, "home_service_fee": 1}),
+            # Batas layanan 30 menit perjalanan (README §3) — dicek juga di saat booking dibuat,
+            # bukan cuma di pencarian /barbers/nearby, karena barber sudah dipilih spesifik di sini.
+            db.karyawan_locations.find_one({"karyawan_id": barber["karyawan_id"]}, {"_id": 0}),
+        )
         home_service_fee = (karyawan or {}).get("home_service_fee", 0)
         price += home_service_fee
-        # Batas layanan 30 menit perjalanan (README §3) — dicek juga di saat booking dibuat,
-        # bukan cuma di pencarian /barbers/nearby, karena barber sudah dipilih spesifik di sini.
-        loc = await db.karyawan_locations.find_one({"karyawan_id": barber["karyawan_id"]}, {"_id": 0})
         if not loc or not loc.get("is_online"):
             raise HTTPException(400, "StreetBarber ini sedang tidak online, tidak bisa menerima panggilan ke rumah")
         distance_km = haversine_km(body.customer_lat, body.customer_lng, loc["lat"], loc["lng"])
