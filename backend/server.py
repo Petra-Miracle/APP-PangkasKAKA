@@ -2033,8 +2033,49 @@ async def admin_review_doc(shop_id: str, doc_key: str, body: DocReviewIn, user=D
 DOCUMENT_PREVIEW_TTL_SECONDS = 300
 
 
+class DocumentUnlockIn(BaseModel):
+    secret: str
+
+
+class DocumentAccessIn(BaseModel):
+    unlock_token: str
+
+
+DOCUMENT_UNLOCK_TTL_SECONDS = 300
+
+
+async def _require_document_unlock_token(unlock_token: str, user_id: str):
+    """Sesi buka-dokumen harus masih hidup dan milik pemanggil — tanpa ini
+    preview-token/ai-review menolak walaupun token loginnya superadmin."""
+    row = await db.document_unlock_tokens.find_one({"token": unlock_token}, {"_id": 0})
+    if not row or row.get("issued_by") != user_id:
+        raise HTTPException(403, "Akses dokumen terkunci — masukkan secret key dulu")
+    if datetime.fromisoformat(row["expires_at"]) < now_utc():
+        raise HTTPException(403, "Akses dokumen sudah kedaluwarsa — masukkan secret key lagi")
+
+
+@api.post("/admin/documents/unlock")
+async def unlock_documents(body: DocumentUnlockIn, request: Request, user=Depends(require_role("superadmin"))):
+    """Tukar secret key SuperAdmin (env DOCUMENT_SECRET, hanya diketahui pemilik
+    platform) dengan unlock_token 5 menit untuk membuka dokumen verifikasi."""
+    rate_limit(f"docunlock:{request.client.host}", max_requests=10, window_seconds=600)
+    expected = os.environ.get("DOCUMENT_SECRET", "")
+    if not expected:
+        raise HTTPException(500, "DOCUMENT_SECRET belum diset di server")
+    if not secrets.compare_digest(body.secret, expected):
+        raise HTTPException(403, "Secret key salah")
+    token = secrets.token_urlsafe(32)
+    await db.document_unlock_tokens.insert_one({
+        "token": token, "issued_by": user["id"],
+        "expires_at": (now_utc() + timedelta(seconds=DOCUMENT_UNLOCK_TTL_SECONDS)).isoformat(),
+        "created_at": now_utc().isoformat(),
+    })
+    return {"unlock_token": token, "expires_in": DOCUMENT_UNLOCK_TTL_SECONDS}
+
+
 @api.post("/admin/shops/{shop_id}/documents/{doc_key}/preview-token")
-async def mint_document_preview_token(shop_id: str, doc_key: str, user=Depends(require_role("superadmin"))):
+async def mint_document_preview_token(shop_id: str, doc_key: str, body: DocumentAccessIn, user=Depends(require_role("superadmin"))):
+    await _require_document_unlock_token(body.unlock_token, user["id"])
     if doc_key not in ("ktp", "nib", "npwp", "surat_usaha", "toko"):
         raise HTTPException(400, "Doc key tidak valid")
     shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0, "docs": 1})
@@ -2122,12 +2163,13 @@ DOC_AI_GUIDANCE = {
 
 
 @api.post("/admin/shops/{shop_id}/documents/{doc_key}/ai-review")
-async def admin_ai_review_doc(shop_id: str, doc_key: str, user=Depends(require_role("superadmin"))):
+async def admin_ai_review_doc(shop_id: str, doc_key: str, body: DocumentAccessIn, user=Depends(require_role("superadmin"))):
     """Advisory-only: asks Gemini Vision to describe what it reads in the
     document and flag anything inconsistent with a genuine one, to help the
     admin's own review. Never decides valid/invalid itself, and never writes
     anything to the database — the result is returned once and forgotten,
     same as this call not happening if GEMINI_API_KEY isn't configured."""
+    await _require_document_unlock_token(body.unlock_token, user["id"])
     if doc_key not in DOC_LABELS:
         raise HTTPException(400, "Doc key tidak valid")
     if not _gemini_client:
@@ -3065,6 +3107,27 @@ async def admin_pending(user=Depends(require_role("superadmin"))):
             doc["has_file"] = bool(doc.get("url"))
             doc.pop("url", None)
     return {"shops": shops}
+
+
+@api.get("/admin/shops/{shop_id}")
+async def admin_shop_detail(shop_id: str, user=Depends(require_role("superadmin"))):
+    """DTO khusus SuperAdmin untuk halaman verifikasi: info toko + owner + status
+    dokumen, TANPA URL dokumen asli (disensor seperti /admin/pending-shops —
+    URL R2 tidak pernah dikirim ke client sebelum sesi unlock)."""
+    shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0})
+    if not shop:
+        raise HTTPException(404, "Toko tidak ditemukan")
+    if shop.get("owner_id"):
+        shop["owner"] = await db.profiles.find_one({"id": shop["owner_id"]}, {"_id": 0, "name": 1, "email": 1, "phone": 1})
+    else:
+        # Pengajuan publik belum punya akun — pakai data pemohon apa adanya.
+        shop["owner"] = {"name": shop.get("applicant_name"), "email": shop.get("applicant_email"), "phone": shop.get("applicant_phone")}
+    for doc in (shop.get("docs") or {}).values():
+        doc["has_file"] = bool(doc.get("url"))
+        doc.pop("url", None)
+    for flat in ("doc_ktp", "doc_nib", "doc_npwp", "doc_surat_usaha", "doc_toko"):
+        shop.pop(flat, None)
+    return shop
 
 
 @api.post("/admin/shops/{shop_id}/verify")
