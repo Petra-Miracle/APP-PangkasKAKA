@@ -14,6 +14,7 @@ import logging
 import asyncio
 import secrets
 import mimetypes
+import time
 from pathlib import Path
 from datetime import datetime, timedelta, timezone, date, time as dtime
 from typing import List, Optional, Any, Literal, Dict
@@ -28,7 +29,7 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Body, Re
 from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
-from pymongo import ReturnDocument
+from pymongo import ReturnDocument, monitoring as pymongo_monitoring
 from pydantic import BaseModel, Field, EmailStr, field_validator
 
 # Cryptography (Durianpay webhook RSA-2048 verification)
@@ -136,6 +137,32 @@ if ENVIRONMENT == "production" and PAYMENT_MODE == "simulation":
         "Ini disengaja untuk demo; kalau bukan, set PAYMENT_MODE=sandbox/production."
     )
 
+MONGO_SLOW_QUERY_MS = float(os.environ.get("MONGO_SLOW_QUERY_MS", "100"))
+
+
+class _QueryTimingLogger(pymongo_monitoring.CommandListener):
+    """Log durasi tiap perintah MongoDB (find/update/insert/dst) tanpa perlu
+    membungkus ratusan call-site db.xxx.find(...) satu-satu. Query lambat
+    (> MONGO_SLOW_QUERY_MS) selalu tercatat di INFO; query lain hanya di DEBUG
+    supaya log production tidak banjir — set LOG_LEVEL=DEBUG untuk lihat semua."""
+
+    def started(self, event):
+        pass
+
+    def succeeded(self, event):
+        ms = event.duration_micros / 1000
+        coll = event.command.get(event.command_name, "?")
+        line = f"mongo {event.command_name} collection={coll} duration_ms={ms:.0f}"
+        log.info(line) if ms >= MONGO_SLOW_QUERY_MS else log.debug(line)
+
+    def failed(self, event):
+        ms = event.duration_micros / 1000
+        coll = event.command.get(event.command_name, "?")
+        log.warning(f"mongo {event.command_name} collection={coll} duration_ms={ms:.0f} FAILED: {event.failure}")
+
+
+pymongo_monitoring.register(_QueryTimingLogger())
+
 # minPoolSize default PyMongo/Motor adalah 0 — koneksi dibuat on-demand dan
 # ditutup saat idle, jadi tiap request yang tidak kebetulan reuse koneksi
 # yang masih hidup bayar penuh biaya TCP+TLS handshake baru ke Atlas (bisa
@@ -143,13 +170,22 @@ if ENVIRONMENT == "production" and PAYMENT_MODE == "simulation":
 # & lebih bervariasi daripada saat diuji lokal). minPoolSize menjaga
 # sejumlah koneksi tetap terbuka di background supaya request normal
 # selalu dapat koneksi yang sudah hangat.
-client = AsyncIOMotorClient(MONGO_URL, minPoolSize=10)
+client = AsyncIOMotorClient(
+    MONGO_URL, minPoolSize=10,
+    # Tanpa batas ini, satu operasi yang macet di sisi Atlas (jaringan/DNS
+    # bermasalah, dsb) bisa menahan request selamanya — sama seperti fetch()
+    # tanpa timeout di frontend. Gagal cepat supaya request bisa retry/expose
+    # error yang jelas, bukan menggantung.
+    serverSelectionTimeoutMS=8000, connectTimeoutMS=8000, socketTimeoutMS=20000,
+)
 db = client[DB_NAME]
 
 app = FastAPI(title="PangkasKAKA API")
 api = APIRouter(prefix="/api")
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# LOG_LEVEL env var supaya request-timing log bisa dikurangi di production
+# (mis. set ke WARNING) tanpa perlu ubah kode.
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper(), format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("pangkaskaka")
 
 WITA = timezone(timedelta(hours=8))
@@ -1325,7 +1361,17 @@ async def list_shops(
         return out
 
     shops, _ = await asyncio.gather(
-        db.barbershops.find({"is_verified": True, "verification_status": "approved"}, {"_id": 0}).to_list(500),
+        # Proyeksi eksplisit — dokumen toko juga menyimpan sop_document_url
+        # (PDF base64, ratusan KB) plus data KYC/finansial (doc_ktp, doc_nib,
+        # account_number, dst) yang tidak pernah dipakai layar daftar toko.
+        # Tanpa ini, GET /shops bisa mengirim ratusan KB per toko yang sama
+        # sekali tidak relevan untuk UI browse.
+        db.barbershops.find(
+            {"is_verified": True, "verification_status": "approved"},
+            {"_id": 0, "sop_document_url": 0, "sop_updated_at": 0, "doc_ktp": 0, "doc_nib": 0,
+             "doc_npwp": 0, "doc_surat_usaha": 0, "account_holder": 0, "account_number": 0,
+             "bank_name": 0, "verification_note": 0},
+        ).to_list(500),
         expire_stale_bookings(),
     )
     shop_ids = [s["id"] for s in shops]
@@ -4293,8 +4339,11 @@ async def analytics_customer(user=Depends(require_role("customer"))):
     active = None
     if upcoming:
         b = upcoming[0]
-        b["shop"] = await db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0, "name": 1, "image": 1, "address": 1})
-        barber = await db.barbers.find_one({"id": b["barber_id"]}, {"_id": 0, "name": 1, "photo": 1, "karyawan_id": 1})
+        shop, barber = await asyncio.gather(
+            db.barbershops.find_one({"id": b["shop_id"]}, {"_id": 0, "name": 1, "image": 1, "address": 1}),
+            db.barbers.find_one({"id": b["barber_id"]}, {"_id": 0, "name": 1, "photo": 1, "karyawan_id": 1}),
+        )
+        b["shop"] = shop
         b["barber"] = barber
         b["is_street_barber"] = bool(barber and barber.get("karyawan_id"))
         if b["is_street_barber"]:
@@ -4313,28 +4362,35 @@ async def analytics_customer(user=Depends(require_role("customer"))):
     shop_counts: dict = {}
     for b in completed:
         shop_counts[b["shop_id"]] = shop_counts.get(b["shop_id"], 0) + 1
-    fav_shop = None
-    if shop_counts:
-        top = max(shop_counts, key=shop_counts.get)
-        fav_shop = await db.barbershops.find_one({"id": top}, {"_id": 0, "name": 1, "image": 1})
-        if fav_shop: fav_shop["visits"] = shop_counts[top]
-
     # favorite barber
     barber_counts: dict = {}
     for b in completed:
         barber_counts[b["barber_id"]] = barber_counts.get(b["barber_id"], 0) + 1
-    fav_barber = None
-    if barber_counts:
+
+    async def _fav_shop():
+        if not shop_counts: return None
+        top = max(shop_counts, key=shop_counts.get)
+        s = await db.barbershops.find_one({"id": top}, {"_id": 0, "name": 1, "image": 1})
+        if s: s["visits"] = shop_counts[top]
+        return s
+
+    async def _fav_barber():
+        if not barber_counts: return None
         top = max(barber_counts, key=barber_counts.get)
-        fav_barber = await db.barbers.find_one({"id": top}, {"_id": 0, "name": 1, "photo": 1, "skill_level": 1})
-        if fav_barber: fav_barber["visits"] = barber_counts[top]
+        b = await db.barbers.find_one({"id": top}, {"_id": 0, "name": 1, "photo": 1, "skill_level": 1})
+        if b: b["visits"] = barber_counts[top]
+        return b
+
+    fav_shop, fav_barber = await asyncio.gather(_fav_shop(), _fav_barber())
 
     # most recent completed booking, for a one-tap "pesan ulang" shortcut
     last_booking = None
     if completed:
         lb = sorted(completed, key=lambda x: x["created_at"], reverse=True)[0]
-        shop = await db.barbershops.find_one({"id": lb["shop_id"]}, {"_id": 0, "name": 1, "image": 1})
-        barber = await db.barbers.find_one({"id": lb["barber_id"]}, {"_id": 0, "name": 1, "photo": 1, "karyawan_id": 1})
+        shop, barber = await asyncio.gather(
+            db.barbershops.find_one({"id": lb["shop_id"]}, {"_id": 0, "name": 1, "image": 1}),
+            db.barbers.find_one({"id": lb["barber_id"]}, {"_id": 0, "name": 1, "photo": 1, "karyawan_id": 1}),
+        )
         is_sb = bool(barber and barber.get("karyawan_id"))
         if is_sb:
             service = await db.streetbarber_services.find_one({"id": lb["service_id"]}, {"_id": 0, "name": 1})
@@ -5849,6 +5905,20 @@ _cors_origins = (
     ["*"] if CORS_ORIGINS.strip() == "*"
     else [o.strip() for o in CORS_ORIGINS.split(",") if o.strip()]
 )
+@app.middleware("http")
+async def log_request_timing(request: Request, call_next):
+    # Observability murni: method, path, status, durasi. Tidak pernah log
+    # header (Authorization/token ada di situ), body, atau query string
+    # (bisa berisi lat/lng pribadi) — cukup untuk membedakan endpoint yang
+    # lambat karena Railway/network vs karena query MongoDB vs karena payload
+    # besar, tanpa menyentuh data sensitif.
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration_ms = (time.perf_counter() - start) * 1000
+    log.info(f"{request.method} {request.url.path} status={response.status_code} duration_ms={duration_ms:.0f}")
+    return response
+
+
 app.add_middleware(
     CORSMiddleware,
     # allow_credentials + wildcard origin sekaligus itu kombinasi berbahaya
@@ -5899,6 +5969,12 @@ async def ensure_indexes():
     await db.product_orders.create_index("user_id")
     await db.product_orders.create_index("shop_id")
     await db.product_orders.create_index("payment_status")
+    # GET /shops memfilter tepat kombinasi dua field ini bersamaan.
+    await db.barbershops.create_index([("is_verified", 1), ("verification_status", 1)])
+    await db.bookings.create_index("booking_date")
+    # GET /barbers/nearby memfilter is_online, lalu updated_at — compound index
+    # ini melayani kedua tahap filter itu sekaligus.
+    await db.karyawan_locations.create_index([("is_online", 1), ("updated_at", 1)])
 
 
 async def _auto_release_loop():
