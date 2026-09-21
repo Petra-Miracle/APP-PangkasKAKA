@@ -3,6 +3,7 @@
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { useEffect, useState } from "react";
+import { Spinner } from "@heroui/react";
 
 type LoadingScreenProps = {
   size?: number | string;
@@ -113,26 +114,15 @@ export default function LoadingScreen({
           </motion.div>
         </div>
 
-        {message && (
-          <motion.div
-            className="text-center"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2, duration: 0.4 }}
-          >
-            <p className="text-white font-medium text-lg mb-2">{message}</p>
-            <motion.div
-              className="flex items-center justify-center gap-1"
-              initial={{ opacity: 0.6 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.8, repeat: Infinity, repeatType: "reverse" }}
-            >
-              <span className="inline-block w-2 h-2 rounded-full bg-white/60" />
-              <span className="inline-block w-2 h-2 rounded-full bg-white/60" />
-              <span className="inline-block w-2 h-2 rounded-full bg-white/60" />
-            </motion.div>
-          </motion.div>
-        )}
+        <motion.div
+          className="text-center"
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.2, duration: 0.4 }}
+        >
+          <Spinner size="lg" color="current" className="text-white" />
+          {message && <p className="mt-3 text-lg font-medium text-white">{message}</p>}
+        </motion.div>
       </motion.div>
     </motion.div>
   );

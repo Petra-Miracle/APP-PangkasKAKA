@@ -2,6 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Spinner } from "@heroui/react";
 import { api, Slot } from "@/lib/api";
 import BookingStepper from "@/components/BookingStepper";
 
@@ -77,7 +78,9 @@ export default function PilihJadwalPage({
 
         <p className="mt-6 text-xs font-semibold text-on-surface-3">Jam</p>
         {loading ? (
-          <p className="mt-3 text-sm text-on-surface-3">Memuat slot...</p>
+          <div className="mt-6 flex items-center justify-center gap-2 text-sm text-on-surface-3">
+            <Spinner size="sm" color="current" className="text-brand" /> Memuat slot...
+          </div>
         ) : (
           <div className="mt-2 grid grid-cols-4 gap-2 sm:grid-cols-5">
             {slots.map((s) => (

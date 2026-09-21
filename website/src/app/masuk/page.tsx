@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { Mail, Lock, ArrowLeft, Scissors } from "lucide-react";
+import { Spinner } from "@heroui/react";
 import { useAuth } from "@/lib/auth";
 
 function LoginForm() {
@@ -136,8 +137,9 @@ function LoginForm() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 rounded-full bg-brand-primary py-3.5 text-sm font-bold text-on-brand-primary transition hover:brightness-110 disabled:opacity-60"
+              className="mt-2 flex items-center justify-center gap-2 rounded-full bg-brand-primary py-3.5 text-sm font-bold text-on-brand-primary transition hover:brightness-110 disabled:opacity-60"
             >
+              {loading && <Spinner size="sm" color="current" />}
               {loading ? "Memproses..." : "MASUK"}
             </button>
           </form>

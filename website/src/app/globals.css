@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@heroui/react/styles";
 
 /* Token disalin persis dari COLORS di frontend/src/lib/api.ts (app mobile) —
    tema krem hangat + amber, BUKAN dark/orange dari design_guidelines.json

@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Mail, KeyRound, Lock } from "lucide-react";
+import { Spinner } from "@heroui/react";
 import { api } from "@/lib/api";
 
 export default function LupaPasswordPage() {
@@ -73,8 +74,9 @@ export default function LupaPasswordPage() {
           <button
             type="submit"
             disabled={loading}
-            className="mt-2 rounded-full bg-brand-primary py-3.5 text-sm font-bold text-on-brand-primary transition hover:brightness-110 disabled:opacity-60"
+            className="mt-2 flex items-center justify-center gap-2 rounded-full bg-brand-primary py-3.5 text-sm font-bold text-on-brand-primary transition hover:brightness-110 disabled:opacity-60"
           >
+            {loading && <Spinner size="sm" color="current" />}
             {loading ? "Mengirim..." : "Kirim Kode Reset"}
           </button>
         </form>
@@ -109,8 +111,9 @@ export default function LupaPasswordPage() {
           <button
             type="submit"
             disabled={loading}
-            className="mt-2 rounded-full bg-brand-primary py-3.5 text-sm font-bold text-on-brand-primary transition hover:brightness-110 disabled:opacity-60"
+            className="mt-2 flex items-center justify-center gap-2 rounded-full bg-brand-primary py-3.5 text-sm font-bold text-on-brand-primary transition hover:brightness-110 disabled:opacity-60"
           >
+            {loading && <Spinner size="sm" color="current" />}
             {loading ? "Memproses..." : "Reset Password"}
           </button>
         </form>

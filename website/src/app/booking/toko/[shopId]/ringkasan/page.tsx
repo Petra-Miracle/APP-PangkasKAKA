@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, Shop, formatIDR } from "@/lib/api";
 import BookingStepper from "@/components/BookingStepper";
+import LoadingScreen from "@/components/LoadingScreen";
 
 function formatTanggal(iso: string) {
   const d = new Date(iso + "T00:00:00");
@@ -24,10 +25,17 @@ export default function RingkasanTokoPage({
   const time = search.get("time") ?? "";
 
   const [shop, setShop] = useState<Shop | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    api.shopDetail(shopId).then(setShop).catch(() => {});
+    api
+      .shopDetail(shopId)
+      .then(setShop)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [shopId]);
+
+  if (loading) return <LoadingScreen message="Menyiapkan ringkasan booking..." />;
 
   const service = shop?.services?.find((s) => s.id === serviceId);
   const barber = shop?.barbers?.find((b) => b.id === barberId);

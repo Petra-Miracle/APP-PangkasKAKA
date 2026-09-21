@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Clock, User } from "lucide-react";
 import { api, Shop, formatIDR } from "@/lib/api";
 import BookingStepper from "@/components/BookingStepper";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export default function PilihLayananTokoPage({
   params,
@@ -14,12 +15,19 @@ export default function PilihLayananTokoPage({
   const { shopId } = use(params);
   const router = useRouter();
   const [shop, setShop] = useState<Shop | null>(null);
+  const [loading, setLoading] = useState(true);
   const [barberId, setBarberId] = useState("");
   const [serviceId, setServiceId] = useState("");
 
   useEffect(() => {
-    api.shopDetail(shopId).then(setShop).catch(() => {});
+    api
+      .shopDetail(shopId)
+      .then(setShop)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [shopId]);
+
+  if (loading) return <LoadingScreen message="Memuat data toko..." />;
 
   const barbers = (shop?.barbers ?? []).filter((b) => !b.is_street_barber);
   const services = shop?.services ?? [];
@@ -32,7 +40,7 @@ export default function PilihLayananTokoPage({
     <main className="flex-1">
       <BookingStepper active={1} />
       <div className="mx-auto max-w-2xl px-6 py-10">
-        <h1 className="text-lg font-semibold">{shop?.name ?? "Memuat..."}</h1>
+        <h1 className="text-lg font-semibold">{shop?.name ?? "Toko tidak ditemukan"}</h1>
         <p className="text-xs text-on-surface-3">Barbershop</p>
 
         <h2 className="mt-6 text-sm font-semibold text-on-surface-2">Pilih Barber</h2>

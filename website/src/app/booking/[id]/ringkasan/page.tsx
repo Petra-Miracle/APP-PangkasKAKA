@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api, Barber, formatIDR } from "@/lib/api";
 import BookingStepper from "@/components/BookingStepper";
+import LoadingScreen from "@/components/LoadingScreen";
 
 function formatTanggal(iso: string) {
   const d = new Date(iso + "T00:00:00");
@@ -23,11 +24,18 @@ export default function RingkasanPage({
   const time = search.get("time") ?? "";
 
   const [barber, setBarber] = useState<Barber | null>(null);
+  const [loading, setLoading] = useState(true);
   const [address, setAddress] = useState("");
 
   useEffect(() => {
-    api.barberDetail(id).then(setBarber).catch(() => {});
+    api
+      .barberDetail(id)
+      .then(setBarber)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [id]);
+
+  if (loading) return <LoadingScreen message="Menyiapkan ringkasan booking..." />;
 
   const service = barber?.services?.find((s) => s.id === serviceId);
 

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { MapPin, Navigation } from "lucide-react";
 import { api, Booking } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import LoadingScreen from "@/components/LoadingScreen";
 
 export default function TrackingPage({
   params,
@@ -15,6 +16,7 @@ export default function TrackingPage({
   const router = useRouter();
   const { token, user, loading: authLoading } = useAuth();
   const [booking, setBooking] = useState<Booking | null>(null);
+  const [loading, setLoading] = useState(true);
   const [distanceKm, setDistanceKm] = useState<number | null>(null);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [locError, setLocError] = useState("");
@@ -25,7 +27,11 @@ export default function TrackingPage({
       router.replace(`/masuk?next=/tracking/${bookingId}`);
       return;
     }
-    api.bookingDetail(bookingId, token).then(setBooking).catch(() => {});
+    api
+      .bookingDetail(bookingId, token)
+      .then(setBooking)
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [authLoading, user, token, bookingId, router]);
 
   useEffect(() => {
@@ -53,6 +59,8 @@ export default function TrackingPage({
   }, [token, bookingId]);
 
   const etaMinutes = distanceKm != null ? Math.max(1, Math.round((distanceKm / 25) * 60)) : null;
+
+  if (loading) return <LoadingScreen message="Memuat status pemesanan..." />;
 
   return (
     <main className="flex flex-1 flex-col md:flex-row">
