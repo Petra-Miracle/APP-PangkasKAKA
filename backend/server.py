@@ -912,27 +912,30 @@ DAY_NAMES = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"]
 
 
 async def compute_available_slots(shop_id: str, barber_id: str, date_str: str, service_duration: int):
-    shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0, "is_open": 1})
-    if shop and shop.get("is_open") is False:
-        return []
     d = datetime.strptime(date_str, "%Y-%m-%d").date()
-    # override & bookings tidak saling bergantung — jalankan paralel (lihat
-    # catatan yang sama di compute_available_slots_barber).
-    override, bookings = await asyncio.gather(
+    wd = d.weekday()  # Mon=0..Sun=6
+    day_name = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][wd]
+    # shop/override/sched/bookings tidak saling bergantung — ambil semua
+    # sekaligus lewat gather, bukan bertahap. Sched dipakai hanya kalau
+    # override kosong (kasus paling umum), tapi tetap diambil di batch yang
+    # sama supaya tidak ada round-trip sequential tambahan — query yang
+    # ternyata tidak dipakai cuma dibuang, biayanya nol karena paralel.
+    shop, override, sched, bookings = await asyncio.gather(
+        db.barbershops.find_one({"id": shop_id}, {"_id": 0, "is_open": 1}),
         db.shop_schedule_overrides.find_one({"shop_id": shop_id, "date": date_str}, {"_id": 0}),
+        db.shop_schedules.find_one({"shop_id": shop_id, "day_name": day_name}, {"_id": 0}),
         db.bookings.find(
             {"barber_id": barber_id, "booking_date": date_str, "status": {"$ne": "cancelled"}},
             {"_id": 0, "booking_time": 1, "duration": 1},
         ).to_list(500),
     )
+    if shop and shop.get("is_open") is False:
+        return []
     if override:
         if override.get("is_closed"):
             return []
         open_time, close_time = override["open_time"], override["close_time"]
     else:
-        wd = d.weekday()  # Mon=0..Sun=6
-        day_name = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][wd]
-        sched = await db.shop_schedules.find_one({"shop_id": shop_id, "day_name": day_name}, {"_id": 0})
         if not sched or sched.get("is_closed"):
             return []
         open_time, close_time = sched["open_time"], sched["close_time"]
@@ -961,12 +964,13 @@ async def compute_available_slots_barber(barber_id: str, karyawan_id: str, date_
     jadwal dibaca dari karyawan_schedules/karyawan_schedule_overrides milik
     barber itu sendiri, bukan jam buka toko manapun."""
     d = datetime.strptime(date_str, "%Y-%m-%d").date()
-    # override & bookings tidak saling bergantung — jalankan paralel. Kalau
-    # ternyata override menutup hari ini, bookings yang sudah terlanjur
-    # diambil dibuang saja (query murah, biaya sebenarnya di latensi round-trip
-    # yang sudah dibayar bersamaan, bukan di query itu sendiri).
-    override, bookings = await asyncio.gather(
+    wd = d.weekday()  # Mon=0..Sun=6
+    day_name = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][wd]
+    # override/sched/bookings tidak saling bergantung — ambil semua sekaligus
+    # (lihat catatan yang sama di compute_available_slots).
+    override, sched, bookings = await asyncio.gather(
         db.karyawan_schedule_overrides.find_one({"karyawan_id": karyawan_id, "date": date_str}, {"_id": 0}),
+        db.karyawan_schedules.find_one({"karyawan_id": karyawan_id, "day_name": day_name}, {"_id": 0}),
         db.bookings.find(
             {"barber_id": barber_id, "booking_date": date_str, "status": {"$ne": "cancelled"}},
             {"_id": 0, "booking_time": 1, "duration": 1},
@@ -977,9 +981,6 @@ async def compute_available_slots_barber(barber_id: str, karyawan_id: str, date_
             return []
         open_time, close_time = override["open_time"], override["close_time"]
     else:
-        wd = d.weekday()  # Mon=0..Sun=6
-        day_name = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"][wd]
-        sched = await db.karyawan_schedules.find_one({"karyawan_id": karyawan_id, "day_name": day_name}, {"_id": 0})
         if not sched or sched.get("is_closed"):
             return []
         open_time, close_time = sched["open_time"], sched["close_time"]
@@ -1393,9 +1394,14 @@ async def barber_profile(barber_id: str):
     barber = await db.barbers.find_one({"id": barber_id, "status": "active"}, {"_id": 0})
     if not barber or not barber.get("karyawan_id"):
         raise HTTPException(404, "StreetBarber tidak ditemukan")
-    karyawan = await db.karyawan.find_one({"id": barber["karyawan_id"]}, {"_id": 0})
-    shop = await db.barbershops.find_one({"id": barber["shop_id"]}, {"_id": 0, "name": 1})
-    services = await db.streetbarber_services.find({"karyawan_id": barber["karyawan_id"]}, {"_id": 0}).to_list(200)
+    # 3 query independen — paralel lewat gather. Proyeksi karyawan dipersempit
+    # ke home_service_fee saja (satu-satunya field yang dipakai) supaya tidak
+    # menarik ktp_photo/tools_photo/dll yang bisa ratusan KB base64 per dokumen.
+    karyawan, shop, services = await asyncio.gather(
+        db.karyawan.find_one({"id": barber["karyawan_id"]}, {"_id": 0, "home_service_fee": 1}),
+        db.barbershops.find_one({"id": barber["shop_id"]}, {"_id": 0, "name": 1}),
+        db.streetbarber_services.find({"karyawan_id": barber["karyawan_id"]}, {"_id": 0}).to_list(200),
+    )
     barber["services"] = services
     barber["home_service_fee"] = (karyawan or {}).get("home_service_fee", 0)
     barber["shop_name"] = shop["name"] if shop else ""
