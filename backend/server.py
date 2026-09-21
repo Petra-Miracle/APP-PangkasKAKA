@@ -146,18 +146,24 @@ class _QueryTimingLogger(pymongo_monitoring.CommandListener):
     (> MONGO_SLOW_QUERY_MS) selalu tercatat di INFO; query lain hanya di DEBUG
     supaya log production tidak banjir — set LOG_LEVEL=DEBUG untuk lihat semua."""
 
+    def __init__(self):
+        # succeeded()/failed() tidak membawa dokumen command asli (cuma reply/
+        # error) — nama koleksi harus diambil dari started() dan dicocokkan
+        # lewat request_id, bukan diasumsikan ada di event yang sama.
+        self._pending = {}
+
     def started(self, event):
-        pass
+        self._pending[event.request_id] = event.command.get(event.command_name, "?")
 
     def succeeded(self, event):
+        coll = self._pending.pop(event.request_id, "?")
         ms = event.duration_micros / 1000
-        coll = event.command.get(event.command_name, "?")
         line = f"mongo {event.command_name} collection={coll} duration_ms={ms:.0f}"
         log.info(line) if ms >= MONGO_SLOW_QUERY_MS else log.debug(line)
 
     def failed(self, event):
+        coll = self._pending.pop(event.request_id, "?")
         ms = event.duration_micros / 1000
-        coll = event.command.get(event.command_name, "?")
         log.warning(f"mongo {event.command_name} collection={coll} duration_ms={ms:.0f} FAILED: {event.failure}")
 
 
