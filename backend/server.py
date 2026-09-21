@@ -25,7 +25,7 @@ import boto3
 from botocore.config import Config as BotoConfig
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Body, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument
@@ -633,6 +633,11 @@ class ShopAdminProductIn(BaseModel):
     shop_id: str
 
 
+class ShopSopIn(BaseModel):
+    shop_id: str
+    document: str  # base64 data-URL (application/pdf), lihat upload_to_r2
+
+
 class ShopAdminServiceIn(BaseModel):
     name: str
     price: int
@@ -713,6 +718,12 @@ class BankAccountIn(BaseModel):
     bank_name: str
     account_number: str
     account_holder: str
+    verified: bool = False
+
+
+class BankVerifyIn(BaseModel):
+    bank_name: str
+    account_number: str
 
 
 class ShopImageIn(BaseModel):
@@ -1032,6 +1043,28 @@ async def recalc_shop_rating(shop_id: str):
         C = 4.0
     wr = bayesian_rating(v, avg, C, m=10)
     await db.barbershops.update_one({"id": shop_id}, {"$set": {"rating": wr, "reviews_count": v}})
+    return wr
+
+
+async def recalc_barber_rating(barber_id: str):
+    """Sama seperti recalc_shop_rating tapi per-barber — sebelumnya ulasan booking
+    StreetBarber (delivery_mode 'rumah') cuma tercatat ke rating toko validator,
+    barber_id-nya sendiri tidak pernah diperbarui walau field 'rating' sudah ada
+    di skema `barbers` sejak awal (lihat Noted/2026-09-21/Mentoring-Pitching.md poin 4)."""
+    reviews = await db.reviews.find({"barber_id": barber_id}, {"_id": 0, "rating": 1}).to_list(1000)
+    all_reviews = await db.reviews.find({}, {"_id": 0, "rating": 1}).to_list(50000)
+    if not reviews:
+        avg = 0.0
+        v = 0
+    else:
+        v = len(reviews)
+        avg = sum(r["rating"] for r in reviews) / v
+    if all_reviews:
+        C = sum(r["rating"] for r in all_reviews) / len(all_reviews)
+    else:
+        C = 4.0
+    wr = bayesian_rating(v, avg, C, m=10)
+    await db.barbers.update_one({"id": barber_id}, {"$set": {"rating": wr, "reviews_count": v}})
     return wr
 
 
@@ -1640,10 +1673,13 @@ async def review_booking(bid: str, body: ReviewIn, user=Depends(get_current_user
         raise HTTPException(400, "Rating harus 1-5")
     await db.reviews.insert_one({
         "id": new_id(), "booking_id": bid, "user_id": user["id"],
-        "shop_id": b["shop_id"], "rating": body.rating, "comment": body.comment or "",
+        "shop_id": b["shop_id"], "barber_id": b.get("barber_id"),
+        "rating": body.rating, "comment": body.comment or "",
         "created_at": now_utc().isoformat(),
     })
     await recalc_shop_rating(b["shop_id"])
+    if b.get("barber_id"):
+        await recalc_barber_rating(b["barber_id"])
     return {"ok": True}
 
 
@@ -1899,6 +1935,48 @@ async def admin_review_doc(shop_id: str, doc_key: str, body: DocReviewIn, user=D
     if owner_password:
         resp["owner_password"] = owner_password
     return resp
+
+
+# ---- Dokumen verifikasi (KTP/NPWP/dst) disimpan di R2 lewat upload_to_r2() yang sama
+# dipakai foto toko/produk — bucketnya publik (dipakai supaya foto toko tampil cepat di
+# app), jadi URL dokumen aslinya bisa dibuka siapa pun selamanya kalau dibagikan apa
+# adanya ke SuperAdmin. Sesuai masukan mentor (Noted/2026-09-21/Mentoring-Pitching.md
+# poin 1): endpoint di bawah ini mengganti URL asli dengan token sekali-pakai berumur
+# pendek (5 menit) — SuperAdmin tidak pernah melihat/menyalin URL R2 aslinya sama
+# sekali, cuma token yang otomatis mati setelah dipakai atau kedaluwarsa.
+DOCUMENT_PREVIEW_TTL_SECONDS = 300
+
+
+@api.post("/admin/shops/{shop_id}/documents/{doc_key}/preview-token")
+async def mint_document_preview_token(shop_id: str, doc_key: str, user=Depends(require_role("superadmin"))):
+    if doc_key not in ("ktp", "nib", "npwp", "surat_usaha", "toko"):
+        raise HTTPException(400, "Doc key tidak valid")
+    shop = await db.barbershops.find_one({"id": shop_id}, {"_id": 0, "docs": 1})
+    if not shop:
+        raise HTTPException(404, "Toko tidak ditemukan")
+    url = (shop.get("docs", {}).get(doc_key) or {}).get("url")
+    if not url:
+        raise HTTPException(404, "Dokumen belum diunggah")
+    token = secrets.token_urlsafe(32)
+    await db.document_preview_tokens.insert_one({
+        "token": token, "url": url, "shop_id": shop_id, "doc_key": doc_key,
+        "issued_by": user["id"], "used": False,
+        "expires_at": (now_utc() + timedelta(seconds=DOCUMENT_PREVIEW_TTL_SECONDS)).isoformat(),
+        "created_at": now_utc().isoformat(),
+    })
+    return {"token": token, "expires_in": DOCUMENT_PREVIEW_TTL_SECONDS}
+
+
+@app.get("/api/documents/preview/{token}")
+async def redeem_document_preview_token(token: str):
+    """Tanpa Authorization header dengan sengaja — token acak 256-bit dari
+    secrets.token_urlsafe(32) ITU SENDIRI adalah kredensialnya (dipegang sekali oleh
+    SuperAdmin lewat mint_document_preview_token di atas), sekali pakai + short-TTL."""
+    row = await db.document_preview_tokens.find_one({"token": token}, {"_id": 0})
+    if not row or row["used"] or datetime.fromisoformat(row["expires_at"]) < now_utc():
+        raise HTTPException(404, "Link preview tidak valid atau sudah kedaluwarsa")
+    await db.document_preview_tokens.update_one({"token": token}, {"$set": {"used": True}})
+    return RedirectResponse(row["url"])
 
 
 def _parse_document_data_uri(value: str):
@@ -2313,6 +2391,21 @@ async def set_shop_open_status(body: ShopOpenStatusIn, user=Depends(require_role
     return {"ok": True, "is_open": body.is_open}
 
 
+@api.put("/owner/shop/bank-account")
+async def set_shop_bank_account(body: BankAccountIn, user=Depends(require_role("owner"))):
+    """Sebelumnya rekening toko cuma bisa diisi sekali saat POST /owner/shop
+    (pendaftaran) — endpoint ini menutup celah itu, mirror pola
+    /streetbarber/bank-account. Lihat Noted/2026-09-21/Mentoring-Pitching.md poin 2."""
+    shop = await db.barbershops.find_one({"owner_id": user["id"]}, {"_id": 0, "id": 1})
+    if not shop:
+        raise HTTPException(400, "Daftarkan toko terlebih dulu")
+    await db.barbershops.update_one({"id": shop["id"]}, {"$set": {
+        "bank_name": body.bank_name, "account_number": body.account_number,
+        "account_holder": body.account_holder, "bank_verified": body.verified,
+    }})
+    return {"ok": True}
+
+
 @api.put("/owner/shop/home-service-fee")
 async def set_home_service_fee(body: HomeServiceFeeIn, user=Depends(require_role("owner"))):
     """Biaya tambahan flat untuk booking mode 'barber ke rumah' — ditambahkan
@@ -2482,7 +2575,7 @@ async def karyawan_my(user=Depends(require_role("streetbarber"))):
     shop_ids = list({r["shop_id"] for r in rows})
     shops_by_id: dict = {}
     if shop_ids:
-        async for s in db.barbershops.find({"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1, "image": 1}):
+        async for s in db.barbershops.find({"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1, "image": 1, "sop_document_url": 1, "sop_updated_at": 1}):
             shops_by_id[s["id"]] = s
     for r in rows:
         r["shop"] = shops_by_id.get(r["shop_id"])
@@ -2747,9 +2840,31 @@ async def set_streetbarber_bank_account(body: BankAccountIn, user=Depends(requir
     active = await _active_karyawan(user)
     await db.karyawan.update_one({"id": active["id"]}, {"$set": {
         "bank_name": body.bank_name, "bank_account_number": body.account_number,
-        "bank_account_holder": body.account_holder,
+        "bank_account_holder": body.account_holder, "bank_verified": body.verified,
     }})
     return {"ok": True}
+
+
+# ---- Simulasi "account inquiry" (cek nama pemilik rekening dari bank+nomor rekening).
+# Inquiry BENERAN butuh kemitraan resmi dengan bank/payment gateway (dokumentasi
+# Durianpay yang sudah dibahas — lihat Noted/2026-09-09/.../respon-durianpay-
+# disbursement-settlement.md — baru mencakup disbursement/settlement, bukan inquiry),
+# jadi ini prototype deterministik: nomor rekening yang sama selalu balas nama yang
+# sama, supaya alurnya bisa didemokan utuh ke juri sambil kemitraan bank diurus
+# terpisah. Lihat Noted/2026-09-21/Mentoring-Pitching.md poin 2 & 3.
+_BANK_VERIFY_FIRST_NAMES = ["Yosua", "Maria", "Yohanes", "Fransiska", "Petrus", "Angela", "Kristian", "Melani", "Yustus", "Priska"]
+_BANK_VERIFY_LAST_NAMES = ["Bria", "Nubatonis", "Muskanan", "Foenay", "Klau", "Bengngu", "Ratu", "Saudale", "Amalo", "Bara"]
+
+
+@api.post("/bank/verify-account")
+async def verify_bank_account(body: BankVerifyIn, user=Depends(get_current_user)):
+    digits = "".join(ch for ch in body.account_number if ch.isdigit())
+    if len(digits) < 6:
+        raise HTTPException(400, "Nomor rekening tidak valid")
+    seed = int(digits)
+    first = _BANK_VERIFY_FIRST_NAMES[seed % len(_BANK_VERIFY_FIRST_NAMES)]
+    last = _BANK_VERIFY_LAST_NAMES[(seed // 7) % len(_BANK_VERIFY_LAST_NAMES)]
+    return {"account_holder": f"{first} {last}", "verified": True}
 
 
 @api.put("/streetbarber/home-service-fee")
@@ -2857,6 +2972,12 @@ async def admin_pending(user=Depends(require_role("superadmin"))):
         else:
             # Pengajuan publik belum punya akun — pakai data pemohon apa adanya.
             s["owner"] = {"name": s.get("applicant_name"), "email": s.get("applicant_email"), "phone": s.get("applicant_phone")}
+        # URL R2 asli TIDAK pernah dikirim ke client — SuperAdmin cuma tahu ada/tidaknya
+        # dokumen (has_file) lewat sini, dan minta token sekali-pakai lewat
+        # POST /admin/shops/{shop_id}/documents/{doc_key}/preview-token saat mau preview.
+        for doc in (s.get("docs") or {}).values():
+            doc["has_file"] = bool(doc.get("url"))
+            doc.pop("url", None)
     return {"shops": shops}
 
 
@@ -5277,6 +5398,37 @@ async def admin_list_products(user=Depends(require_role("admin"))):
     for p in products:
         p["image_url"] = p.pop("image", "")
     return {"products": products}
+
+
+@api.put("/shop-admin/shops/{shop_id}/sop")
+async def admin_set_shop_sop(shop_id: str, body: ShopSopIn, user=Depends(require_role("admin"))):
+    """SOP (kebersihan, kerapihan, kesopanan, alat lengkap, interaktif) yang harus
+    dipatuhi StreetBarber tervalidasi toko ini — diunggah Admin toko, dibaca read-only
+    di dashboard StreetBarber (lihat GET /streetbarber/sop di bawah). Satu dokumen per
+    toko, menimpa yang lama kalau diunggah ulang. Lihat
+    Noted/2026-09-21/Mentoring-Pitching.md poin 6."""
+    if shop_id not in user.get("managed_shop_ids", []):
+        raise HTTPException(403, "Bukan toko yang Anda kelola")
+    if not body.document:
+        raise HTTPException(400, "Dokumen SOP wajib diisi")
+    url = await upload_to_r2(body.document, f"shops/{shop_id}/sop")
+    await db.barbershops.update_one({"id": shop_id}, {"$set": {
+        "sop_document_url": url, "sop_updated_at": now_utc().isoformat(),
+    }})
+    return {"ok": True, "sop_document_url": url}
+
+
+@api.get("/streetbarber/sop")
+async def streetbarber_get_sop(user=Depends(require_role("streetbarber"))):
+    active = await _active_karyawan(user)
+    shop = await db.barbershops.find_one(
+        {"id": active["shop_id"]}, {"_id": 0, "name": 1, "sop_document_url": 1, "sop_updated_at": 1}
+    )
+    return {
+        "shop_name": (shop or {}).get("name"),
+        "sop_document_url": (shop or {}).get("sop_document_url"),
+        "sop_updated_at": (shop or {}).get("sop_updated_at"),
+    }
 
 
 @api.post("/shop-admin/products")

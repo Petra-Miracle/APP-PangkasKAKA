@@ -86,7 +86,7 @@ export default function Index() {
           <LoadingDot delay={140} />
           <LoadingDot delay={280} />
         </View>
-        <Text style={styles.footer}>Melayani Kota Kupang, NTT</Text>
+       
       </LinearGradient>
     </View>
   );

@@ -66,15 +66,21 @@ export default function OwnerOrders() {
     } catch (e: any) { alert(e.message); }
   };
 
+  // Owner "Telepon" langsung ke room chat WhatsApp customer (bukan dialer tel:) —
+  // lihat Noted/2026-09-21/Mentoring-Pitching.md poin 5. Owner lalu bisa panggil
+  // lewat fitur telepon bawaan WhatsApp dari dalam chat itu.
   const callCustomer = async (phone?: string) => {
     if (!phone) { Alert.alert("Telepon", "Nomor pelanggan tidak tersedia"); return; }
-    const url = `tel:${phone.replace(/[^\d+]/g, "")}`;
+    let digits = phone.replace(/[^\d]/g, "");
+    if (digits.startsWith("0")) digits = "62" + digits.slice(1);
+    else if (!digits.startsWith("62")) digits = "62" + digits;
+    const url = `https://wa.me/${digits}`;
     try {
       const can = await Linking.canOpenURL(url);
       if (can) await Linking.openURL(url);
-      else Alert.alert("Telepon", `Nomor: ${phone}`);
+      else Alert.alert("WhatsApp", `Nomor: ${phone}`);
     } catch {
-      Alert.alert("Telepon", `Nomor: ${phone}`);
+      Alert.alert("WhatsApp", `Nomor: ${phone}`);
     }
   };
 

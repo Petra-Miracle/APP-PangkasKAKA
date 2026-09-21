@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Switch, TextInput, Modal, KeyboardAvoidingView, Platform, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Switch, TextInput, Modal, KeyboardAvoidingView, Platform, Alert, Linking } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
@@ -50,7 +50,8 @@ const LEDGER_LABEL: Record<string, string> = {
 export default function StreetBarberManage() {
   const [hasActive, setHasActive] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [bankForm, setBankForm] = useState({ bank_name: "", account_number: "", account_holder: "" });
+  const [bankForm, setBankForm] = useState({ bank_name: "", account_number: "", account_holder: "", verified: false });
+  const [verifyingBank, setVerifyingBank] = useState(false);
   const [homeFeeInput, setHomeFeeInput] = useState("0");
 
   const [wallet, setWallet] = useState<any>(null);
@@ -90,7 +91,10 @@ export default function StreetBarberManage() {
       setValidatorShop(active?.shop || apps[0]?.shop || null);
       if (active) {
         setHasActive(true);
-        setBankForm({ bank_name: active.bank_name || "", account_number: active.bank_account_number || "", account_holder: active.bank_account_holder || "" });
+        setBankForm({
+          bank_name: active.bank_name || "", account_number: active.bank_account_number || "",
+          account_holder: active.bank_account_holder || "", verified: !!active.bank_verified,
+        });
         setHomeFeeInput(String(active.home_service_fee ?? 0));
         // Dua call ini independen satu sama lain (cuma bergantung pada "active"
         // di atas) — jalankan sekaligus, bukan menunggu satu-satu.
@@ -194,9 +198,41 @@ export default function StreetBarberManage() {
     }
   };
 
+  // SOP-nya cuma dokumen PDF biasa yang diunggah Admin toko — dibuka lewat browser/
+  // pembaca PDF bawaan HP, tidak perlu viewer in-app khusus.
+  const openSop = async () => {
+    if (!validatorShop?.sop_document_url) {
+      return Alert.alert("SOP Belum Tersedia", "Toko validatormu belum mengunggah dokumen SOP.");
+    }
+    const can = await Linking.canOpenURL(validatorShop.sop_document_url);
+    if (can) await Linking.openURL(validatorShop.sop_document_url);
+    else Alert.alert("Gagal Membuka", "Tidak bisa membuka dokumen SOP saat ini.");
+  };
+
+  // Ganti bank/nomor rekening membatalkan verifikasi sebelumnya — nama pemilik
+  // rekening harus selalu berasal dari hasil cek terbaru, bukan sisa cek lama.
+  const updateBankField = (field: "bank_name" | "account_number", value: string) => {
+    setBankForm((prev) => ({ ...prev, [field]: value, verified: false, account_holder: "" }));
+  };
+
+  const verifyBank = async () => {
+    if (!bankForm.bank_name.trim() || !bankForm.account_number.trim()) {
+      return Alert.alert("Verifikasi Rekening", "Isi nama bank dan nomor rekening dulu");
+    }
+    setVerifyingBank(true);
+    try {
+      const r = await api.post("/bank/verify-account", {
+        bank_name: bankForm.bank_name, account_number: bankForm.account_number,
+      });
+      setBankForm((prev) => ({ ...prev, account_holder: r.account_holder, verified: true }));
+    } catch (e: any) {
+      Alert.alert("Verifikasi Gagal", e.message || "Nomor rekening tidak ditemukan");
+    } finally { setVerifyingBank(false); }
+  };
+
   const saveBank = async () => {
-    if (!bankForm.bank_name.trim() || !bankForm.account_number.trim() || !bankForm.account_holder.trim()) {
-      return Alert.alert("Gagal", "Semua kolom rekening wajib diisi");
+    if (!bankForm.bank_name.trim() || !bankForm.account_number.trim() || !bankForm.verified) {
+      return Alert.alert("Gagal", "Verifikasi rekening dulu sebelum menyimpan");
     }
     setSavingBank(true);
     try {
@@ -298,6 +334,18 @@ export default function StreetBarberManage() {
           </View>
           <Ionicons name="chevron-forward" size={18} color={COLORS.textDim} />
         </PressableScale>
+        <PressableScale style={styles.manageRow} onPress={openSop} testID="open-sop" scaleTo={0.97}>
+          <View style={[styles.locIcon, { backgroundColor: "#FFF7ED" }]}>
+            <Ionicons name="document-text-outline" size={20} color={COLORS.warning} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.locTitle}>SOP {validatorShop?.name || "Toko"}</Text>
+            <Text style={styles.locSub} numberOfLines={1}>
+              {validatorShop?.sop_document_url ? "Standar kebersihan, kerapihan & etika kerja" : "Belum diunggah toko validatormu"}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={COLORS.textDim} />
+        </PressableScale>
       </ScrollView>
 
       <Modal visible={walletModal} transparent animationType="slide" onRequestClose={() => setWalletModal(false)}>
@@ -321,7 +369,7 @@ export default function StreetBarberManage() {
               </Text>
             ) : (
               <Text style={[styles.payoutDestText, { color: COLORS.error }]}>
-                Rekening tujuan belum diisi — atur dulu di "Rekening & Biaya"
+                Rekening tujuan belum diisi — atur dulu di &quot;Rekening &amp; Biaya&quot;
               </Text>
             )}
             <PressableScale
@@ -496,18 +544,32 @@ export default function StreetBarberManage() {
               <Text style={styles.label}>Nama bank</Text>
               <View style={styles.inputRow}>
                 <Ionicons name="business-outline" size={18} color={COLORS.textDim} />
-                <TextInput style={styles.inputFlex} placeholder="mis. BRI" placeholderTextColor={COLORS.textDim} value={bankForm.bank_name} onChangeText={(t) => setBankForm({ ...bankForm, bank_name: t })} testID="bank-name-input" />
+                <TextInput style={styles.inputFlex} placeholder="mis. BRI" placeholderTextColor={COLORS.textDim} value={bankForm.bank_name} onChangeText={(t) => updateBankField("bank_name", t)} testID="bank-name-input" />
               </View>
               <Text style={styles.label}>Nomor rekening</Text>
               <View style={styles.inputRow}>
                 <Ionicons name="card-outline" size={18} color={COLORS.textDim} />
-                <TextInput style={styles.inputFlex} keyboardType="numeric" placeholder="1234567890" placeholderTextColor={COLORS.textDim} value={bankForm.account_number} onChangeText={(t) => setBankForm({ ...bankForm, account_number: t })} testID="bank-number-input" />
+                <TextInput style={styles.inputFlex} keyboardType="numeric" placeholder="1234567890" placeholderTextColor={COLORS.textDim} value={bankForm.account_number} onChangeText={(t) => updateBankField("account_number", t)} testID="bank-number-input" />
               </View>
-              <Text style={styles.label}>Nama pemilik rekening</Text>
-              <View style={styles.inputRow}>
-                <Ionicons name="person-outline" size={18} color={COLORS.textDim} />
-                <TextInput style={styles.inputFlex} placeholder="Nama sesuai buku tabungan" placeholderTextColor={COLORS.textDim} value={bankForm.account_holder} onChangeText={(t) => setBankForm({ ...bankForm, account_holder: t })} testID="bank-holder-input" />
-              </View>
+              {bankForm.verified ? (
+                <View style={styles.bankVerifiedRow} testID="bank-verified-badge">
+                  <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.bankVerifiedName}>{bankForm.account_holder}</Text>
+                    <Text style={styles.bankVerifiedHint}>Terverifikasi sebagai pemilik rekening</Text>
+                  </View>
+                </View>
+              ) : (
+                <PressableScale
+                  style={[styles.verifyBtn, verifyingBank && { opacity: 0.6 }]}
+                  onPress={verifyBank}
+                  disabled={verifyingBank}
+                  testID="verify-bank"
+                >
+                  <Ionicons name="shield-checkmark-outline" size={16} color={COLORS.brandLight} />
+                  <Text style={styles.verifyBtnText}>{verifyingBank ? "Memeriksa..." : "Verifikasi Rekening"}</Text>
+                </PressableScale>
+              )}
               <Text style={[styles.groupLabel, { marginTop: 20 }]}>BIAYA PANGGILAN</Text>
               <Text style={styles.label}>Biaya panggilan ke rumah</Text>
               <View style={styles.inputRow}>
@@ -577,6 +639,11 @@ const styles = StyleSheet.create({
   countText: { color: COLORS.textDim, fontSize: 13, fontFamily: FONT.medium, marginBottom: 10 },
   inputRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: COLORS.surface, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1.5, borderColor: COLORS.border },
   inputFlex: { flex: 1, color: COLORS.text, paddingVertical: 13, fontFamily: FONT.medium, fontSize: 14 },
+  verifyBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 14, paddingVertical: 13, borderRadius: 14, borderWidth: 1.5, borderColor: COLORS.brand, backgroundColor: COLORS.brandDim },
+  verifyBtnText: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 13 },
+  bankVerifiedRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 14, padding: 14, borderRadius: 14, backgroundColor: "#ECFDF5", borderWidth: 1, borderColor: COLORS.success },
+  bankVerifiedName: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 14 },
+  bankVerifiedHint: { color: COLORS.success, fontFamily: FONT.medium, fontSize: 11, marginTop: 2 },
   previewCard: { backgroundColor: COLORS.text, borderRadius: 20, padding: 18, marginTop: 16, overflow: "hidden" },
   previewTitle: { color: "rgba(255,255,255,0.6)", fontFamily: FONT.medium, fontSize: 12, marginBottom: 10 },
   previewRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 4, gap: 12 },

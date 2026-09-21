@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Search, Star, MapPin } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Search, Star, MapPin, Home } from "lucide-react";
 import { api, formatIDR, Shop, Barber } from "@/lib/api";
 import LoadingScreen from "@/components/LoadingScreen";
 
@@ -20,11 +21,15 @@ type Card = {
 
 const FILTERS = ["Semua", "Barbershop", "StreetBarber", "Rating 4.5+"] as const;
 
-export default function JelajahiPage() {
+function JelajahiContent() {
+  const searchParams = useSearchParams();
+  const initialFilter = FILTERS.find((f) => f === searchParams.get("filter")) ?? "Semua";
+  const homeService = initialFilter === "StreetBarber";
+
   const [shops, setShops] = useState<Shop[]>([]);
   const [barbers, setBarbers] = useState<Barber[]>([]);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<(typeof FILTERS)[number]>("Semua");
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]>(initialFilter);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -84,11 +89,18 @@ export default function JelajahiPage() {
 
   return (
     <main className="flex-1 px-6 py-10 md:px-20">
+      {homeService && (
+        <span className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-brand-dim px-3 py-1.5 text-xs font-bold text-brand-secondary">
+          <Home size={13} /> LAYANAN PANGGIL KE RUMAH
+        </span>
+      )}
       <h1 className="font-[family-name:var(--font-display)] text-3xl font-extrabold md:text-4xl">
-        Jelajahi Barber
+        {homeService ? "Booking StreetBarber ke Rumah" : "Jelajahi Barber"}
       </h1>
       <p className="mt-2 text-sm text-on-surface-2">
-        {shops.length || "..."} barbershop dan StreetBarber siap melayani di sekitar Kupang.
+        {homeService
+          ? "Nggak perlu keluar rumah — pilih StreetBarber terdekat, dia yang datang ke kamu."
+          : `${shops.length || "..."} barbershop dan StreetBarber siap melayani di sekitar Kupang.`}
       </p>
 
       <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center">
@@ -169,5 +181,13 @@ export default function JelajahiPage() {
         </div>
       )}
     </main>
+  );
+}
+
+export default function JelajahiPage() {
+  return (
+    <Suspense>
+      <JelajahiContent />
+    </Suspense>
   );
 }

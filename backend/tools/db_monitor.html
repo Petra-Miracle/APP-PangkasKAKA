@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PangkasKAKA — DB Monitor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8D%83%3C/text%3E%3C/svg%3E" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface-2: #22252f;
+    --surface-3: #2a2d3a;
+    --border: #2e313c;
+    --border-focus: #3d4150;
+    --text: #e4e6eb;
+    --text-2: #9ca0ad;
+    --text-3: #6b7080;
+    --green: #22c55e;
+    --green-dim: rgba(34,197,94,.1);
+    --red: #ef4444;
+    --red-dim: rgba(239,68,68,.1);
+    --amber: #f59e0b;
+    --amber-dim: rgba(245,158,11,.08);
+    --radius: 8px;
+    --radius-lg: 12px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  ::selection { background: var(--green); color: #000; }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-focus); }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  /* Banner */
+  .banner {
+    background: var(--amber-dim);
+    border-bottom: 1px solid rgba(245,158,11,.15);
+    color: var(--amber);
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 7px 20px;
+    text-align: center;
+    flex-shrink: 0;
+  }
+
+  /* Layout */
+  .layout { display: flex; flex: 1; overflow: hidden; }
+
+  /* Sidebar */
+  .sidebar {
+    width: 250px;
+    flex-shrink: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 16px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .brand-icon { font-size: 20px; }
+  .brand-name { font-size: 14px; font-weight: 700; }
+  .brand-sub { font-size: 11px; color: var(--text-3); font-weight: 500; }
+
+  .sidebar-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    padding: 14px 16px 6px;
+  }
+
+  .sidebar-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2px 8px 8px;
+  }
+
+  .coll-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-2);
+    transition: background .1s, color .1s;
+  }
+  .coll-item:hover { background: var(--surface-2); color: var(--text); }
+  .coll-item.active {
+    background: var(--green-dim);
+    color: var(--green);
+    font-weight: 500;
+  }
+  .coll-count {
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-3);
+    background: var(--surface-2);
+    padding: 1px 7px;
+    border-radius: 10px;
+  }
+  .coll-item.active .coll-count {
+    background: rgba(34,197,94,.12);
+    color: var(--green);
+  }
+
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Topbar */
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    flex-shrink: 0;
+  }
+  .topbar-title {
+    font-size: 15px;
+    font-weight: 600;
+    white-space: nowrap;
+    color: var(--text);
+  }
+  .search-wrap { flex: 1; max-width: 440px; position: relative; }
+  .search-wrap input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: var(--radius);
+    font-size: 12.5px;
+    font-family: 'JetBrains Mono', monospace;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .search-wrap input::placeholder { color: var(--text-3); }
+  .search-wrap input:focus { border-color: var(--green); }
+
+  .btn {
+    border: none;
+    padding: 8px 14px;
+    border-radius: var(--radius);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    outline: none;
+    transition: opacity .15s;
+  }
+  .btn:hover { opacity: .85; }
+  .btn-green { background: var(--green); color: #000; }
+  .btn-ghost { background: transparent; color: var(--text-2); border: 1px solid var(--border); }
+  .btn-ghost:hover { border-color: var(--border-focus); color: var(--text); opacity: 1; }
+  .btn-red { background: transparent; color: var(--red); border: 1px solid rgba(239,68,68,.3); }
+  .btn-red:hover { background: var(--red-dim); opacity: 1; }
+
+  /* Content */
+  .content { flex: 1; overflow: auto; padding: 16px 20px; }
+
+  /* Table */
+  .table-wrap {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    overflow-x: auto;
+  }
+  table { min-width: 100%; border-collapse: collapse; }
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-3);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    white-space: nowrap;
+    user-select: none;
+  }
+  td {
+    padding: 9px 14px;
+    font-size: 12.5px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-2);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  tbody tr { cursor: pointer; transition: background .1s; }
+  tbody tr:hover { background: var(--surface-2); }
+  tbody tr:last-child td { border-bottom: none; }
+
+  /* States */
+  .state { padding: 60px 20px; text-align: center; }
+  .state-icon { font-size: 36px; margin-bottom: 12px; opacity: .5; }
+  .state-title { font-size: 14px; font-weight: 600; color: var(--text-2); margin-bottom: 4px; }
+  .state-desc { font-size: 12.5px; color: var(--text-3); }
+  .state-error { color: var(--red); }
+  .spinner {
+    width: 24px; height: 24px;
+    border: 2.5px solid var(--border);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    margin: 0 auto 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Pager */
+  .pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 0;
+    font-size: 12.5px;
+    color: var(--text-3);
+  }
+  .pager span { color: var(--green); font-family: 'JetBrains Mono', monospace; font-weight: 500; }
+  .pager-btns { display: flex; gap: 4px; }
+  .pager-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text-2);
+    padding: 5px 12px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: 'Inter', sans-serif;
+    outline: none;
+    transition: border-color .15s, color .15s;
+  }
+  .pager-btn:not(:disabled):hover { border-color: var(--green); color: var(--green); }
+  .pager-btn:disabled { opacity: .3; cursor: default; }
+
+  /* Modal */
+  .overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.6);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+  }
+  .overlay.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    width: 660px;
+    max-width: 94vw;
+    max-height: 85vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 16px 48px rgba(0,0,0,.5);
+  }
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+  .modal-header h3 {
+    font-size: 13px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+    color: var(--green);
+    word-break: break-all;
+    line-height: 1.5;
+  }
+  .modal-header small {
+    display: block;
+    font-size: 11.5px;
+    color: var(--text-3);
+    margin-top: 2px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+  }
+  .modal-x {
+    background: none; border: none;
+    color: var(--text-3);
+    cursor: pointer;
+    font-size: 18px;
+    padding: 0 4px;
+    line-height: 1;
+  }
+  .modal-x:hover { color: var(--text); }
+  .modal-body { padding: 16px 20px; flex: 1; overflow: auto; }
+  .modal-body textarea {
+    width: 100%;
+    min-height: 320px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    resize: vertical;
+    outline: none;
+    tab-size: 2;
+  }
+  .modal-body textarea:focus { border-color: var(--green); }
+  .modal-err { color: var(--red); font-size: 12px; margin-top: 8px; min-height: 16px; }
+  .modal-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    border-top: 1px solid var(--border);
+  }
+  .modal-footer-right { display: flex; gap: 6px; }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%) translateY(12px);
+    background: var(--surface-2);
+    border: 1px solid var(--green);
+    color: var(--text);
+    padding: 8px 16px;
+    border-radius: var(--radius);
+    font-size: 12.5px;
+    font-weight: 500;
+    z-index: 300;
+    opacity: 0;
+    transition: opacity .2s, transform .2s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<div class="banner">⚠ Database Produksi — Perubahan berdampak langsung ke aplikasi live</div>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-icon">🍃</span>
+      <div>
+        <div class="brand-name">PangkasKAKA</div>
+        <div class="brand-sub" id="dbNameLabel">DB Monitor</div>
+      </div>
+    </div>
+    <div class="sidebar-label">Collections</div>
+    <div class="sidebar-list" id="collList"></div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-title" id="collTitle">Pilih collection</div>
+      <div class="search-wrap">
+        <input id="filterInput" placeholder='Filter: {"status":"completed"}' spellcheck="false" autocomplete="off" />
+      </div>
+      <button class="btn btn-green" onclick="applyFilter()">Cari</button>
+    </div>
+
+    <div class="content">
+      <div id="tableWrap">
+        <div class="state">
+          <div class="state-icon">🍃</div>
+          <div class="state-title">Pilih collection di panel kiri</div>
+          <div class="state-desc">Mulai menjelajahi data secara real-time.</div>
+        </div>
+      </div>
+      <div class="pager" id="pager" style="display:none">
+        <div id="pageInfo"></div>
+        <div class="pager-btns">
+          <button class="pager-btn" id="prevBtn" onclick="changePage(-1)">← Prev</button>
+          <button class="pager-btn" id="nextBtn" onclick="changePage(1)">Next →</button>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="overlay" id="modalOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <div>
+        <h3 id="modalTitle">Edit dokumen</h3>
+        <small id="modalSub"></small>
+      </div>
+      <button class="modal-x" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <textarea id="modalTextarea" spellcheck="false"></textarea>
+      <div class="modal-err" id="modalErr"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-red" onclick="deleteDoc()">Hapus</button>
+      <div class="modal-footer-right">
+        <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+        <button class="btn btn-green" onclick="saveDoc()">Simpan</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const S = { collection: null, page: 1, limit: 25, filter: '', total: 0, docId: null };
+
+  async function api(path, opts) {
+    const r = await fetch(path, opts);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(d.detail || r.statusText);
+    return d;
+  }
+
+  function toast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    clearTimeout(t._t);
+    t._t = setTimeout(() => t.classList.remove('show'), 2000);
+  }
+
+  async function loadInfo() {
+    try { document.getElementById('dbNameLabel').textContent = (await api('/api/info')).db_name; } catch {}
+  }
+
+  async function loadCollections() {
+    const cols = await api('/api/collections');
+    const el = document.getElementById('collList');
+    el.innerHTML = '';
+    cols.forEach(c => {
+      const d = document.createElement('div');
+      d.className = 'coll-item';
+      d.id = 'c-' + c.name;
+      d.innerHTML = `<span>${c.name}</span><span class="coll-count">${c.count}</span>`;
+      d.onclick = () => pick(c.name);
+      el.appendChild(d);
+    });
+  }
+
+  function pick(name) {
+    document.querySelectorAll('.coll-item').forEach(e => e.classList.remove('active'));
+    document.getElementById('c-' + name).classList.add('active');
+    S.collection = name;
+    S.page = 1;
+    S.filter = '';
+    document.getElementById('filterInput').value = '';
+    document.getElementById('collTitle').textContent = name;
+    loadDocs();
+  }
+
+  function applyFilter() {
+    S.filter = document.getElementById('filterInput').value.trim();
+    S.page = 1;
+    loadDocs();
+  }
+
+  async function loadDocs() {
+    if (!S.collection) return;
+    const w = document.getElementById('tableWrap');
+    w.innerHTML = '<div class="state"><div class="spinner"></div><div class="state-desc">Memuat...</div></div>';
+    try {
+      const q = new URLSearchParams({ page: S.page, limit: S.limit, q: S.filter });
+      const d = await api(`/api/collections/${S.collection}?${q}`);
+      S.total = d.total;
+      render(d.documents);
+      renderPager();
+    } catch (e) {
+      w.innerHTML = `<div class="state state-error">${e.message}</div>`;
+    }
+  }
+
+  function render(docs) {
+    const w = document.getElementById('tableWrap');
+    if (!docs.length) {
+      w.innerHTML = '<div class="state"><div class="state-icon">📭</div><div class="state-title">Tidak ada dokumen</div></div>';
+      return;
+    }
+    const cols = [];
+    docs.forEach(d => Object.keys(d).forEach(k => { if (!cols.includes(k)) cols.push(k); }));
+    const show = cols.slice(0, 8);
+    let h = '<div class="table-wrap"><table><thead><tr>';
+    show.forEach(c => h += `<th>${c}</th>`);
+    h += '</tr></thead><tbody>';
+    docs.forEach(d => {
+      const id = d.id || d._id;
+      h += `<tr onclick="openDoc('${id}')">`;
+      show.forEach(c => {
+        let v = d[c];
+        if (v && typeof v === 'object') v = JSON.stringify(v);
+        h += `<td>${v == null ? '' : String(v).slice(0, 60)}</td>`;
+      });
+      h += '</tr>';
+    });
+    h += '</tbody></table></div>';
+    w.innerHTML = h;
+  }
+
+  function renderPager() {
+    const p = document.getElementById('pager');
+    p.style.display = 'flex';
+    const tp = Math.max(1, Math.ceil(S.total / S.limit));
+    document.getElementById('pageInfo').innerHTML = `Halaman <span>${S.page}</span>/<span>${tp}</span> · <span>${S.total}</span> dokumen`;
+    document.getElementById('prevBtn').disabled = S.page <= 1;
+    document.getElementById('nextBtn').disabled = S.page >= tp;
+  }
+
+  function changePage(d) { S.page += d; loadDocs(); }
+
+  async function openDoc(id) {
+    S.docId = id;
+    document.getElementById('modalErr').textContent = '';
+    try {
+      const doc = await api(`/api/document/${S.collection}/${encodeURIComponent(id)}`);
+      document.getElementById('modalTitle').textContent = `${S.collection} / ${id}`;
+      document.getElementById('modalSub').textContent = 'Edit JSON, lalu Simpan atau Hapus.';
+      document.getElementById('modalTextarea').value = JSON.stringify(doc, null, 2);
+      document.getElementById('modalOverlay').classList.add('open');
+      setTimeout(() => document.getElementById('modalTextarea').focus(), 50);
+    } catch (e) { toast('Gagal: ' + e.message); }
+  }
+
+  function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+
+  async function saveDoc() {
+    const err = document.getElementById('modalErr');
+    let body;
+    try { body = JSON.parse(document.getElementById('modalTextarea').value); }
+    catch (e) { err.textContent = 'JSON tidak valid: ' + e.message; return; }
+    try {
+      await api(`/api/document/${S.collection}/${encodeURIComponent(S.docId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      toast('Tersimpan');
+      closeModal();
+      loadDocs();
+      loadCollections();
+    } catch (e) { err.textContent = e.message; }
+  }
+
+  async function deleteDoc() {
+    if (!confirm('Hapus dokumen ini? Tindakan ini tidak bisa dibatalkan.')) return;
+    try {
+      await api(`/api/document/${S.collection}/${encodeURIComponent(S.docId)}`, { method: 'DELETE' });
+      toast('Dihapus');
+      closeModal();
+      loadDocs();
+      loadCollections();
+    } catch (e) { document.getElementById('modalErr').textContent = e.message; }
+  }
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Enter' && document.activeElement.id === 'filterInput') applyFilter();
+  });
+
+  loadInfo();
+  loadCollections();
+</script>
+</body>
+</html>

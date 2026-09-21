@@ -51,6 +51,16 @@ export type Review = {
 
 export type Slot = { time: string; available: boolean };
 
+export type Product = {
+  id: string;
+  name: string;
+  price: number;
+  description?: string;
+  image?: string;
+  shop_id?: string;
+  shop_name?: string;
+};
+
 export type Booking = {
   id: string;
   status: string;
@@ -108,6 +118,7 @@ export const api = {
     request<{ slots: Slot[] }>(
       `/barbers/${barberId}/slots?date=${date}&service_id=${serviceId}`
     ),
+  listProducts: () => request<{ products: Product[] }>("/products/catalog"),
   shopSlots: (shopId: string, barberId: string, date: string, serviceId: string) =>
     request<{ slots: Slot[] }>(
       `/shops/${shopId}/slots?barber_id=${barberId}&date=${date}&service_id=${serviceId}`
@@ -141,6 +152,16 @@ export const api = {
       `/bookings/${bookingId}/karyawan-location`,
       { token }
     ),
+  forgotPassword: (email: string) =>
+    request<{ ok: boolean; message: string }>("/auth/forgot-password", {
+      method: "POST",
+      body: JSON.stringify({ email }),
+    }),
+  resetPassword: (email: string, code: string, newPassword: string) =>
+    request<{ ok: boolean }>("/auth/reset-password", {
+      method: "POST",
+      body: JSON.stringify({ email, code, new_password: newPassword }),
+    }),
   createBooking: (
     body: {
       barber_id: string;

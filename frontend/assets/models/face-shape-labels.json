@@ -1,0 +1,14 @@
+{
+  "class_names": [
+    "ovale",
+    "rectangular",
+    "round",
+    "square"
+  ],
+  "class_to_shape": {
+    "ovale": "oval",
+    "rectangular": "oblong",
+    "round": "round",
+    "square": "square"
+  }
+}

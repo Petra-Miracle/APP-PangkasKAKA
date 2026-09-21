@@ -1,0 +1,128 @@
+{
+  "run_id": "a941ea5a",
+  "n_attempts": 20,
+  "success": 20,
+  "failed": 0,
+  "details": [
+    {
+      "i": 0,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 1,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 2,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 3,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 4,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 5,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 6,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 7,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 8,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 9,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 10,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 11,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 12,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 13,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 14,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 15,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 16,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 17,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 18,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    },
+    {
+      "i": 19,
+      "step": "simulate_payment",
+      "status_code": 200,
+      "ok": true
+    }
+  ]
+}

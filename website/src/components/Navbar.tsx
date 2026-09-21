@@ -29,6 +29,10 @@ const PAGES = [
   { href: "/#tentang", label: "Tentang" },
 ];
 
+// Halaman auth pakai layout split-screen sendiri (lihat masuk/lupa-password
+// page.tsx) — navbar global akan menimpa panel dekoratifnya, jadi disembunyikan di sini.
+const CHROMELESS_ROUTES = ["/masuk", "/lupa-password"];
+
 export default function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -47,6 +51,8 @@ export default function Navbar() {
     logout();
     router.push("/");
   };
+
+  if (CHROMELESS_ROUTES.includes(pathname)) return null;
 
   return (
     <AppBar
@@ -185,7 +191,7 @@ export default function Navbar() {
 
             <Button
               component={Link}
-              href="/jelajahi"
+              href="/jelajahi?filter=StreetBarber"
               variant="contained"
               disableElevation
               sx={{

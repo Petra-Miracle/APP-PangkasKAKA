@@ -1,6 +1,26 @@
 import Link from "next/link";
-import { Zap, UserRoundCheck, Radar, ScanFace, CalendarCheck, MapPin } from "lucide-react";
+import { Zap, UserRoundCheck, Radar, ScanFace, Store, Bike, ShoppingBag } from "lucide-react";
 import { api } from "@/lib/api";
+
+// Mengikuti 3 quick-tile di layar Beranda aplikasi mobile (Barbershop /
+// StreetBarber / Produk) — lihat frontend/app/(customer)/home.tsx.
+const QUICK_ACCESS = [
+  {
+    title: "Barbershop",
+    Icon: Store,
+    href: "/jelajahi?filter=Barbershop",
+  },
+  {
+    title: "StreetBarber",
+    Icon: Bike,
+    href: "/jelajahi?filter=StreetBarber",
+  },
+  {
+    title: "Katalog Produk",
+    Icon: ShoppingBag,
+    href: "/katalog",
+  },
+];
 
 async function getLiveStats() {
   try {
@@ -50,37 +70,32 @@ export default async function Home() {
       {/* Hero */}
       <section className="flex flex-col items-center gap-12 px-6 py-16 md:flex-row md:px-20 md:py-24">
         <div className="w-full md:flex-1">
-          <span className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-2 px-3.5 py-1.5 text-[11px] font-bold tracking-wide text-on-surface-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-brand-primary" />
-            MELAYANI KOTA KUPANG, NTT
-          </span>
+          
           <h1 className="mt-5 font-[family-name:var(--font-display)] text-5xl font-semibold leading-[1.05] tracking-wide md:text-6xl">
             Rapikan gaya, tanpa antre.
           </h1>
           <p className="mt-5 max-w-md text-[17px] leading-relaxed text-on-surface-2">
             Booking barbershop favorit atau panggil StreetBarber independen langsung ke lokasi
-            kamu — cepat, transparan, dan bisa dilacak real-time.
+            kamu cepat, transparan, dan bisa dilacak real-time.
           </p>
-          <div className="mt-7 flex flex-wrap gap-3.5">
-            <Link
-              href="/jelajahi"
-              className="flex items-center gap-2 rounded-lg bg-brand-primary px-6 py-3.5 text-sm font-bold text-on-brand-primary transition hover:brightness-110"
-            >
-              <CalendarCheck size={16} />
-              Mulai Booking
-            </Link>
-            <Link
-              href="/jelajahi"
-              className="flex items-center gap-2 rounded-lg border border-border-strong px-6 py-3.5 text-sm font-bold text-on-surface transition hover:bg-surface-2"
-            >
-              <MapPin size={16} />
-              Lihat Barber Terdekat
-            </Link>
+          <div className="mt-7 grid gap-3 sm:grid-cols-3">
+            {QUICK_ACCESS.map(({ title, Icon, href }) => (
+              <Link
+                key={title}
+                href={href}
+                className="group flex flex-col items-start gap-2.5 rounded-xl border border-border bg-surface-2 p-4 transition hover:border-brand-primary/50 hover:bg-surface"
+              >
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-primary">
+                  <Icon size={17} className="text-on-brand-primary" />
+                </div>
+                <span className="text-sm font-bold">{title}</span>
+              </Link>
+            ))}
           </div>
           <div className="mt-7 flex max-w-lg gap-8 border-t border-border pt-5">
             <div>
               <div className="font-[family-name:var(--font-display)] text-2xl font-semibold text-brand-secondary">
-                120+
+                1
               </div>
               <div className="text-xs text-on-surface-3">Barbershop Mitra</div>
             </div>
@@ -92,7 +107,7 @@ export default async function Home() {
             </div>
             <div>
               <div className="font-[family-name:var(--font-display)] text-2xl font-semibold text-brand-secondary">
-                4.8
+                -
               </div>
               <div className="text-xs text-on-surface-3">Rating Rata-rata</div>
             </div>
@@ -147,7 +162,7 @@ export default async function Home() {
       </section>
 
       {/* Cara Kerja */}
-      <section id="cara-kerja" className="px-6 py-20 text-center md:px-20">
+      <section id="cara-kerja" className="scroll-mt-24 px-6 py-20 text-center md:px-20">
         <span className="text-xs font-bold tracking-widest text-brand-secondary">CARA KERJA</span>
         <h2 className="mx-auto mt-3 font-[family-name:var(--font-display)] text-3xl font-extrabold md:text-4xl">
           Booking dalam 3 langkah
@@ -166,16 +181,16 @@ export default async function Home() {
       </section>
 
       {/* CTA */}
-      <section id="tentang" className="border-t border-border px-6 py-20 text-center md:px-20">
+      <section id="tentang" className="scroll-mt-24 border-t border-border px-6 py-20 text-center md:px-20">
         <h2 className="mx-auto max-w-lg font-[family-name:var(--font-display)] text-3xl font-extrabold md:text-4xl">
           Siap coba PangkasKAKA?
         </h2>
         <p className="mx-auto mt-3 max-w-md text-on-surface-2">
-          Langsung booking lewat browser, atau install aplikasinya untuk pengalaman penuh
-          termasuk AI Face Scan.
+          Panggil StreetBarber langsung ke rumahmu lewat browser, atau install aplikasinya untuk
+          pengalaman penuh termasuk AI Face Scan.
         </p>
         <Link
-          href="/jelajahi"
+          href="/jelajahi?filter=StreetBarber"
           className="mt-7 inline-block rounded-lg bg-brand-primary px-6 py-3.5 text-sm font-bold text-on-brand-primary transition hover:brightness-110"
         >
           Mulai Booking di Web

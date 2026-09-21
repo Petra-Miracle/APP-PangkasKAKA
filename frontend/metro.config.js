@@ -5,6 +5,9 @@ const { FileStore } = require('metro-cache');
 
 const config = getDefaultConfig(__dirname);
 
+// react-native-fast-tflite: lets `require('*.tflite')` resolve as a bundled asset.
+config.resolver.assetExts.push("tflite");
+
 // Use a stable on-disk store (shared across web/android)
 const root = process.env.METRO_CACHE_ROOT || path.join(__dirname, '.metro-cache');
 config.cacheStores = [

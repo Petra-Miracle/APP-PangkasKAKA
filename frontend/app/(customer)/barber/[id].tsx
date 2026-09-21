@@ -222,6 +222,13 @@ export default function BarberProfile() {
             </View>
           )}
           <Text style={styles.heroName}>{barber.name}</Text>
+          {barber.rating > 0 && (
+            <View style={styles.ratingRow}>
+              <Ionicons name="star" size={14} color={COLORS.warning} />
+              <Text style={styles.ratingText}>{barber.rating.toFixed(1)}</Text>
+              <Text style={styles.ratingDim}>({barber.reviews_count} ulasan)</Text>
+            </View>
+          )}
           <View style={styles.skillBadge}>
             <Text style={styles.skillText}>{barber.skill_level} · StreetBarber</Text>
           </View>
@@ -545,6 +552,9 @@ const styles = StyleSheet.create({
   heroAvatarFallback: { alignItems: "center", justifyContent: "center", backgroundColor: COLORS.brandDim },
   heroInitial: { color: COLORS.brandLight, fontFamily: FONT.extrabold, fontSize: 32 },
   heroName: { color: COLORS.text, fontSize: 20, fontFamily: FONT.extrabold, marginTop: 12 },
+  ratingRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
+  ratingText: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 13 },
+  ratingDim: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12 },
   validatorHint: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11, marginTop: 8, textAlign: "center" },
   body: { padding: 20, backgroundColor: COLORS.bg },
 

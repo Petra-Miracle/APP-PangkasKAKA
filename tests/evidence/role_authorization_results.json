@@ -1,0 +1,45 @@
+{
+  "run_id": "5e739526",
+  "scenarios": [
+    {
+      "no": 1,
+      "desc": "Pemangkas A menyelesaikan booking milik pemangkas B",
+      "status_code": 403,
+      "blocked": true
+    },
+    {
+      "no": 2,
+      "desc": "Pemangkas A membuka rekap penghasilan — verifikasi isolasi dari data pemangkas B",
+      "status_code": 200,
+      "karyawan_a_completed_count": 1,
+      "karyawan_b_completed_count": 1,
+      "blocked": true,
+      "note": "'blocked' di sini berarti data A tidak tercampur dengan data B (masing-masing hanya 1, bukan 2)"
+    },
+    {
+      "no": 3,
+      "desc": "Owner toko X mengedit layanan toko Y",
+      "status_code": 404,
+      "blocked": true
+    },
+    {
+      "no": 4,
+      "desc": "Customer mengakses endpoint khusus owner (/owner/orders)",
+      "status_code": 403,
+      "blocked": true
+    },
+    {
+      "no": 5,
+      "desc": "Customer 2 membatalkan/menyelesaikan booking milik Customer 1",
+      "status_code": 404,
+      "blocked": true
+    },
+    {
+      "no": 6,
+      "desc": "Request tanpa token ke endpoint yang butuh autentikasi (/wallets/me)",
+      "status_code": 401,
+      "blocked": true
+    }
+  ],
+  "summary": "6 dari 6 skenario diblokir dengan benar"
+}

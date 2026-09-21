@@ -1,0 +1,63 @@
+{
+  "run_id": "381ceb4e",
+  "n_attempts_per_mode": 20,
+  "target_date": "2026-09-14",
+  "sequential": {
+    "time_slot": "10:00",
+    "accepted": 1,
+    "rejected": 19,
+    "db_ground_truth_count": 1,
+    "double_booking": false,
+    "status_codes": [
+      200,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409,
+      409
+    ]
+  },
+  "concurrent": {
+    "time_slot": "11:00",
+    "accepted": 9,
+    "rejected": 11,
+    "db_ground_truth_count": 9,
+    "double_booking": true,
+    "status_codes": [
+      200,
+      409,
+      200,
+      200,
+      200,
+      200,
+      409,
+      200,
+      409,
+      200,
+      200,
+      409,
+      409,
+      409,
+      200,
+      409,
+      409,
+      409,
+      409,
+      409
+    ]
+  }
+}

@@ -10,6 +10,7 @@ import { useImageFaceDetector, type Face } from "react-native-vision-camera-face
 import Svg, { Circle } from "react-native-svg";
 import { api, COLORS, FONT } from "@/src/lib/api";
 import { classifyFaceShape, isFrontalPose, type FaceShapeResult } from "@/src/lib/faceShape";
+import { useFaceShapeModel, classifyFaceShapeCnn } from "@/src/lib/faceShapeCnn";
 import PressableScale from "@/src/components/PressableScale";
 
 type ScanResult = { faceShape: string; confidence: number; reasoning: string; recommendations: any[] };
@@ -31,6 +32,7 @@ export default function AIScan() {
   // every re-render (progress updates re-render this component every ~350ms).
   const detectorOptions = useMemo(() => ({ performanceMode: "fast" as const, runContours: true }), []);
   const faceDetector = useImageFaceDetector(detectorOptions);
+  const faceShapeModel = useFaceShapeModel();
 
   const [scanning, setScanning] = useState(true);
   const [progress, setProgress] = useState(0); // 0-1, drives the ring
@@ -43,6 +45,7 @@ export default function AIScan() {
   const stableCountRef = useRef(0);
   const triggeredRef = useRef(false);
   const processingRef = useRef(false); // guard: only one detection at a time
+  const lastSnapshotPathRef = useRef<string | null>(null); // most recent frame, for the CNN's final pass
 
   useEffect(() => {
     if (!hasPermission && canRequestPermission) requestPermission();
@@ -52,11 +55,35 @@ export default function AIScan() {
     setScanning(false);
     setAnalyzing(true);
     setErr(null);
+
+    // The geometric classifier above only drives the live "hold still" ring —
+    // it's cheap enough to run every ~800ms but tops out at ~22% held-out
+    // accuracy (backend/tools/face_shape_calibrate.py). The CNN trained on
+    // backend/db/Data-Trainning is far more accurate, so it gets the final
+    // say once per scan, on the snapshot that triggered stability. It can't
+    // predict "heart" (no heart examples in the training set), so that one
+    // shape still falls back to the geometric reading.
+    let finalShape = classified.shape;
+    let finalConfidence = classified.confidence;
+    const snapshotPath = lastSnapshotPathRef.current;
+    if (snapshotPath && faceShapeModel.state === "loaded") {
+      setStatusText("Menganalisis dengan AI model...");
+      try {
+        const cnnResult = await classifyFaceShapeCnn(faceShapeModel.model, `file://${snapshotPath}`);
+        if (cnnResult) {
+          finalShape = cnnResult.shape;
+          finalConfidence = cnnResult.confidence;
+        }
+      } catch (e) {
+        console.warn("CNN face-shape inference failed, using geometric reading", e);
+      }
+    }
+
     setStatusText("Mengirim ke AI untuk analisis...");
     try {
       const r = await api.post("/ai/face-scan", {
-        face_shape: classified.shape,
-        confidence: classified.confidence,
+        face_shape: finalShape,
+        confidence: finalConfidence,
         measurements: classified.measurements,
       });
       setResult(r);
@@ -64,7 +91,7 @@ export default function AIScan() {
       setErr(e.message || "Analisis gagal, coba lagi");
     }
     setAnalyzing(false);
-  }, []);
+  }, [faceShapeModel]);
 
   const handleFacesDetected = useCallback((faces: Face[]) => {
     if (triggeredRef.current || !scanning) return;
@@ -122,6 +149,7 @@ export default function AIScan() {
           const snapshot = await cam.takeSnapshot();
           const path = await snapshot.saveToTemporaryFileAsync("jpg", 70);
           if (cancelled) return;
+          lastSnapshotPathRef.current = path;
           const faces = faceDetector.detectFaces(`file://${path}`);
           if (!cancelled) handleFacesDetected(faces);
         }
