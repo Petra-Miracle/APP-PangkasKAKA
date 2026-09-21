@@ -25,11 +25,25 @@ function LiveLocationCard({ bookingId, onPress }: { bookingId: string; onPress?:
     } catch { setSharing(false); }
   }, [bookingId]);
 
+  // Layar ini (Riwayat Pesanan) adalah tab-navigator screen — tetap ter-mount
+  // di background saat pindah tab (tidak ada unmountOnBlur), jadi polling di
+  // bawah ini WAJIB berhenti saat layar kehilangan fokus, kalau tidak akan
+  // jalan terus selamanya dan membebani JS thread tab lain (bug yang sama
+  // dengan yang ditemukan di app/(customer)/ai-scan.tsx).
+  const [isFocused, setIsFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      return () => setIsFocused(false);
+    }, [])
+  );
+
   useEffect(() => {
+    if (!isFocused) return;
     fetchLoc();
     pollRef.current = setInterval(fetchLoc, LOC_POLL_INTERVAL);
     return () => clearInterval(pollRef.current);
-  }, [fetchLoc]);
+  }, [fetchLoc, isFocused]);
 
   // Dulu kartu ini disembunyikan total kalau barber belum menyalakan "bagikan
   // lokasi" (sharing === false) — hasilnya use case "lacak posisi StreetBarber

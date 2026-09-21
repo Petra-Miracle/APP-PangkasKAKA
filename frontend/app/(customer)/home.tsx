@@ -61,27 +61,27 @@ export default function Home() {
 
   const init = useCallback(async () => {
     setLoading(true);
+    // Jangan tahan render pertama demi izin lokasi + GPS fix (bisa sampai 4 detik,
+    // bahkan tidak pernah selesai di dalam gedung). Tampilkan dulu pakai koordinat
+    // terdaftar/default, baru diam-diam upgrade ke GPS live begitu tersedia —
+    // pola yang sama dipakai auth.tsx untuk cached_user vs /auth/me.
+    const fallback = registeredCoords();
+    setCoords(fallback);
+    try {
+      await Promise.all([loadShops(fallback), loadNearbyBarbers(fallback)]);
+    } catch {} finally { setLoading(false); }
+
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      let c: { lat: number; lng: number } | null = null;
-      if (status === "granted") {
-        try {
-          // GPS fix bisa lama sekali (bahkan tidak pernah selesai) di dalam gedung —
-          // jangan biarkan itu menahan seluruh halaman. Race lawan timeout, jatuh ke
-          // koordinat terdaftar kalau GPS belum dapat fix dalam 4 detik.
-          const loc: any = await Promise.race([
-            Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error("location_timeout")), 4000)),
-          ]);
-          c = { lat: loc.coords.latitude, lng: loc.coords.longitude };
-        } catch { c = registeredCoords(); }
-      } else {
-        c = registeredCoords();
-      }
-      setCoords(c);
-      // Dua call ini independen — jalankan sekaligus, bukan satu-satu.
-      await Promise.all([loadShops(c), loadNearbyBarbers(c)]);
-    } catch {} finally { setLoading(false); }
+      if (status !== "granted") return;
+      const loc: any = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("location_timeout")), 4000)),
+      ]);
+      const live = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+      setCoords(live);
+      await Promise.all([loadShops(live), loadNearbyBarbers(live)]);
+    } catch {}
   }, [loadShops, loadNearbyBarbers, user?.lat, user?.lng]);
 
   useEffect(() => { init(); }, [init]);

@@ -44,6 +44,7 @@ export default function BarberProfile() {
   const [date, setDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [calendarMonth, setCalendarMonth] = useState(() => { const d = new Date(); d.setDate(1); return d; });
   const [slots, setSlots] = useState<any[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const [showAllSlots, setShowAllSlots] = useState(false);
   const [slotTime, setSlotTime] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -92,11 +93,19 @@ export default function BarberProfile() {
 
   useEffect(() => {
     if (step === 2 && service && barber) {
+      let cancelled = false;
+      setSlotsLoading(true);
       (async () => {
-        const r = await api.get(`/barbers/${barber.id}/slots?date=${date}&service_id=${service.id}`);
-        setSlots(r.slots);
-        setShowAllSlots(false);
+        try {
+          const r = await api.get(`/barbers/${barber.id}/slots?date=${date}&service_id=${service.id}`);
+          if (cancelled) return;
+          setSlots(r.slots);
+          setShowAllSlots(false);
+        } finally {
+          if (!cancelled) setSlotsLoading(false);
+        }
       })();
+      return () => { cancelled = true; };
     }
   }, [step, service, barber, date]);
 
@@ -335,8 +344,16 @@ export default function BarberProfile() {
               </View>
 
               <View style={styles.slotList}>
-                {slots.length === 0 && <Text style={styles.empty}>Tidak ada slot tersedia.</Text>}
-                {(showAllSlots ? slots : slots.slice(0, 5)).map((sl) => {
+                {slotsLoading ? (
+                  <>
+                    <Skeleton style={{ height: 50, borderRadius: 14 }} />
+                    <Skeleton style={{ height: 50, borderRadius: 14 }} />
+                    <Skeleton style={{ height: 50, borderRadius: 14 }} />
+                  </>
+                ) : (
+                  <>
+                    {slots.length === 0 && <Text style={styles.empty}>Tidak ada slot tersedia.</Text>}
+                    {(showAllSlots ? slots : slots.slice(0, 5)).map((sl) => {
                   const selected = slotTime === sl.time;
                   return (
                     <PressableScale
@@ -365,11 +382,13 @@ export default function BarberProfile() {
                     </PressableScale>
                   );
                 })}
-                {!showAllSlots && slots.length > 5 && (
-                  <PressableScale testID="slots-see-more" style={styles.seeMoreBtn} onPress={() => setShowAllSlots(true)} scaleTo={0.97}>
-                    <Text style={styles.seeMoreText}>Lihat Lebih Banyak</Text>
-                    <Ionicons name="chevron-down" size={16} color={COLORS.brandLight} />
-                  </PressableScale>
+                    {!showAllSlots && slots.length > 5 && (
+                      <PressableScale testID="slots-see-more" style={styles.seeMoreBtn} onPress={() => setShowAllSlots(true)} scaleTo={0.97}>
+                        <Text style={styles.seeMoreText}>Lihat Lebih Banyak</Text>
+                        <Ionicons name="chevron-down" size={16} color={COLORS.brandLight} />
+                      </PressableScale>
+                    )}
+                  </>
                 )}
               </View>
             </View>

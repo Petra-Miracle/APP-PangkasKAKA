@@ -3,7 +3,30 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 const BASE = process.env.EXPO_PUBLIC_BACKEND_URL || "";
 const API = `${BASE}/api`;
 
-const NETWORK_RETRY_DELAYS_MS = [800, 2000];
+// GET dipakai untuk data screen pertama (harus cepat gagal supaya UI tidak
+// nyangkut lama di skeleton) — POST/PUT juga menangani upload foto base64 di
+// sinyal lemah, jadi butuh timeout & retry yang lebih longgar. Terukur di
+// device nyata: 20s timeout + 2 retry bisa menahan skeleton ~63 detik kalau
+// koneksi macet; GET dipangkas ke 8s + 1 retry (~17s terburuk).
+const GET_TIMEOUT_MS = 8000;
+const GET_RETRY_DELAYS_MS = [800];
+const WRITE_TIMEOUT_MS = 20000;
+const WRITE_RETRY_DELAYS_MS = [800, 2000];
+
+// fetch() bawaan tidak punya timeout — kalau koneksi "diam" (TCP/TLS connect
+// tapi lalu macet, tanpa error) di tengah jalan, promise-nya tidak akan pernah
+// resolve/reject, dan UI nyangkut di skeleton loading selamanya. Bungkus
+// dengan AbortController supaya request macet ikut lewat jalur retry/error
+// yang sudah ada di bawah, bukan menggantung tanpa batas.
+async function fetchWithTimeout(url: string, opts: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...opts, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function req(path: string, opts: RequestInit = {}) {
   const token = await AsyncStorage.getItem("token");
@@ -13,21 +36,26 @@ async function req(path: string, opts: RequestInit = {}) {
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
+  const isGet = !opts.method || opts.method === "GET";
+  const timeoutMs = isGet ? GET_TIMEOUT_MS : WRITE_TIMEOUT_MS;
+  const retryDelays = isGet ? GET_RETRY_DELAYS_MS : WRITE_RETRY_DELAYS_MS;
+
   let res: Response;
   let attempt = 0;
   while (true) {
     try {
-      res = await fetch(`${API}${path}`, { ...opts, headers });
+      res = await fetchWithTimeout(`${API}${path}`, { ...opts, headers }, timeoutMs);
       break;
     } catch {
       // fetch() melempar TypeError (bukan response HTTP) saat koneksi putus di
-      // tengah transfer — sering terjadi pada upload foto (payload lebih besar)
-      // di sinyal seluler lemah. Retry singkat sebelum menyerah ke pesan yang
-      // lebih jelas daripada "Network request failed" mentah dari RN.
-      if (attempt >= NETWORK_RETRY_DELAYS_MS.length) {
+      // tengah transfer, atau AbortError saat timeout di atas kena — sering
+      // terjadi pada upload foto (payload lebih besar) di sinyal seluler lemah.
+      // Retry singkat sebelum menyerah ke pesan yang lebih jelas daripada
+      // "Network request failed" mentah dari RN.
+      if (attempt >= retryDelays.length) {
         throw new Error("Koneksi jaringan terputus. Periksa sinyal/internet Anda dan coba lagi.");
       }
-      await new Promise((r) => setTimeout(r, NETWORK_RETRY_DELAYS_MS[attempt]));
+      await new Promise((r) => setTimeout(r, retryDelays[attempt]));
       attempt++;
     }
   }

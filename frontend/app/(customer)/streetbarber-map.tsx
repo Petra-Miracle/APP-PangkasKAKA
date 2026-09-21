@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Dimensions } fro
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import * as Location from "expo-location";
 import { Map, Camera, Marker } from "@maplibre/maplibre-react-native";
 import { api, COLORS, FONT, formatJarak } from "@/src/lib/api";
@@ -80,11 +80,22 @@ export default function StreetBarberMap() {
     return () => { cancelled = true; };
   }, [loadNearby, registeredCoords]);
 
+  // Layar ini adalah tab-navigator screen (href: null, tetap ter-mount di
+  // background saat pindah tab) — polling wajib berhenti saat kehilangan
+  // fokus, sama seperti bug yang ditemukan di ai-scan.tsx & orders.tsx.
+  const [isFocused, setIsFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      return () => setIsFocused(false);
+    }, [])
+  );
+
   useEffect(() => {
-    if (!coords) return;
+    if (!coords || !isFocused) return;
     pollRef.current = setInterval(() => loadNearby(coords), POLL_INTERVAL);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [coords, loadNearby]);
+  }, [coords, loadNearby, isFocused]);
 
   const customerCoord: [number, number] | null = coords ? [coords.lng, coords.lat] : null;
 

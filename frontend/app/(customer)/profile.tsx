@@ -19,7 +19,7 @@ export default function Profile() {
   const showActivity = user?.role === "customer" || user?.role === "streetbarber" || user?.role === "superadmin";
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
-      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 100 }}>
+      <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 120 }}>
         <Text style={styles.title}>Akun</Text>
 
         <View style={styles.profileCard}>

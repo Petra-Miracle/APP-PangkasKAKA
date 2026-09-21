@@ -4,7 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { Camera, useCameraDevice, useCameraPermission, type CameraRef } from "react-native-vision-camera";
 import { useImageFaceDetector, type Face } from "react-native-vision-camera-face-detector";
 import Svg, { Circle } from "react-native-svg";
@@ -33,6 +33,19 @@ export default function AIScan() {
   const detectorOptions = useMemo(() => ({ performanceMode: "fast" as const, runContours: true }), []);
   const faceDetector = useImageFaceDetector(detectorOptions);
   const faceShapeModel = useFaceShapeModel();
+
+  // This screen is a bottom tab, so React Navigation keeps it mounted in the
+  // background when the user switches tabs (no unmountOnBlur). Without this,
+  // the snapshot+face-detection polling loop below would keep running on the
+  // JS thread forever after the user leaves the Scan tab, starving every
+  // other screen's rendering of JS-thread time.
+  const [isFocused, setIsFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      return () => setIsFocused(false);
+    }, [])
+  );
 
   const [scanning, setScanning] = useState(true);
   const [progress, setProgress] = useState(0); // 0-1, drives the ring
@@ -133,7 +146,7 @@ export default function AIScan() {
   }, [scanning, onStable]);
 
   useEffect(() => {
-    if (!scanning || !device || !hasPermission) return;
+    if (!scanning || !device || !hasPermission || !isFocused) return;
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
 
@@ -166,7 +179,7 @@ export default function AIScan() {
       processingRef.current = false;
       clearTimeout(timer);
     };
-  }, [scanning, device, hasPermission, faceDetector, handleFacesDetected]);
+  }, [scanning, device, hasPermission, isFocused, faceDetector, handleFacesDetected]);
 
   const retry = () => {
     setResult(null);
@@ -242,7 +255,7 @@ export default function AIScan() {
                   ref={cameraRef}
                   style={StyleSheet.absoluteFill}
                   device={device}
-                  isActive={scanning}
+                  isActive={scanning && isFocused}
                   onError={(e) => setErr(e.message || "Kamera gagal dimuat")}
                 />
                 <View style={styles.overlay} pointerEvents="none">

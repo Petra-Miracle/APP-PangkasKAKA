@@ -98,11 +98,24 @@ export default function OwnerDashboard() {
 
   useFocusEffect(useCallback(() => { load(); loadInbox(); }, [load, loadInbox]));
 
+  // Tab ini tetap ter-mount di background saat owner pindah tab (tidak ada
+  // unmountOnBlur) — tanpa guard fokus, poll inbox tiap 15 detik ini jalan
+  // terus selamanya di belakang layar lain (bug yang sama dengan
+  // ai-scan.tsx/orders.tsx/streetbarber-map.tsx di sisi customer).
+  const [isFocused, setIsFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setIsFocused(true);
+      return () => setIsFocused(false);
+    }, [])
+  );
+
   useEffect(() => {
+    if (!isFocused) return;
     const iv = setInterval(() => setNowTs(Date.now()), 1000);
     const poll = setInterval(loadInbox, 15000);
     return () => { clearInterval(iv); clearInterval(poll); };
-  }, [loadInbox]);
+  }, [loadInbox, isFocused]);
 
   // Sama persis polanya dengan (owner)/orders.tsx: POST langsung + muat ulang.
   const updateOrder = async (id: string, status: string) => {
