@@ -26,7 +26,7 @@ import boto3
 from botocore.config import Config as BotoConfig
 from dotenv import load_dotenv
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Header, Body, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ReturnDocument, monitoring as pymongo_monitoring
@@ -2103,7 +2103,17 @@ async def redeem_document_preview_token(token: str):
     if not row or row["used"] or datetime.fromisoformat(row["expires_at"]) < now_utc():
         raise HTTPException(404, "Link preview tidak valid atau sudah kedaluwarsa")
     await db.document_preview_tokens.update_one({"token": token}, {"$set": {"used": True}})
-    return RedirectResponse(row["url"])
+    url = row["url"]
+    if url.startswith("data:"):
+        # Dokumen lama / fallback base64 (R2 belum ada atau gagal saat upload) —
+        # browser menolak redirect ke data: URL sehingga <img> rusak. Sajikan
+        # bytes-nya langsung dengan Deep Link yang sama (sekali pakai + TTL).
+        parsed = _parse_document_data_uri(url)
+        if not parsed:
+            raise HTTPException(404, "Dokumen rusak atau format tidak didukung")
+        mime_type, image_bytes = parsed
+        return Response(content=image_bytes, media_type=mime_type)
+    return RedirectResponse(url)
 
 
 def _parse_document_data_uri(value: str):
@@ -2164,11 +2174,13 @@ DOC_AI_GUIDANCE = {
 
 @api.post("/admin/shops/{shop_id}/documents/{doc_key}/ai-review")
 async def admin_ai_review_doc(shop_id: str, doc_key: str, body: DocumentAccessIn, user=Depends(require_role("superadmin"))):
-    """Advisory-only: asks Gemini Vision to describe what it reads in the
-    document and flag anything inconsistent with a genuine one, to help the
-    admin's own review. Never decides valid/invalid itself, and never writes
-    anything to the database — the result is returned once and forgotten,
-    same as this call not happening if GEMINI_API_KEY isn't configured."""
+    """Verification-only: asks Gemini Vision to verify the authenticity of the
+    uploaded document (read out its data, match against owner/shop data, flag
+    physical inconsistencies) and report factual findings. It never declares a
+    document valid/invalid — the human admin alone makes that call — and never
+    writes anything to the database (see the endpoint below: the Gemini call
+    result is returned straight to the admin and never written anywhere).
+    Same as this call not happening if GEMINI_API_KEY isn't configured."""
     await _require_document_unlock_token(body.unlock_token, user["id"])
     if doc_key not in DOC_LABELS:
         raise HTTPException(400, "Doc key tidak valid")
@@ -2189,17 +2201,17 @@ async def admin_ai_review_doc(shop_id: str, doc_key: str, body: DocumentAccessIn
     owner_name = (owner or {}).get("name") or "(tidak diketahui)"
 
     prompt = (
-        f"Kamu membantu admin sebuah platform barbershop meninjau dokumen "
+        f"Kamu memverifikasi keaslian dokumen "
         f"'{DOC_LABELS[doc_key]}' yang diunggah pemilik toko bernama '{owner_name}' saat "
         f"mendaftarkan tokonya '{shop.get('name', '')}'.\n\n"
         f"Ciri dokumen {DOC_LABELS[doc_key]} asli: {DOC_AI_GUIDANCE[doc_key]}\n\n"
-        "Lihat gambar terlampir dan berikan catatan singkat (maksimal 4 kalimat, Bahasa "
-        "Indonesia, tanpa markdown) mencakup: apa yang terbaca di dokumen ini, apakah "
-        "tampilannya konsisten dengan dokumen asli sejenis atau ada kejanggalan (buram, "
-        "terpotong, jenis dokumen tidak cocok, tanda-tanda hasil edit/tempel), dan apakah "
-        "nama/data yang terbaca cocok dengan nama pemilik toko di atas. Ini HANYA catatan "
-        "bantuan untuk admin manusia — jangan menyatakan keputusan akhir valid atau "
-        "tidak valid, admin yang memutuskan."
+        "Periksa gambar terlampir dan laporkan HASIL VERIFIKASI (maksimal 4 kalimat, "
+        "Bahasa Indonesia, tanpa markdown) berisi temuan faktual saja: data penting yang "
+        "terbaca di dokumen (nama, nomor, tanggal), apakah data itu cocok dengan nama "
+        "pemilik dan nama toko di atas, serta tanda-tanda kejanggalan fisik (buram, "
+        "terpotong, jenis dokumen tidak cocok, indikasi hasil edit/tempel). JANGAN "
+        "menyimpulkan 'valid', 'tidak valid', 'asli', atau 'palsu' — keputusan "
+        "valid/tidak valid sepenuhnya wewenang admin manusia yang membaca verifikasi ini."
     )
 
     try:
@@ -2213,10 +2225,10 @@ async def admin_ai_review_doc(shop_id: str, doc_key: str, body: DocumentAccessIn
         notes = (getattr(resp, "text", "") or "").strip()
     except Exception:
         log.exception("Gemini document review call failed")
-        return {"available": False, "reason": "Analisis AI gagal — lanjutkan review manual"}
+        return {"available": False, "reason": "Verifikasi AI gagal — lanjutkan pemeriksaan manual"}
 
     if not notes:
-        return {"available": False, "reason": "AI tidak menghasilkan catatan — lanjutkan review manual"}
+        return {"available": False, "reason": "AI tidak menghasilkan temuan — lanjutkan pemeriksaan manual"}
 
     return {"available": True, "doc_key": doc_key, "notes": notes}
 
