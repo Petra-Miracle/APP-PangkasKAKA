@@ -35,13 +35,24 @@ export default function Register() {
   });
   const [karyawanCriteriaAgreed, setKaryawanCriteriaAgreed] = useState(false);
   const [shops, setShops] = useState<any[]>([]);
+  const [shopsLoading, setShopsLoading] = useState(false);
+  const [shopsError, setShopsError] = useState<string | null>(null);
+  const [shopsLoaded, setShopsLoaded] = useState(false);
   const { scrollRef, handleFocus } = useScrollToInput();
 
+  const loadShops = () => {
+    setShopsLoading(true); setShopsError(null);
+    api.get("/shops?sort=rating")
+      .then((r) => { setShops(r.shops); setShopsLoaded(true); })
+      .catch((e) => setShopsError(e.message || "Gagal memuat daftar toko"))
+      .finally(() => setShopsLoading(false));
+  };
+
   useEffect(() => {
-    if (role === "streetbarber" && step === 2 && shops.length === 0) {
-      api.get("/shops?sort=rating").then((r) => setShops(r.shops)).catch(() => {});
+    if (role === "streetbarber" && step === 2 && !shopsLoaded && !shopsLoading) {
+      loadShops();
     }
-  }, [role, step, shops.length]);
+  }, [role, step, shopsLoaded, shopsLoading]);
 
   const useRegCurrentLocation = async () => {
     setRegGpsLoading(true);
@@ -210,7 +221,25 @@ export default function Register() {
               <View>
                 <Text style={styles.sectionLabel}>PILIH TOKO VALIDATOR</Text>
                 <Text style={styles.hint}>Toko ini hanya memvalidasi dokumen & keterampilanmu — StreetBarber tidak bekerja di toko dan tidak menjadi karyawan toko manapun. Setelah lulus, kamu melayani panggilan ke rumah secara mandiri.</Text>
-                {shops.length === 0 ? <ActivityIndicator color={COLORS.brand} style={{ marginVertical: 20 }} /> : (
+                {shopsLoading ? (
+                  <ActivityIndicator color={COLORS.brand} style={{ marginVertical: 20 }} />
+                ) : shopsError ? (
+                  <View style={styles.shopsStateBox}>
+                    <Ionicons name="alert-circle-outline" size={20} color={COLORS.error} />
+                    <Text style={styles.shopsStateText}>{shopsError}</Text>
+                    <PressableScale testID="shops-retry" onPress={loadShops} style={styles.shopsRetryBtn} scaleTo={0.96}>
+                      <Text style={styles.shopsRetryText}>Coba Lagi</Text>
+                    </PressableScale>
+                  </View>
+                ) : shops.length === 0 ? (
+                  <View style={styles.shopsStateBox}>
+                    <Ionicons name="storefront-outline" size={20} color={COLORS.textDim} />
+                    <Text style={styles.shopsStateText}>Belum ada toko terverifikasi yang bisa memvalidasi lamaranmu saat ini.</Text>
+                    <PressableScale testID="shops-retry" onPress={loadShops} style={styles.shopsRetryBtn} scaleTo={0.96}>
+                      <Text style={styles.shopsRetryText}>Muat Ulang</Text>
+                    </PressableScale>
+                  </View>
+                ) : (
                   <View style={{ gap: 8, marginTop: 8 }}>
                     {shops.map((s) => (
                       <PressableScale key={s.id} testID={`k-shop-${s.id}`} onPress={() => setKaryawanForm({ ...karyawanForm, shop_id: s.id })}
@@ -316,6 +345,10 @@ const styles = StyleSheet.create({
   multi: { backgroundColor: COLORS.surface, borderRadius: 14, borderWidth: 1.5, borderColor: COLORS.border, paddingHorizontal: 16, minHeight: 72, textAlignVertical: "top", color: COLORS.text, fontFamily: FONT.medium, paddingVertical: 14 },
   locBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: COLORS.brandDim, borderRadius: 14, paddingVertical: 14, marginTop: 12, borderWidth: 1, borderColor: COLORS.brand },
   locBtnText: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 13 },
+  shopsStateBox: { alignItems: "center", gap: 10, paddingVertical: 24, paddingHorizontal: 12 },
+  shopsStateText: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, textAlign: "center", lineHeight: 18 },
+  shopsRetryBtn: { backgroundColor: COLORS.brandDim, borderWidth: 1, borderColor: COLORS.brand, borderRadius: 12, paddingHorizontal: 20, paddingVertical: 10, marginTop: 4 },
+  shopsRetryText: { color: COLORS.brandLight, fontFamily: FONT.bold, fontSize: 12 },
   divider: { height: 1, backgroundColor: COLORS.border, marginVertical: 22 },
   agreeRow: { flexDirection: "row", alignItems: "center", gap: 10, marginTop: 18 },
   agreeText: { flex: 1, color: COLORS.text, fontFamily: FONT.medium, fontSize: 12, lineHeight: 18 },

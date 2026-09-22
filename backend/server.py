@@ -1340,9 +1340,6 @@ async def list_shops(
     min_rating: Optional[float] = None, max_price: Optional[float] = None,
     max_distance_km: Optional[float] = None, q: Optional[str] = None,
 ):
-    # expire_stale_bookings() dan kedua query enrichment di bawah tidak saling
-    # bergantung — jalankan sekaligus lewat gather, bukan menunggu satu-satu,
-    # supaya latency endpoint ini ~1 round-trip terjauh, bukan jumlah semuanya.
     async def _fetch_min_price(ids: list) -> dict:
         out: dict = {}
         if not ids:
@@ -1366,20 +1363,24 @@ async def list_shops(
             out[bk["shop_id"]] = out.get(bk["shop_id"], 0) + 1
         return out
 
-    shops, _ = await asyncio.gather(
+    # expire_stale_bookings() adalah cleanup lazy yang hasilnya tidak dipakai respons ini —
+    # di semua caller lain sengaja fire-and-forget lewat asyncio.create_task (baris ~1479,
+    # 1526, 1539), TAPI di sini sebelumnya malah di-await lewat gather sehingga endpoint
+    # browse-toko yang paling sering di-hit ikut menunggu collection scan bookings (tidak
+    # ada index untuk payment_status/created_at) selesai dulu — inilah penyebab GET /shops
+    # bisa 20 detik+ meski query toko sendiri cepat.
+    asyncio.create_task(expire_stale_bookings())
+    shops = await db.barbershops.find(
         # Proyeksi eksplisit — dokumen toko juga menyimpan sop_document_url
         # (PDF base64, ratusan KB) plus data KYC/finansial (doc_ktp, doc_nib,
         # account_number, dst) yang tidak pernah dipakai layar daftar toko.
         # Tanpa ini, GET /shops bisa mengirim ratusan KB per toko yang sama
         # sekali tidak relevan untuk UI browse.
-        db.barbershops.find(
-            {"is_verified": True, "verification_status": "approved"},
-            {"_id": 0, "sop_document_url": 0, "sop_updated_at": 0, "doc_ktp": 0, "doc_nib": 0,
-             "doc_npwp": 0, "doc_surat_usaha": 0, "account_holder": 0, "account_number": 0,
-             "bank_name": 0, "verification_note": 0},
-        ).to_list(500),
-        expire_stale_bookings(),
-    )
+        {"is_verified": True, "verification_status": "approved"},
+        {"_id": 0, "sop_document_url": 0, "sop_updated_at": 0, "doc_ktp": 0, "doc_nib": 0,
+         "doc_npwp": 0, "doc_surat_usaha": 0, "account_holder": 0, "account_number": 0,
+         "bank_name": 0, "verification_note": 0},
+    ).to_list(500)
     shop_ids = [s["id"] for s in shops]
     min_price_by_shop, booking_count_by_shop = await asyncio.gather(
         _fetch_min_price(shop_ids), _fetch_booking_count(shop_ids)
@@ -6064,6 +6065,11 @@ async def ensure_indexes():
     # GET /barbers/nearby memfilter is_online, lalu updated_at — compound index
     # ini melayani kedua tahap filter itu sekaligus.
     await db.karyawan_locations.create_index([("is_online", 1), ("updated_at", 1)])
+    # expire_stale_bookings()/expire_stale_product_orders() memfilter kombinasi ketiga
+    # field ini di tiap panggilan (dipicu lazy dari banyak endpoint) — tanpa index ini
+    # Mongo melakukan collection scan penuh yang makin lambat seiring koleksi bertumbuh.
+    await db.bookings.create_index([("payment_status", 1), ("status", 1), ("created_at", 1)])
+    await db.product_orders.create_index([("payment_status", 1), ("status", 1), ("created_at", 1)])
 
 
 async def _auto_release_loop():
