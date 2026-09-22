@@ -4137,86 +4137,166 @@ async def send_owner_message(bid: str, body: ServiceChatSendIn, user=Depends(get
 
 
 # ============================================================
-# UNIFIED MESSAGE LIST (Customer — "Messages" entry point on home screen)
+# UNIFIED MESSAGE LIST (Customer & StreetBarber — "Messages" entry point)
 # ============================================================
+async def _group_messages(collection, ids: list, id_field: str, reader_id: str):
+    """Kelompokkan pesan terakhir + jumlah belum-dibaca per id (booking_id atau
+    karyawan_id) dalam satu query batch, dipakai bareng oleh thread customer &
+    streetbarber supaya tidak ada N+1 round-trip per thread."""
+    last_by: dict = {}
+    unread_by: dict = {}
+    if not ids:
+        return last_by, unread_by
+    cursor = collection.find({id_field: {"$in": ids}}, {"_id": 0}).sort("created_at", -1)
+    async for m in cursor:
+        key = m[id_field]
+        if key not in last_by:
+            last_by[key] = m  # pesan pertama ditemukan per key = paling baru (sudah sort desc)
+        if m["sender_id"] != reader_id and not m.get("is_read", False):
+            unread_by[key] = unread_by.get(key, 0) + 1
+    return last_by, unread_by
 @api.get("/messages/threads")
-async def list_message_threads(user=Depends(require_role("customer"))):
-    bookings = await db.bookings.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
-    shop_ids = list({b["shop_id"] for b in bookings})
-    shops = (
-        await db.barbershops.find({"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1, "image": 1}).to_list(len(shop_ids))
-        if shop_ids else []
-    )
-    shop_map = {s["id"]: s for s in shops}
-    barber_ids = list({b["barber_id"] for b in bookings if b.get("barber_id")})
-    barbers = (
-        await db.barbers.find({"id": {"$in": barber_ids}}, {"_id": 0, "id": 1, "name": 1, "photo": 1}).to_list(len(barber_ids))
-        if barber_ids else []
-    )
-    barber_map = {b["id"]: b for b in barbers}
+async def list_message_threads(user=Depends(get_current_user)):
+    if user["role"] == "customer":
+        bookings = await db.bookings.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
+        shop_ids = list({b["shop_id"] for b in bookings})
+        shops = (
+            await db.barbershops.find({"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1, "image": 1}).to_list(len(shop_ids))
+            if shop_ids else []
+        )
+        shop_map = {s["id"]: s for s in shops}
+        barber_ids = list({b["barber_id"] for b in bookings if b.get("barber_id")})
+        barbers = (
+            await db.barbers.find({"id": {"$in": barber_ids}}, {"_id": 0, "id": 1, "name": 1, "photo": 1}).to_list(len(barber_ids))
+            if barber_ids else []
+        )
+        barber_map = {b["id"]: b for b in barbers}
+        booking_ids = [b["id"] for b in bookings]
 
-    # Sebelumnya 4 round-trip DB per booking (last message + unread count, x2 jenis
-    # thread) — bisa ratusan query berurutan. Ganti jadi 2 query batch (semua pesan
-    # service_messages/owner_messages untuk semua booking sekaligus), lalu kelompokkan
-    # "terakhir" & "belum dibaca" per booking di memori.
-    booking_ids = [b["id"] for b in bookings]
+        (last_b_by_booking, unread_b_by_booking), (last_o_by_booking, unread_o_by_booking) = await asyncio.gather(
+            _group_messages(db.service_messages, booking_ids, "booking_id", user["id"]),
+            _group_messages(db.owner_messages, booking_ids, "booking_id", user["id"]),
+        )
 
-    async def _group_messages(collection):
-        last_by_booking: dict = {}
-        unread_by_booking: dict = {}
-        if not booking_ids:
-            return last_by_booking, unread_by_booking
-        cursor = collection.find({"booking_id": {"$in": booking_ids}}, {"_id": 0}).sort("created_at", -1)
-        async for m in cursor:
-            bid = m["booking_id"]
-            if bid not in last_by_booking:
-                last_by_booking[bid] = m  # pesan pertama yang ditemukan per booking = paling baru (sudah sort desc)
-            if m["sender_id"] != user["id"] and not m.get("is_read", False):
-                unread_by_booking[bid] = unread_by_booking.get(bid, 0) + 1
-        return last_by_booking, unread_by_booking
+        threads = []
+        total_unread = 0
+        for b in bookings:
+            shop = shop_map.get(b["shop_id"], {})
+            barber = barber_map.get(b.get("barber_id"), {})
 
-    (last_b_by_booking, unread_b_by_booking), (last_o_by_booking, unread_o_by_booking) = await asyncio.gather(
-        _group_messages(db.service_messages), _group_messages(db.owner_messages)
-    )
+            last_b = last_b_by_booking.get(b["id"])
+            unread_b = unread_b_by_booking.get(b["id"], 0)
+            total_unread += unread_b
+            threads.append({
+                "type": "barber",
+                "booking_id": b["id"],
+                "title": barber.get("name") or "Barber",
+                "subtitle": shop.get("name") or "",
+                "image": barber.get("photo") or shop.get("image"),
+                "booking_status": b["status"],
+                "last_message": last_b,
+                "unread": unread_b,
+                "updated_at": last_b["created_at"] if last_b else b["created_at"],
+            })
 
-    threads = []
-    total_unread = 0
-    for b in bookings:
-        shop = shop_map.get(b["shop_id"], {})
-        barber = barber_map.get(b.get("barber_id"), {})
+            last_o = last_o_by_booking.get(b["id"])
+            unread_o = unread_o_by_booking.get(b["id"], 0)
+            total_unread += unread_o
+            threads.append({
+                "type": "owner",
+                "booking_id": b["id"],
+                "title": shop.get("name") or "Toko",
+                "subtitle": barber.get("name") or "",
+                "image": shop.get("image"),
+                "booking_status": b["status"],
+                "last_message": last_o,
+                "unread": unread_o,
+                "updated_at": last_o["created_at"] if last_o else b["created_at"],
+            })
 
-        last_b = last_b_by_booking.get(b["id"])
-        unread_b = unread_b_by_booking.get(b["id"], 0)
-        total_unread += unread_b
-        threads.append({
-            "type": "barber",
-            "booking_id": b["id"],
-            "title": barber.get("name") or "Barber",
-            "subtitle": shop.get("name") or "",
-            "image": barber.get("photo") or shop.get("image"),
-            "booking_status": b["status"],
-            "last_message": last_b,
-            "unread": unread_b,
-            "updated_at": last_b["created_at"] if last_b else b["created_at"],
-        })
+        threads.sort(key=lambda t: t["updated_at"], reverse=True)
+        return {"threads": threads, "total_unread": total_unread}
 
-        last_o = last_o_by_booking.get(b["id"])
-        unread_o = unread_o_by_booking.get(b["id"], 0)
-        total_unread += unread_o
-        threads.append({
-            "type": "owner",
-            "booking_id": b["id"],
-            "title": shop.get("name") or "Toko",
-            "subtitle": barber.get("name") or "",
-            "image": shop.get("image"),
-            "booking_status": b["status"],
-            "last_message": last_o,
-            "unread": unread_o,
-            "updated_at": last_o["created_at"] if last_o else b["created_at"],
-        })
+    if user["role"] == "streetbarber":
+        # Semua lamaran (bukan cuma yang aktif) supaya riwayat chat validator lama tidak
+        # hilang kalau sudah pindah/ditolak — sama seperti karyawan_service_history().
+        apps = await db.karyawan.find({"profile_id": user["id"]}, {"_id": 0}).to_list(50)
+        app_ids = [a["id"] for a in apps]
+        barbers = (
+            await db.barbers.find({"karyawan_id": {"$in": app_ids}}, {"_id": 0, "id": 1, "karyawan_id": 1}).to_list(50)
+            if app_ids else []
+        )
+        barber_ids = [b["id"] for b in barbers]
+        bookings = (
+            await db.bookings.find({"barber_id": {"$in": barber_ids}}, {"_id": 0}).sort("created_at", -1).to_list(100)
+            if barber_ids else []
+        )
+        shop_ids = list({b["shop_id"] for b in bookings} | {a["shop_id"] for a in apps})
+        shops = (
+            await db.barbershops.find({"id": {"$in": shop_ids}}, {"_id": 0, "id": 1, "name": 1, "image": 1}).to_list(len(shop_ids))
+            if shop_ids else []
+        )
+        shop_map = {s["id"]: s for s in shops}
+        customer_ids = list({b["user_id"] for b in bookings})
+        customers = (
+            await db.profiles.find({"id": {"$in": customer_ids}}, {"_id": 0, "id": 1, "name": 1, "photo": 1}).to_list(len(customer_ids))
+            if customer_ids else []
+        )
+        customer_map = {c["id"]: c for c in customers}
+        booking_ids = [b["id"] for b in bookings]
 
-    threads.sort(key=lambda t: t["updated_at"], reverse=True)
-    return {"threads": threads, "total_unread": total_unread}
+        # Chat validator hanya tersedia di tahap ini (sama seperti pengecekan di
+        # send_recruitment_message) — lamaran ditolak/masih "pending" berkas tidak
+        # pernah dibuka chat-nya jadi tidak perlu muncul sebagai thread kosong.
+        chattable_apps = [a for a in apps if a["status"] in ("menunggu_tes", "seleksi_berkas_lolos", "active")]
+        kids = [a["id"] for a in chattable_apps]
+
+        (last_by_booking, unread_by_booking), (last_by_kid, unread_by_kid) = await asyncio.gather(
+            _group_messages(db.service_messages, booking_ids, "booking_id", user["id"]),
+            _group_messages(db.recruitment_messages, kids, "karyawan_id", user["id"]),
+        )
+
+        threads = []
+        total_unread = 0
+        for b in bookings:
+            shop = shop_map.get(b["shop_id"], {})
+            customer = customer_map.get(b["user_id"], {})
+            last = last_by_booking.get(b["id"])
+            unread = unread_by_booking.get(b["id"], 0)
+            total_unread += unread
+            threads.append({
+                "type": "barber",
+                "booking_id": b["id"],
+                "title": customer.get("name") or "Pelanggan",
+                "subtitle": shop.get("name") or "",
+                "image": customer.get("photo"),
+                "booking_status": b["status"],
+                "last_message": last,
+                "unread": unread,
+                "updated_at": last["created_at"] if last else b["created_at"],
+            })
+
+        for a in chattable_apps:
+            shop = shop_map.get(a["shop_id"], {})
+            last = last_by_kid.get(a["id"])
+            unread = unread_by_kid.get(a["id"], 0)
+            total_unread += unread
+            threads.append({
+                "type": "recruitment",
+                "karyawan_id": a["id"],
+                "title": shop.get("name") or "Toko Validator",
+                "subtitle": "Chat Validasi StreetBarber",
+                "image": shop.get("image"),
+                "booking_status": a["status"],
+                "last_message": last,
+                "unread": unread,
+                "updated_at": last["created_at"] if last else a["created_at"],
+            })
+
+        threads.sort(key=lambda t: t["updated_at"], reverse=True)
+        return {"threads": threads, "total_unread": total_unread}
+
+    raise HTTPException(403, "Akses ditolak")
 
 
 @api.get("/")

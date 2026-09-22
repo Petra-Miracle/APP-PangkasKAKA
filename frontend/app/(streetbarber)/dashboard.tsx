@@ -32,6 +32,7 @@ export default function StreetBarberDashboard() {
   const [sharingLocation, setSharingLocation] = useState(false);
   const [locError, setLocError] = useState("");
   const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const heartbeatRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastPushRef = useRef(0);
   const lastCoordsRef = useRef<{ lat: number; lng: number } | null>(null);
   const [earnings, setEarnings] = useState<{ monthly_revenue: number; completed_count: number } | null>(null);
@@ -39,9 +40,23 @@ export default function StreetBarberDashboard() {
   const [upcoming, setUpcoming] = useState<any>(null);
   const { scrollRef, handleFocus } = useScrollToInput();
 
+  const pushLocation = useCallback(async (coords: { lat: number; lng: number }) => {
+    lastPushRef.current = Date.now();
+    try {
+      await api.post("/karyawan/location", { ...coords, is_online: true });
+      setLocError("");
+    } catch (e: any) {
+      // Sebelumnya gagal dibuang diam-diam — toggle tetap terlihat "aktif"
+      // walau lokasi tidak pernah sampai ke server, jadi StreetBarber
+      // mengira sudah online padahal customer tidak pernah melihatnya.
+      setLocError(e?.message || "Gagal mengirim lokasi ke server.");
+    }
+  }, []);
+
   const stopSharing = useCallback(async () => {
     watchRef.current?.remove();
     watchRef.current = null;
+    if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
     setSharingLocation(false);
     if (lastCoordsRef.current) {
       try { await api.post("/karyawan/location", { ...lastCoordsRef.current, is_online: false }); } catch {}
@@ -54,23 +69,33 @@ export default function StreetBarberDashboard() {
     if (status !== "granted") { setLocError("Izin lokasi ditolak"); return; }
     watchRef.current = await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.Balanced, timeInterval: LOCATION_PUSH_INTERVAL_MS, distanceInterval: 20 },
-      async (loc) => {
+      (loc) => {
         const coords = { lat: loc.coords.latitude, lng: loc.coords.longitude };
         lastCoordsRef.current = coords;
-        const now = Date.now();
-        if (now - lastPushRef.current < LOCATION_PUSH_INTERVAL_MS - 500) return;
-        lastPushRef.current = now;
-        try { await api.post("/karyawan/location", { ...coords, is_online: true }); } catch {}
+        if (Date.now() - lastPushRef.current < LOCATION_PUSH_INTERVAL_MS - 500) return;
+        pushLocation(coords);
       }
     );
+    // watchPositionAsync dengan distanceInterval seringkali TIDAK memanggil
+    // callback-nya sama sekali kalau device diam di tempat (umum: StreetBarber
+    // menunggu pelanggan di satu titik) — akibatnya updated_at di server basi
+    // dan dia hilang dari "StreetBarber terdekat" walau is_online tetap true.
+    // Heartbeat ini mengirim ulang koordinat terakhir secara berkala terlepas
+    // dari ada tidaknya pergerakan, supaya updated_at selalu segar.
+    heartbeatRef.current = setInterval(() => {
+      if (lastCoordsRef.current) pushLocation(lastCoordsRef.current);
+    }, LOCATION_PUSH_INTERVAL_MS);
     setSharingLocation(true);
-  }, []);
+  }, [pushLocation]);
 
   const toggleSharing = async (value: boolean) => {
     if (value) await startSharing(); else await stopSharing();
   };
 
-  useEffect(() => () => { watchRef.current?.remove(); }, []);
+  useEffect(() => () => {
+    watchRef.current?.remove();
+    if (heartbeatRef.current) clearInterval(heartbeatRef.current);
+  }, []);
 
   // Refetch tiap fokus (useFocusEffect di bawah) — skeleton cuma di load pertama,
   // supaya pindah tab-tab tidak mengosongkan layar yang sudah terisi.

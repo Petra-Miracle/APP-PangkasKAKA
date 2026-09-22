@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, Switch, TextInput, Modal, KeyboardAvoidingView, Platform, Alert, Linking } from "react-native";
+import { View, Text, StyleSheet, ScrollView, Switch, TextInput, Modal, KeyboardAvoidingView, Platform, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { WebView } from "react-native-webview";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
@@ -198,15 +199,18 @@ export default function StreetBarberManage() {
     }
   };
 
-  // SOP-nya cuma dokumen PDF biasa yang diunggah Admin toko — dibuka lewat browser/
-  // pembaca PDF bawaan HP, tidak perlu viewer in-app khusus.
-  const openSop = async () => {
+  // SOP diunggah Admin toko sebagai file (bisa berupa data: URI base64 kalau
+  // upload ke R2 gagal/di-nonaktifkan, atau URL https biasa kalau berhasil).
+  // Linking.openURL() TIDAK bisa membuka data: URI di Android (tidak ada app
+  // terdaftar untuk skema itu) — makanya SOP "tidak terbaca" walau sudah
+  // diunggah. WebView bisa render PDF dari kedua jenis URI itu secara sama,
+  // jadi dipakai sebagai viewer in-app, bukan dilempar ke Linking.
+  const [sopModal, setSopModal] = useState(false);
+  const openSop = () => {
     if (!validatorShop?.sop_document_url) {
       return Alert.alert("SOP Belum Tersedia", "Toko validatormu belum mengunggah dokumen SOP.");
     }
-    const can = await Linking.canOpenURL(validatorShop.sop_document_url);
-    if (can) await Linking.openURL(validatorShop.sop_document_url);
-    else Alert.alert("Gagal Membuka", "Tidak bisa membuka dokumen SOP saat ini.");
+    setSopModal(true);
   };
 
   // Ganti bank/nomor rekening membatalkan verifikasi sebelumnya — nama pemilik
@@ -612,6 +616,20 @@ export default function StreetBarberManage() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal visible={sopModal} animationType="slide" onRequestClose={() => setSopModal(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: COLORS.bg }}>
+          <View style={styles.sopHeader}>
+            <Text style={styles.sopHeaderTitle} numberOfLines={1}>SOP {validatorShop?.name || "Toko"}</Text>
+            <PressableScale onPress={() => setSopModal(false)} testID="close-sop" scaleTo={0.9}>
+              <Ionicons name="close" size={24} color={COLORS.text} />
+            </PressableScale>
+          </View>
+          {validatorShop?.sop_document_url ? (
+            <WebView source={{ uri: validatorShop.sop_document_url }} style={{ flex: 1 }} />
+          ) : null}
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -667,6 +685,11 @@ const styles = StyleSheet.create({
   dayName: { color: COLORS.text, fontFamily: FONT.bold, fontSize: 14 },
   dayLiburLabel: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 11 },
   empty: { color: COLORS.textDim, fontFamily: FONT.medium, fontSize: 12, paddingVertical: 10 },
+  sopHeader: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 20, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: COLORS.border,
+  },
+  sopHeaderTitle: { flex: 1, color: COLORS.text, fontFamily: FONT.extrabold, fontSize: 16, marginRight: 12 },
   modalBg: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: "flex-end" },
   modal: { backgroundColor: COLORS.surface, padding: 24, borderTopLeftRadius: 28, borderTopRightRadius: 28, shadowColor: "#000", shadowOffset: { width: 0, height: -6 }, shadowOpacity: 0.12, shadowRadius: 24, elevation: 20 },
   grabber: { width: 44, height: 5, borderRadius: 999, backgroundColor: COLORS.borderStrong, alignSelf: "center", marginBottom: 16 },

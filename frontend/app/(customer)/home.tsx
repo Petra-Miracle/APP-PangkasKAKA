@@ -29,6 +29,9 @@ export default function Home() {
   const [hairstyles, setHairstyles] = useState<Hairstyle[]>([]);
   const [catalog, setCatalog] = useState<any[]>([]);
   const coordsRef = useRef<{ lat: number; lng: number } | null>(null);
+  const [locationLabel, setLocationLabel] = useState("Kupang · Nusa Tenggara Timur");
+  const watchRef = useRef<Location.LocationSubscription | null>(null);
+  const upgradedRef = useRef(false);
 
   const loadShops = useCallback(async (c: { lat: number; lng: number } | null) => {
     let url = `/shops?sort=terpopuler`;
@@ -70,22 +73,63 @@ export default function Home() {
     try {
       await Promise.all([loadShops(fallback), loadNearbyBarbers(fallback)]);
     } catch {} finally { setLoading(false); }
-
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted") return;
-      const loc: any = await Promise.race([
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("location_timeout")), 4000)),
-      ]);
-      const live = { lat: loc.coords.latitude, lng: loc.coords.longitude };
-      setCoords(live);
-      await Promise.all([loadShops(live), loadNearbyBarbers(live)]);
-    } catch {}
   }, [loadShops, loadNearbyBarbers, user?.lat, user?.lng]);
 
   useEffect(() => { init(); }, [init]);
   useEffect(() => { coordsRef.current = coords; }, [coords]);
+
+  // Lacak lokasi terus-menerus selama tab Beranda aktif (bukan cuma sekali saat
+  // mount) — supaya label "Lokasi kamu" dan daftar StreetBarber terdekat ikut
+  // berubah kalau user berpindah kota/area, bukan nyangkut di titik pertama.
+  // Refetch daftar toko cuma sekali saat GPS pertama kali didapat (upgradedRef)
+  // — sesudah itu cukup update coords, karena re-sort seluruh daftar toko tiap
+  // beberapa puluh meter bergerak itu berlebihan; nearby-barbers sudah polling
+  // sendiri tiap 20 detik dan otomatis pakai coords terbaru dari coordsRef.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      (async () => {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== "granted" || cancelled) return;
+        watchRef.current = await Location.watchPositionAsync(
+          { accuracy: Location.Accuracy.Balanced, timeInterval: 15000, distanceInterval: 50 },
+          (loc) => {
+            if (cancelled) return;
+            const live = { lat: loc.coords.latitude, lng: loc.coords.longitude };
+            setCoords(live);
+            if (!upgradedRef.current) {
+              upgradedRef.current = true;
+              loadShops(live).catch(() => {});
+            }
+          }
+        );
+      })();
+      return () => {
+        cancelled = true;
+        watchRef.current?.remove();
+        watchRef.current = null;
+      };
+    }, [loadShops])
+  );
+
+  // Reverse-geocode label kota — mengikuti coords yang sama yang dipakai untuk
+  // hitung jarak, supaya "Lokasi kamu" selalu konsisten dengan data lain di
+  // layar ini, bukan string statis yang lupa diperbarui.
+  useEffect(() => {
+    if (!coords) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const [place] = await Location.reverseGeocodeAsync({ latitude: coords.lat, longitude: coords.lng });
+        if (cancelled || !place) return;
+        const city = place.city || place.subregion || place.district || "";
+        const region = place.region || "";
+        const label = [city, region].filter(Boolean).join(" · ");
+        if (label) setLocationLabel(label);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
+  }, [coords]);
 
   // "StreetBarber Online Terdekat" sifatnya live — barber bisa mengaktifkan/menonaktifkan
   // bagikan lokasi kapan saja. Refetch tiap kali tab Beranda difokuskan + polling berkala
@@ -120,7 +164,7 @@ export default function Home() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={styles.locLabel}>Lokasi kamu</Text>
-            <Text style={styles.city} numberOfLines={1} testID="city-name">Kupang · Nusa Tenggara Timur</Text>
+            <Text style={styles.city} numberOfLines={1} testID="city-name">{locationLabel}</Text>
           </View>
         </View>
         <View style={styles.headerIcons}>

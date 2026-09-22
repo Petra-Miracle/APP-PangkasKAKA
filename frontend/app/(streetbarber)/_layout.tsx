@@ -11,6 +11,7 @@ export default function StreetBarberLayout() {
       <Tabs.Screen name="dashboard" options={{ title: "Beranda", tabBarIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} /> }} />
       <Tabs.Screen name="orders" options={{ title: "Pesanan", tabBarIcon: ({ color, size }) => <Ionicons name="receipt" color={color} size={size} /> }} />
       <Tabs.Screen name="manage" options={{ title: "Kelola", tabBarIcon: ({ color, size }) => <Ionicons name="construct" color={color} size={size} /> }} />
+      <Tabs.Screen name="messages" options={{ title: "Chat", tabBarIcon: ({ color, size }) => <Ionicons name="chatbubble-ellipses" color={color} size={size} /> }} />
       <Tabs.Screen name="profile" options={{ title: "Profil", tabBarIcon: ({ color, size }) => <Ionicons name="person" color={color} size={size} /> }} />
       <Tabs.Screen name="applications" options={{ href: null }} />
       <Tabs.Screen name="service-history" options={{ href: null }} />
