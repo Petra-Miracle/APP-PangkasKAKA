@@ -63,8 +63,13 @@ async function req(path: string, opts: RequestInit = {}) {
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!res.ok) {
-    const msg = (data && (data.detail || data.message)) || `Error ${res.status}`;
-    throw new Error(typeof msg === "string" ? msg : "Terjadi kesalahan");
+    const raw = data && (data.detail || data.message);
+    // FastAPI 422 mengembalikan detail berupa ARRAY berisi tiap field yang gagal
+    // validasi — gabungkan jadi pesan yang bisa dibaca, jangan telan jadi generik.
+    const msg = Array.isArray(raw)
+      ? raw.map((e: any) => (typeof e === "string" ? e : e?.msg || JSON.stringify(e))).join("; ")
+      : raw || `Error ${res.status}`;
+    throw new Error(typeof msg === "string" && msg ? msg : "Terjadi kesalahan");
   }
   return data;
 }
