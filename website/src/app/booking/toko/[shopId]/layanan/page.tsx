@@ -4,6 +4,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Clock, User, AlertCircle } from "lucide-react";
 import { api, Shop, formatIDR } from "@/lib/api";
+import { useRequireAuth } from "@/lib/auth";
 import BookingStepper from "@/components/BookingStepper";
 import InlineLoading from "@/components/InlineLoading";
 
@@ -14,6 +15,7 @@ export default function PilihLayananTokoPage({
 }) {
   const { shopId } = use(params);
   const router = useRouter();
+  const { authed, loading: authLoading } = useRequireAuth(`/booking/toko/${shopId}/layanan`);
   const [shop, setShop] = useState<Shop | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,8 +31,9 @@ export default function PilihLayananTokoPage({
       .finally(() => setLoading(false));
   }, [shopId]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (authed) load(); }, [authed, load]);
 
+  if (authLoading || !authed) return <InlineLoading message="Memeriksa sesi login..." />;
   if (loading) return <InlineLoading message="Memuat data toko..." />;
 
   if (error || !shop) {

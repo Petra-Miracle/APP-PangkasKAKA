@@ -5,7 +5,9 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Spinner } from "@heroui/react";
 import { AlertCircle } from "lucide-react";
 import { api, Slot } from "@/lib/api";
+import { useRequireAuth } from "@/lib/auth";
 import BookingStepper from "@/components/BookingStepper";
+import InlineLoading from "@/components/InlineLoading";
 
 const DAY_LABELS = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
 
@@ -34,6 +36,7 @@ export default function PilihJadwalPage({
   const search = useSearchParams();
   const serviceId = search.get("service") ?? "";
   const missingService = !serviceId;
+  const { authed, loading: authLoading } = useRequireAuth(`/booking/${id}/jadwal?${search.toString()}`);
 
   const days = useMemo(() => nextDays(7), []);
   const [date, setDate] = useState(days[0].iso);
@@ -41,18 +44,20 @@ export default function PilihJadwalPage({
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!serviceId) return;
+    if (!authed || !serviceId) return;
     queueMicrotask(() => setLoading(true));
     api
       .barberSlots(id, date, serviceId)
       .then((r) => setSlots(r.slots))
       .catch(() => setSlots([]))
       .finally(() => setLoading(false));
-  }, [id, date, serviceId]);
+  }, [authed, id, date, serviceId]);
 
   function pick(time: string) {
     router.push(`/booking/${id}/ringkasan?service=${serviceId}&date=${date}&time=${time}`);
   }
+
+  if (authLoading || !authed) return <InlineLoading message="Memeriksa sesi login..." />;
 
   return (
     <main className="flex-1">

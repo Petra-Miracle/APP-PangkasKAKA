@@ -1,17 +1,58 @@
-import Link from "next/link";
-import { notFound } from "next/navigation";
-import { Clock } from "lucide-react";
-import { api, formatIDR } from "@/lib/api";
-import BookingStepper from "@/components/BookingStepper";
+"use client";
 
-export default async function PilihLayananPage({
+import { use, useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { Clock, AlertCircle } from "lucide-react";
+import { api, Barber, formatIDR } from "@/lib/api";
+import { useRequireAuth } from "@/lib/auth";
+import BookingStepper from "@/components/BookingStepper";
+import InlineLoading from "@/components/InlineLoading";
+
+export default function PilihLayananPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { id } = await params;
-  const barber = await api.barberDetail(id).catch(() => null);
-  if (!barber) notFound();
+  const { id } = use(params);
+  const { authed, loading: authLoading } = useRequireAuth(`/booking/${id}/layanan`);
+
+  const [barber, setBarber] = useState<Barber | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    queueMicrotask(() => { setLoading(true); setError(null); });
+    api
+      .barberDetail(id)
+      .then(setBarber)
+      .catch((err) => setError(err.message ?? "Barber tidak ditemukan"))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  useEffect(() => {
+    if (authed) load();
+  }, [authed, load]);
+
+  if (authLoading || !authed) return <InlineLoading message="Memeriksa sesi login..." />;
+  if (loading) return <InlineLoading message="Memuat data barber..." />;
+
+  if (error || !barber) {
+    return (
+      <main className="flex-1">
+        <BookingStepper active={1} />
+        <div role="alert" className="mx-auto flex max-w-2xl flex-col items-center gap-3 px-6 py-16 text-center">
+          <AlertCircle size={28} className="text-error" />
+          <p className="text-sm text-on-surface-2">{error ?? "Barber tidak ditemukan."}</p>
+          <button
+            onClick={load}
+            className="rounded-lg border border-border-strong px-5 py-2.5 text-sm font-semibold hover:bg-surface-2"
+          >
+            Coba Lagi
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   const services = barber.services ?? [];
 

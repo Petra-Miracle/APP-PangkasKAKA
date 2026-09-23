@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { api } from "./api";
 
 type User = { id: string; name: string; email: string; role: string };
@@ -68,4 +69,23 @@ export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
+}
+
+// Pemesanan (booking) hanya untuk user yang sudah punya akun & login — dipakai di
+// tiap langkah alur booking (layanan/jadwal/ringkasan/pembayaran), bukan cuma di
+// langkah terakhir, supaya guest tidak diminta login setelah repot memilih
+// layanan/jadwal dulu. `nextPath` dipakai auth.tsx untuk redirect balik ke langkah
+// yang sama setelah login.
+export function useRequireAuth(nextPath: string) {
+  const router = useRouter();
+  const { user, token, loading } = useAuth();
+
+  useEffect(() => {
+    if (loading) return;
+    if (!user || !token) {
+      router.replace(`/masuk?next=${encodeURIComponent(nextPath)}`);
+    }
+  }, [loading, user, token, router, nextPath]);
+
+  return { user, token, loading, authed: !loading && !!user && !!token };
 }

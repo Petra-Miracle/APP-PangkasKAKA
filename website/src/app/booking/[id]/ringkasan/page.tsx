@@ -4,6 +4,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle } from "lucide-react";
 import { api, Barber, formatIDR } from "@/lib/api";
+import { useRequireAuth } from "@/lib/auth";
 import BookingStepper from "@/components/BookingStepper";
 import InlineLoading from "@/components/InlineLoading";
 
@@ -23,6 +24,7 @@ export default function RingkasanPage({
   const serviceId = search.get("service") ?? "";
   const date = search.get("date") ?? "";
   const time = search.get("time") ?? "";
+  const { authed, loading: authLoading } = useRequireAuth(`/booking/${id}/ringkasan?${search.toString()}`);
 
   const [barber, setBarber] = useState<Barber | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,8 +43,9 @@ export default function RingkasanPage({
       .finally(() => setLoading(false));
   }, [id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (authed) load(); }, [authed, load]);
 
+  if (authLoading || !authed) return <InlineLoading message="Memeriksa sesi login..." />;
   if (loading) return <InlineLoading message="Menyiapkan ringkasan booking..." />;
 
   if (error || !barber) {
