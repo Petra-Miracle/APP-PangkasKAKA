@@ -60,8 +60,10 @@ export default function LupaPasswordPage() {
       {step === "email" ? (
         <form onSubmit={onRequestCode} className="mt-8 flex flex-col gap-4">
           <div className="relative">
+            <label htmlFor="forgot-email" className="sr-only">Email</label>
             <Mail size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" />
             <input
+              id="forgot-email"
               type="email"
               required
               placeholder="Email"
@@ -70,7 +72,7 @@ export default function LupaPasswordPage() {
               className="w-full rounded-full border border-border bg-surface-2 py-3.5 pl-11 pr-4 text-sm outline-none focus:border-brand-primary"
             />
           </div>
-          {error && <p className="text-xs text-error">{error}</p>}
+          {error && <p role="alert" className="text-xs text-error">{error}</p>}
           <button
             type="submit"
             disabled={loading}
@@ -82,10 +84,12 @@ export default function LupaPasswordPage() {
         </form>
       ) : (
         <form onSubmit={onReset} className="mt-8 flex flex-col gap-4">
-          {message && <p className="text-xs text-success">{message}</p>}
+          {message && <p role="status" className="text-xs text-success">{message}</p>}
           <div className="relative">
+            <label htmlFor="reset-code" className="sr-only">Kode reset 6 digit</label>
             <KeyRound size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" />
             <input
+              id="reset-code"
               type="text"
               required
               inputMode="numeric"
@@ -96,8 +100,10 @@ export default function LupaPasswordPage() {
             />
           </div>
           <div className="relative">
+            <label htmlFor="reset-new-password" className="sr-only">Password baru</label>
             <Lock size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" />
             <input
+              id="reset-new-password"
               type="password"
               required
               minLength={8}
@@ -107,7 +113,7 @@ export default function LupaPasswordPage() {
               className="w-full rounded-full border border-border bg-surface-2 py-3.5 pl-11 pr-4 text-sm outline-none focus:border-brand-primary"
             />
           </div>
-          {error && <p className="text-xs text-error">{error}</p>}
+          {error && <p role="alert" className="text-xs text-error">{error}</p>}
           <button
             type="submit"
             disabled={loading}

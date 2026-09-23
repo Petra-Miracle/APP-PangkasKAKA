@@ -1,10 +1,11 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AlertCircle } from "lucide-react";
 import { api, Shop, formatIDR } from "@/lib/api";
 import BookingStepper from "@/components/BookingStepper";
-import LoadingScreen from "@/components/LoadingScreen";
+import InlineLoading from "@/components/InlineLoading";
 
 function formatTanggal(iso: string) {
   const d = new Date(iso + "T00:00:00");
@@ -26,16 +27,38 @@ export default function RingkasanTokoPage({
 
   const [shop, setShop] = useState<Shop | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    queueMicrotask(() => { setLoading(true); setError(null); });
     api
       .shopDetail(shopId)
       .then(setShop)
-      .catch(() => {})
+      .catch((err) => setError(err.message ?? "Gagal memuat data toko"))
       .finally(() => setLoading(false));
   }, [shopId]);
 
-  if (loading) return <LoadingScreen message="Menyiapkan ringkasan booking..." />;
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <InlineLoading message="Menyiapkan ringkasan booking..." />;
+
+  if (error || !shop) {
+    return (
+      <main className="flex-1">
+        <BookingStepper active={3} />
+        <div role="alert" className="mx-auto flex max-w-2xl flex-col items-center gap-3 px-6 py-16 text-center">
+          <AlertCircle size={28} className="text-error" />
+          <p className="text-sm text-on-surface-2">{error ?? "Toko tidak ditemukan."}</p>
+          <button
+            onClick={load}
+            className="rounded-lg border border-border-strong px-5 py-2.5 text-sm font-semibold hover:bg-surface-2"
+          >
+            Coba Lagi
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   const service = shop?.services?.find((s) => s.id === serviceId);
   const barber = shop?.barbers?.find((b) => b.id === barberId);

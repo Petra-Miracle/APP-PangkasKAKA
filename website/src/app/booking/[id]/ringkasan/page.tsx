@@ -1,10 +1,11 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AlertCircle } from "lucide-react";
 import { api, Barber, formatIDR } from "@/lib/api";
 import BookingStepper from "@/components/BookingStepper";
-import LoadingScreen from "@/components/LoadingScreen";
+import InlineLoading from "@/components/InlineLoading";
 
 function formatTanggal(iso: string) {
   const d = new Date(iso + "T00:00:00");
@@ -25,17 +26,42 @@ export default function RingkasanPage({
 
   const [barber, setBarber] = useState<Barber | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [address, setAddress] = useState("");
 
-  useEffect(() => {
+  // queueMicrotask menunda setState sinkron pertama supaya tidak dianggap
+  // "cascading render" oleh react-hooks/set-state-in-effect — pola yang sama
+  // dipakai di halaman pembayaran (lihat setStatus("creating")).
+  const load = useCallback(() => {
+    queueMicrotask(() => { setLoading(true); setError(null); });
     api
       .barberDetail(id)
       .then(setBarber)
-      .catch(() => {})
+      .catch((err) => setError(err.message ?? "Gagal memuat data barber"))
       .finally(() => setLoading(false));
   }, [id]);
 
-  if (loading) return <LoadingScreen message="Menyiapkan ringkasan booking..." />;
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <InlineLoading message="Menyiapkan ringkasan booking..." />;
+
+  if (error || !barber) {
+    return (
+      <main className="flex-1">
+        <BookingStepper active={3} />
+        <div role="alert" className="mx-auto flex max-w-2xl flex-col items-center gap-3 px-6 py-16 text-center">
+          <AlertCircle size={28} className="text-error" />
+          <p className="text-sm text-on-surface-2">{error ?? "Barber tidak ditemukan."}</p>
+          <button
+            onClick={load}
+            className="rounded-lg border border-border-strong px-5 py-2.5 text-sm font-semibold hover:bg-surface-2"
+          >
+            Coba Lagi
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   const service = barber?.services?.find((s) => s.id === serviceId);
 

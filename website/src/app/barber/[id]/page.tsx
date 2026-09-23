@@ -1,7 +1,25 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Star, Clock, MapPin, CreditCard } from "lucide-react";
 import { api, formatIDR } from "@/lib/api";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const barber = await api.barberDetail(id).catch(() => null);
+  if (!barber) return { title: "StreetBarber tidak ditemukan" };
+  const description = `${barber.name} — StreetBarber independen panggilan ke rumah${barber.shop_name ? `, divalidasi ${barber.shop_name}` : ""}. Lihat layanan dan harga, lalu booking dari browser.`;
+  return {
+    title: barber.name,
+    description,
+    openGraph: { title: barber.name, description, images: barber.photo ? [barber.photo] : undefined },
+  };
+}
 
 export default async function BarberDetailPage({
   params,
@@ -25,10 +43,18 @@ export default async function BarberDetailPage({
 
       <div className="mt-5 grid gap-8 lg:grid-cols-[1fr_360px]">
         <div>
-          <div
-            className="h-72 w-full rounded-2xl bg-cover bg-center bg-surface-3 md:h-96"
-            style={barber.photo ? { backgroundImage: `url('${barber.photo}')` } : undefined}
-          />
+          <div className="relative h-72 w-full overflow-hidden rounded-2xl bg-surface-3 md:h-96">
+            {barber.photo && (
+              <Image
+                src={barber.photo}
+                alt={barber.name}
+                fill
+                sizes="(min-width: 1024px) 640px, 100vw"
+                className="object-cover"
+                priority
+              />
+            )}
+          </div>
 
           <h2 className="mt-8 text-lg font-semibold">Tentang</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-on-surface-2">

@@ -11,10 +11,29 @@ const jakarta = Plus_Jakarta_Sans({
   weight: ["400", "500", "600", "700", "800"],
 });
 
+const SITE_URL = process.env.NEXT_PUBLIC_APP_URL || "https://app-pangkas-kaka.vercel.app";
+const SITE_TITLE = "PangkasKAKA — Barbershop & StreetBarber Marketplace";
+const SITE_DESCRIPTION =
+  "Pesan barbershop atau StreetBarber panggilan langsung dari browser. Booking cepat, harga transparan, pantau status pesanan real-time.";
+
 export const metadata: Metadata = {
-  title: "PangkasKAKA — Barbershop & StreetBarber Marketplace",
-  description:
-    "Pesan barbershop atau StreetBarber panggilan langsung dari browser. Booking cepat, harga transparan, pelacakan real-time.",
+  metadataBase: new URL(SITE_URL),
+  title: { default: SITE_TITLE, template: "%s · PangkasKAKA" },
+  description: SITE_DESCRIPTION,
+  openGraph: {
+    type: "website",
+    locale: "id_ID",
+    siteName: "PangkasKAKA",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: [{ url: "/logo.jpeg", width: 512, height: 512, alt: "PangkasKAKA" }],
+  },
+  twitter: {
+    card: "summary",
+    title: SITE_TITLE,
+    description: SITE_DESCRIPTION,
+    images: ["/logo.jpeg"],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

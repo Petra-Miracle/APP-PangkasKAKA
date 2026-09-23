@@ -1,7 +1,25 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import { Star, Clock, MapPin } from "lucide-react";
 import { api, formatIDR } from "@/lib/api";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const shop = await api.shopDetail(id).catch(() => null);
+  if (!shop) return { title: "Toko tidak ditemukan" };
+  const description = `${shop.name} di ${shop.address}. Lihat layanan, harga, dan rating, lalu booking langsung dari browser.`;
+  return {
+    title: shop.name,
+    description,
+    openGraph: { title: shop.name, description, images: shop.image ? [shop.image] : undefined },
+  };
+}
 
 export default async function ShopDetailPage({
   params,
@@ -29,10 +47,18 @@ export default async function ShopDetailPage({
 
       <div className="mt-5 grid gap-8 lg:grid-cols-[1fr_360px]">
         <div>
-          <div
-            className="h-72 w-full rounded-2xl bg-cover bg-center bg-surface-3 md:h-96"
-            style={shop.image ? { backgroundImage: `url('${shop.image}')` } : undefined}
-          />
+          <div className="relative h-72 w-full overflow-hidden rounded-2xl bg-surface-3 md:h-96">
+            {shop.image && (
+              <Image
+                src={shop.image}
+                alt={shop.name}
+                fill
+                sizes="(min-width: 1024px) 640px, 100vw"
+                className="object-cover"
+                priority
+              />
+            )}
+          </div>
 
           <h2 className="mt-8 text-lg font-semibold">Tentang</h2>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-on-surface-2">

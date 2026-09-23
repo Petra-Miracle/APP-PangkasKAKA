@@ -1246,6 +1246,30 @@ async def change_password(body: ChangePasswordIn, user=Depends(get_current_user)
 # ============================================================
 # PRODUCT CATALOG (CUSTOMER — publik)
 # ============================================================
+@api.get("/stats/public")
+async def public_stats():
+    """Angka untuk landing page (website & marketing) — cuma agregat publik, tanpa
+    auth. Dipisah dari /shops supaya halaman statis (hero) tidak perlu narik seluruh
+    payload toko cuma untuk 3 angka."""
+    shop_count, active_barber_count, shops_for_rating = await asyncio.gather(
+        db.barbershops.count_documents({"is_verified": True, "verification_status": "approved"}),
+        db.barbers.count_documents({"status": "active"}),
+        db.barbershops.find(
+            {"is_verified": True, "verification_status": "approved", "reviews_count": {"$gt": 0}},
+            {"_id": 0, "rating": 1},
+        ).to_list(1000),
+    )
+    avg_rating = (
+        round(sum(s["rating"] for s in shops_for_rating) / len(shops_for_rating), 1)
+        if shops_for_rating else None
+    )
+    return {
+        "shop_count": shop_count,
+        "streetbarber_active_count": active_barber_count,
+        "avg_rating": avg_rating,
+    }
+
+
 @api.get("/products/catalog")
 async def products_catalog():
     products = await db.products.find({"is_active": True}, {"_id": 0}).sort("created_at", -1).limit(30).to_list(30)

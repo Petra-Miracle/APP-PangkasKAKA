@@ -1,11 +1,11 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Clock, User } from "lucide-react";
+import { Clock, User, AlertCircle } from "lucide-react";
 import { api, Shop, formatIDR } from "@/lib/api";
 import BookingStepper from "@/components/BookingStepper";
-import LoadingScreen from "@/components/LoadingScreen";
+import InlineLoading from "@/components/InlineLoading";
 
 export default function PilihLayananTokoPage({
   params,
@@ -16,18 +16,40 @@ export default function PilihLayananTokoPage({
   const router = useRouter();
   const [shop, setShop] = useState<Shop | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [barberId, setBarberId] = useState("");
   const [serviceId, setServiceId] = useState("");
 
-  useEffect(() => {
+  const load = useCallback(() => {
+    queueMicrotask(() => { setLoading(true); setError(null); });
     api
       .shopDetail(shopId)
       .then(setShop)
-      .catch(() => {})
+      .catch((err) => setError(err.message ?? "Toko tidak ditemukan"))
       .finally(() => setLoading(false));
   }, [shopId]);
 
-  if (loading) return <LoadingScreen message="Memuat data toko..." />;
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <InlineLoading message="Memuat data toko..." />;
+
+  if (error || !shop) {
+    return (
+      <main className="flex-1">
+        <BookingStepper active={1} />
+        <div role="alert" className="mx-auto flex max-w-2xl flex-col items-center gap-3 px-6 py-16 text-center">
+          <AlertCircle size={28} className="text-error" />
+          <p className="text-sm text-on-surface-2">{error ?? "Toko tidak ditemukan."}</p>
+          <button
+            onClick={load}
+            className="rounded-lg border border-border-strong px-5 py-2.5 text-sm font-semibold hover:bg-surface-2"
+          >
+            Coba Lagi
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   const barbers = (shop?.barbers ?? []).filter((b) => !b.is_street_barber);
   const services = shop?.services ?? [];
@@ -49,6 +71,7 @@ export default function PilihLayananTokoPage({
             <button
               key={b.id}
               onClick={() => setBarberId(b.id)}
+              aria-pressed={barberId === b.id}
               className={`flex items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-semibold transition ${
                 barberId === b.id
                   ? "border-brand-primary bg-brand-primary text-on-brand-primary"
@@ -70,6 +93,7 @@ export default function PilihLayananTokoPage({
             <button
               key={s.id}
               onClick={() => setServiceId(s.id)}
+              aria-pressed={serviceId === s.id}
               className={`flex w-full items-center justify-between rounded-xl border px-5 py-4 text-left transition ${
                 serviceId === s.id
                   ? "border-brand-primary bg-brand-dim"

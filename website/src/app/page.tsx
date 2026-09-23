@@ -1,6 +1,7 @@
 import Link from "next/link";
+import Image from "next/image";
 import { Zap, UserRoundCheck, Radar, ScanFace, Store, Bike, ShoppingBag } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, APK_URL } from "@/lib/api";
 
 // Mengikuti 3 quick-tile di layar Beranda aplikasi mobile (Barbershop /
 // StreetBarber / Produk) — lihat frontend/app/(customer)/home.tsx.
@@ -24,10 +25,13 @@ const QUICK_ACCESS = [
 
 async function getLiveStats() {
   try {
-    const { shops } = await api.listShops();
-    return { shopCount: shops.length };
+    return await api.publicStats();
   } catch {
-    return { shopCount: null as number | null };
+    return { shop_count: null, streetbarber_active_count: null, avg_rating: null } as {
+      shop_count: number | null;
+      streetbarber_active_count: number | null;
+      avg_rating: number | null;
+    };
   }
 }
 
@@ -43,8 +47,8 @@ const FEATURES = [
     Icon: UserRoundCheck,
   },
   {
-    title: "Live Tracking",
-    desc: "Pantau lokasi StreetBarber menuju rumah kamu secara real-time di peta, lengkap dengan estimasi jarak.",
+    title: "Pantau Status Pesanan",
+    desc: "Lihat status perjalanan StreetBarber menuju rumah kamu, lengkap dengan estimasi jarak dan waktu tiba.",
     Icon: Radar,
   },
   {
@@ -93,33 +97,42 @@ export default async function Home() {
             ))}
           </div>
           <div className="mt-7 flex max-w-lg gap-8 border-t border-border pt-5">
-            <div>
-              <div className="font-[family-name:var(--font-display)] text-2xl font-semibold text-brand-secondary">
-                1
+            {stats.shop_count != null && (
+              <div>
+                <div className="font-[family-name:var(--font-display)] text-2xl font-semibold text-brand-secondary">
+                  {stats.shop_count}
+                </div>
+                <div className="text-xs text-on-surface-3">Barbershop Mitra</div>
               </div>
-              <div className="text-xs text-on-surface-3">Barbershop Mitra</div>
-            </div>
-            <div>
-              <div className="font-[family-name:var(--font-display)] text-2xl font-semibold text-brand-secondary">
-                {stats.shopCount ? `${stats.shopCount}+` : "300+"}
+            )}
+            {stats.streetbarber_active_count != null && (
+              <div>
+                <div className="font-[family-name:var(--font-display)] text-2xl font-semibold text-brand-secondary">
+                  {stats.streetbarber_active_count}
+                </div>
+                <div className="text-xs text-on-surface-3">StreetBarber Aktif</div>
               </div>
-              <div className="text-xs text-on-surface-3">StreetBarber Aktif</div>
-            </div>
-            <div>
-              <div className="font-[family-name:var(--font-display)] text-2xl font-semibold text-brand-secondary">
-                -
+            )}
+            {stats.avg_rating != null && (
+              <div>
+                <div className="font-[family-name:var(--font-display)] text-2xl font-semibold text-brand-secondary">
+                  {stats.avg_rating.toFixed(1)}
+                </div>
+                <div className="text-xs text-on-surface-3">Rating Rata-rata</div>
               </div>
-              <div className="text-xs text-on-surface-3">Rating Rata-rata</div>
-            </div>
+            )}
           </div>
         </div>
-        <div
-          className="h-[400px] w-full rounded-2xl bg-cover bg-center md:h-[560px] md:w-[480px] md:shrink-0"
-          style={{
-            backgroundImage:
-              "url('https://images.unsplash.com/photo-1622286342621-4bd786c2447c?auto=format&fit=crop&w=900&q=80')",
-          }}
-        />
+        <div className="relative h-[400px] w-full overflow-hidden rounded-2xl md:h-[560px] md:w-[480px] md:shrink-0">
+          <Image
+            src="https://images.unsplash.com/photo-1622286342621-4bd786c2447c?auto=format&fit=crop&w=900&q=80"
+            alt="Barber sedang memangkas rambut pelanggan"
+            fill
+            sizes="(min-width: 768px) 480px, 100vw"
+            className="object-cover"
+            priority
+          />
+        </div>
       </section>
 
       {/* Fitur */}
@@ -210,25 +223,25 @@ export default async function Home() {
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wide text-on-surface-3">Produk</h4>
             <ul className="mt-3 space-y-2 text-sm text-on-surface-2">
-              <li><Link href="/jelajahi">Jelajahi Barber</Link></li>
-              <li>Jadi StreetBarber</li>
-              <li>Daftarkan Toko</li>
+              <li><Link href="/jelajahi" className="hover:text-on-surface">Jelajahi Barber</Link></li>
+              {/* Jadi StreetBarber & Daftarkan Toko cuma ada di alur aplikasi mobile
+                  (lihat frontend/app/(auth)/register.tsx & shop-apply.tsx) — arahkan
+                  ke unduhan APK, bukan link mati ke halaman yang belum ada di web. */}
+              <li><a href={APK_URL} className="hover:text-on-surface">Jadi StreetBarber</a></li>
+              <li><a href={APK_URL} className="hover:text-on-surface">Daftarkan Toko</a></li>
             </ul>
           </div>
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wide text-on-surface-3">Perusahaan</h4>
             <ul className="mt-3 space-y-2 text-sm text-on-surface-2">
-              <li>Tentang Kami</li>
-              <li>Karier</li>
-              <li>Blog</li>
+              <li><a href="#tentang" className="hover:text-on-surface">Tentang Kami</a></li>
             </ul>
           </div>
           <div>
             <h4 className="text-xs font-bold uppercase tracking-wide text-on-surface-3">Bantuan</h4>
             <ul className="mt-3 space-y-2 text-sm text-on-surface-2">
-              <li>Pusat Bantuan</li>
-              <li>Syarat &amp; Ketentuan</li>
-              <li>Kebijakan Privasi</li>
+              <li><Link href="/syarat" className="hover:text-on-surface">Syarat &amp; Ketentuan</Link></li>
+              <li><Link href="/privasi" className="hover:text-on-surface">Kebijakan Privasi</Link></li>
             </ul>
           </div>
         </div>

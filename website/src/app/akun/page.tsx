@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { User, LogOut } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import LoadingScreen from "@/components/LoadingScreen";
+import InlineLoading from "@/components/InlineLoading";
 
 export default function AkunPage() {
   const router = useRouter();
@@ -16,7 +16,7 @@ export default function AkunPage() {
   }, [loading, user, router]);
 
   if (loading || !user) {
-    return <LoadingScreen message="Memuat akun kamu..." />;
+    return <InlineLoading message="Memuat akun kamu..." />;
   }
 
   return (

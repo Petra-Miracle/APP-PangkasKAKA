@@ -3,6 +3,7 @@
 import { use, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Spinner } from "@heroui/react";
+import { AlertCircle } from "lucide-react";
 import { api, Slot } from "@/lib/api";
 import BookingStepper from "@/components/BookingStepper";
 
@@ -29,6 +30,7 @@ export default function PilihJadwalTokoPage({
   const search = useSearchParams();
   const barberId = search.get("barber") ?? "";
   const serviceId = search.get("service") ?? "";
+  const missingSelection = !barberId || !serviceId;
 
   const days = useMemo(() => nextDays(7), []);
   const [date, setDate] = useState(days[0].iso);
@@ -57,12 +59,26 @@ export default function PilihJadwalTokoPage({
       <div className="mx-auto max-w-2xl px-6 py-10">
         <h2 className="text-sm font-semibold text-on-surface-2">Pilih Jadwal</h2>
 
+        {missingSelection && (
+          <div role="status" className="mt-4 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-xs text-on-surface-2">
+            <AlertCircle size={15} className="mt-0.5 shrink-0 text-warning" />
+            <span>
+              Barber & layanan belum dipilih. Silakan{" "}
+              <a href={`/booking/toko/${shopId}/layanan`} className="font-semibold text-brand-secondary underline">
+                pilih dulu
+              </a>{" "}
+              sebelum menentukan jadwal.
+            </span>
+          </div>
+        )}
+
         <p className="mt-4 text-xs font-semibold text-on-surface-3">Tanggal</p>
         <div className="mt-2 flex gap-2 overflow-x-auto pb-2">
           {days.map((d) => (
             <button
               key={d.iso}
               onClick={() => setDate(d.iso)}
+              aria-pressed={date === d.iso}
               className={`flex w-14 shrink-0 flex-col items-center gap-1 rounded-xl border px-2 py-3 text-xs ${
                 date === d.iso
                   ? "border-brand-primary bg-brand-primary text-on-brand-primary"
@@ -76,7 +92,7 @@ export default function PilihJadwalTokoPage({
         </div>
 
         <p className="mt-6 text-xs font-semibold text-on-surface-3">Jam</p>
-        {loading ? (
+        {missingSelection ? null : loading ? (
           <div className="mt-6 flex items-center justify-center gap-2 text-sm text-on-surface-3">
             <Spinner size="sm" color="current" className="text-brand" /> Memuat slot...
           </div>

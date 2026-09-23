@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { MapPin, Navigation } from "lucide-react";
 import { api, Booking } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import LoadingScreen from "@/components/LoadingScreen";
+import InlineLoading from "@/components/InlineLoading";
 
 export default function TrackingPage({
   params,
@@ -60,7 +60,7 @@ export default function TrackingPage({
 
   const etaMinutes = distanceKm != null ? Math.max(1, Math.round((distanceKm / 25) * 60)) : null;
 
-  if (loading) return <LoadingScreen message="Memuat status pemesanan..." />;
+  if (loading) return <InlineLoading message="Memuat status pemesanan..." />;
 
   return (
     <main className="flex flex-1 flex-col md:flex-row">

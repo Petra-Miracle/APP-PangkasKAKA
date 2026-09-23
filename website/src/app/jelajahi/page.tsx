@@ -1,11 +1,17 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { Search, Star, MapPin, Home } from "lucide-react";
+import { Search, Star, MapPin, Home, AlertCircle } from "lucide-react";
 import { api, formatIDR, Shop, Barber } from "@/lib/api";
-import LoadingScreen from "@/components/LoadingScreen";
+import InlineLoading from "@/components/InlineLoading";
+
+// Sama seperti fallback di aplikasi mobile — kalau izin lokasi ditolak/gagal,
+// StreetBarber terdekat tetap dicari dari titik default Kupang, bukan dibiarkan
+// kosong tanpa penjelasan.
+const KUPANG_FALLBACK = { lat: -10.1789, lng: 123.607 };
 
 type Card = {
   id: string;
@@ -31,27 +37,37 @@ function JelajahiContent() {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>(initialFilter);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadShops = useCallback(() => {
+    queueMicrotask(() => { setLoading(true); setError(null); });
     api
       .listShops()
       .then((r) => setShops(r.shops))
-      .catch(() => {})
+      .catch((err) => setError(err.message ?? "Gagal memuat daftar barber"))
       .finally(() => setLoading(false));
+  }, []);
+
+  const loadNearbyBarbers = useCallback((coords: { lat: number; lng: number }) => {
+    api
+      .nearbyBarbers(coords.lat, coords.lng)
+      .then((r) => setBarbers(r.barbers))
+      .catch(() => {}); // sekunder terhadap daftar toko — kegagalan di sini tidak memblokir halaman
+  }, []);
+
+  useEffect(() => {
+    loadShops();
 
     if (typeof navigator !== "undefined" && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          api
-            .nearbyBarbers(pos.coords.latitude, pos.coords.longitude)
-            .then((r) => setBarbers(r.barbers))
-            .catch(() => {});
-        },
-        () => {},
+        (pos) => loadNearbyBarbers({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => loadNearbyBarbers(KUPANG_FALLBACK),
         { timeout: 4000 }
       );
+    } else {
+      loadNearbyBarbers(KUPANG_FALLBACK);
     }
-  }, []);
+  }, [loadShops, loadNearbyBarbers]);
 
   const cards = useMemo<Card[]>(() => {
     const shopCards: Card[] = shops.map((s) => ({
@@ -118,6 +134,7 @@ function JelajahiContent() {
             <button
               key={f}
               onClick={() => setFilter(f)}
+              aria-pressed={filter === f}
               className={`rounded-full border px-4 py-2 text-xs font-semibold transition ${
                 filter === f
                   ? "border-brand-primary bg-brand-primary text-on-brand-primary"
@@ -131,7 +148,18 @@ function JelajahiContent() {
       </div>
 
       {loading ? (
-        <LoadingScreen message="Menjelajahi barber di sekitarmu..." />
+        <InlineLoading message="Menjelajahi barber di sekitarmu..." />
+      ) : error ? (
+        <div role="alert" className="mt-16 flex flex-col items-center gap-3 text-center">
+          <AlertCircle size={28} className="text-error" />
+          <p className="max-w-xs text-sm text-on-surface-2">{error}</p>
+          <button
+            onClick={loadShops}
+            className="rounded-lg border border-border-strong px-5 py-2.5 text-sm font-semibold hover:bg-surface-2"
+          >
+            Coba Lagi
+          </button>
+        </div>
       ) : cards.length === 0 ? (
         <div className="mt-16 text-center text-sm text-on-surface-3">
           Tidak ada hasil yang cocok.
@@ -144,10 +172,17 @@ function JelajahiContent() {
               href={c.href}
               className="group overflow-hidden rounded-xl border border-border bg-surface-2 transition hover:border-border-strong"
             >
-              <div
-                className="h-40 w-full bg-cover bg-center bg-surface-3"
-                style={c.image ? { backgroundImage: `url('${c.image}')` } : undefined}
-              />
+              <div className="relative h-40 w-full overflow-hidden bg-surface-3">
+                {c.image && (
+                  <Image
+                    src={c.image}
+                    alt={c.name}
+                    fill
+                    sizes="(min-width: 1024px) 360px, (min-width: 640px) 50vw, 100vw"
+                    className="object-cover"
+                  />
+                )}
+              </div>
               <div className="p-4">
                 <span className="text-[10px] font-bold uppercase tracking-wide text-brand-secondary">
                   {c.category}

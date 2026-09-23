@@ -3,11 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { X, Download, ArrowRight } from "lucide-react";
-
-// Link ke asset APK rilis terbaru langsung (redirect 302 dari GitHub ke file-nya),
-// bukan ke halaman listing release — supaya klik "Pasang" langsung memicu unduhan,
-// bukan mendarat di halaman GitHub dulu.
-const APK_URL = "https://github.com/Petra-Miracle/APP-PangkasKAKA/releases/latest/download/app-release.apk";
+import { APK_URL } from "@/lib/api";
 
 export default function InstallAppBanner({
   text = "Pasang aplikasi PangkasKAKA untuk coba AI Face Scan",

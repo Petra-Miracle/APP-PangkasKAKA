@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { AlertCircle } from "lucide-react";
 import { api, Booking, formatIDR } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import LoadingScreen from "@/components/LoadingScreen";
+import InlineLoading from "@/components/InlineLoading";
 
 const TABS = ["Semua", "Berlangsung", "Selesai", "Dibatalkan"] as const;
 
@@ -28,7 +29,18 @@ export default function RiwayatPage() {
   const { token, user, loading: authLoading } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<(typeof TABS)[number]>("Semua");
+
+  const load = useCallback(() => {
+    if (!token) return;
+    queueMicrotask(() => { setLoading(true); setError(null); });
+    api
+      .myBookings(token)
+      .then((r) => setBookings(r.bookings))
+      .catch((err) => setError(err.message ?? "Gagal memuat riwayat pemesanan"))
+      .finally(() => setLoading(false));
+  }, [token]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -36,11 +48,8 @@ export default function RiwayatPage() {
       router.replace("/masuk?next=/riwayat");
       return;
     }
-    api
-      .myBookings(token)
-      .then((r) => setBookings(r.bookings))
-      .finally(() => setLoading(false));
-  }, [authLoading, user, token, router]);
+    load();
+  }, [authLoading, user, token, router, load]);
 
   const filtered = bookings.filter((b) => tabMatches(tab, b.status));
 
@@ -55,6 +64,7 @@ export default function RiwayatPage() {
           <button
             key={t}
             onClick={() => setTab(t)}
+            aria-pressed={tab === t}
             className={`shrink-0 rounded-full border px-4 py-2 text-xs font-semibold ${
               tab === t
                 ? "border-brand-primary bg-brand-primary text-on-brand-primary"
@@ -67,7 +77,18 @@ export default function RiwayatPage() {
       </div>
 
       {authLoading || loading ? (
-        <LoadingScreen message="Memuat riwayat pemesanan..." />
+        <InlineLoading message="Memuat riwayat pemesanan..." />
+      ) : error ? (
+        <div role="alert" className="mt-16 flex flex-col items-center gap-3 text-center">
+          <AlertCircle size={28} className="text-error" />
+          <p className="max-w-xs text-sm text-on-surface-2">{error}</p>
+          <button
+            onClick={load}
+            className="rounded-lg border border-border-strong px-5 py-2.5 text-sm font-semibold hover:bg-surface-2"
+          >
+            Coba Lagi
+          </button>
+        </div>
       ) : filtered.length === 0 ? (
         <p className="mt-10 text-sm text-on-surface-3">Belum ada pemesanan di kategori ini.</p>
       ) : (

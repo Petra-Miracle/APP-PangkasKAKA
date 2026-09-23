@@ -146,7 +146,7 @@ export default function Navbar() {
             {!loading && user ? (
               <>
                 <Tooltip title="Akun saya">
-                  <IconButton onClick={handleOpenUserMenu} sx={{ p: 0.4, border: "1px solid #cbccc9" }}>
+                  <IconButton onClick={handleOpenUserMenu} aria-label="Akun saya" sx={{ p: 0.4, border: "1px solid #cbccc9" }}>
                     <Avatar sx={{ width: 30, height: 30, bgcolor: "#c97a08", fontSize: "0.8rem", fontWeight: 700 }}>
                       {user.name.charAt(0).toUpperCase()}
                     </Avatar>
@@ -191,7 +191,7 @@ export default function Navbar() {
 
             <Button
               component={Link}
-              href="/jelajahi?filter=StreetBarber"
+              href="/jelajahi"
               variant="contained"
               disableElevation
               sx={{
