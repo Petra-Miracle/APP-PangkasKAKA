@@ -3,9 +3,11 @@ import { Zap, UserRoundCheck, Radar, ScanFace, Store, Bike, ShoppingBag, Downloa
 import { api, APK_URL } from "@/lib/api";
 import Hero from "@/components/Hero";
 import StepsRow from "@/components/StepsRow";
+import QRDownloadBadge from "@/components/QRDownloadBadge";
 import Section from "@/components/ui/Section";
 import SectionHeading from "@/components/ui/SectionHeading";
 import Button from "@/components/ui/Button";
+import Badge from "@/components/ui/Badge";
 import Reveal from "@/components/ui/Reveal";
 import StatCounter from "@/components/ui/StatCounter";
 import { cardClass } from "@/components/ui/card";
@@ -199,12 +201,10 @@ export default async function Home() {
                     {String(i + 1).padStart(2, "0")}
                   </span>
                 </div>
-                {badge && (
-                  <span className="mt-3.5 inline-block rounded-full bg-surface-3 px-2 py-0.5 text-[10px] font-medium text-on-surface-3">
-                    {badge}
-                  </span>
-                )}
-                <h3 className="mt-2 text-lg font-semibold text-on-surface">{title}</h3>
+                <h3 className="mt-3.5 flex flex-wrap items-center gap-2 text-lg font-semibold text-on-surface">
+                  {title}
+                  {badge && <Badge tone="blue">{badge}</Badge>}
+                </h3>
                 <p className="mt-1.5 text-[13px] leading-5 text-on-surface-3">{desc}</p>
               </>
             );
@@ -291,7 +291,10 @@ export default async function Home() {
         </Reveal>
       </Section>
 
-      <footer className="border-t border-border px-6 py-14 md:px-20">
+      {/* pb ekstra di lg+ menyisakan ruang kosong di bawah baris terakhir
+          supaya tidak tertindih QRDownloadBadge yang fixed di pojok kanan
+          bawah saat halaman discroll sampai ujung. */}
+      <footer className="border-t border-border px-6 py-14 md:px-20 lg:pb-48">
         <div className="grid gap-10 md:grid-cols-4">
           <div>
             <span className="font-[family-name:var(--font-display)] text-lg font-semibold">
@@ -331,6 +334,8 @@ export default async function Home() {
           <span>Dibuat dengan bangga di Kupang, NTT 🇮🇩</span>
         </div>
       </footer>
+
+      <QRDownloadBadge />
     </main>
   );
 }

@@ -203,7 +203,7 @@ function PhoneStage({ reduce }: { reduce: boolean }) {
       <motion.div
         animate={reduce ? undefined : { y: [0, 9, 0] }}
         transition={{ duration: 5.2, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
-        className="absolute -right-3 bottom-16 z-30 hidden items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-bold text-on-surface shadow-elevated sm:flex"
+        className="absolute -left-3 bottom-16 z-30 hidden items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 py-1.5 text-xs font-bold text-on-surface shadow-elevated sm:flex"
       >
         <CheckCircle2 size={12} className="text-success" aria-hidden="true" />
         Booking Dikonfirmasi
