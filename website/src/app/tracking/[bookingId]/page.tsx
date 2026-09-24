@@ -2,10 +2,11 @@
 
 import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { MapPin, Navigation } from "lucide-react";
+import { MapPin, Navigation, Bike } from "lucide-react";
 import { api, Booking } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import InlineLoading from "@/components/InlineLoading";
+import { cardClass } from "@/components/ui/card";
 
 export default function TrackingPage({
   params,
@@ -64,13 +65,15 @@ export default function TrackingPage({
 
   return (
     <main className="flex flex-1 flex-col md:flex-row">
-      <div className="flex h-64 flex-1 items-center justify-center bg-surface-2 md:h-auto">
+      <div className="flex h-64 flex-1 items-center justify-center bg-[radial-gradient(circle_at_center,var(--brand-dim),var(--surface-2))] md:h-auto">
         {locError ? (
-          <p className="max-w-xs px-6 text-center text-sm text-on-surface-3">{locError}</p>
+          <p role="status" className="max-w-xs px-6 text-center text-sm text-on-surface-3">{locError}</p>
         ) : (
           <div className="text-center text-on-surface-3">
-            <Navigation size={32} className="mx-auto text-brand-secondary" />
-            <p className="mt-2 text-xs">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-elevated">
+              <Navigation size={24} className="text-brand-secondary" aria-hidden="true" />
+            </div>
+            <p className="mx-auto mt-3 max-w-[220px] text-xs">
               Peta interaktif untuk versi web sedang disiapkan — posisi StreetBarber di bawah
               tetap live.
             </p>
@@ -78,21 +81,28 @@ export default function TrackingPage({
         )}
       </div>
 
-      <aside className="w-full border-t border-border p-6 md:w-[380px] md:border-l md:border-t-0">
-        <h1 className="text-lg font-semibold">Menuju Lokasi Kamu</h1>
-        <p className="mt-3 text-sm font-semibold">{booking?.barber?.name ?? "StreetBarber"}</p>
-        <p className="text-xs text-on-surface-3">StreetBarber Independen</p>
+      <aside className="w-full border-t border-border bg-surface p-6 md:w-[380px] md:border-l md:border-t-0">
+        <h1 className="text-lg font-bold text-on-surface">Menuju Lokasi Kamu</h1>
+        <div className="mt-3 flex items-center gap-2.5">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-dim text-brand-secondary">
+            <Bike size={16} aria-hidden="true" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-on-surface">{booking?.barber?.name ?? "StreetBarber"}</p>
+            <p className="text-xs text-on-surface-3">StreetBarber Independen</p>
+          </div>
+        </div>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
-          <div className="rounded-xl border border-border bg-surface-2 p-4">
+          <div className={cardClass({ padding: "p-4" })}>
             <p className="text-xs text-on-surface-3">Estimasi Tiba</p>
-            <p className="mt-1 text-lg font-bold">
+            <p className="mt-1 text-lg font-bold text-on-surface">
               {etaMinutes != null ? `${etaMinutes} menit` : "—"}
             </p>
           </div>
-          <div className="rounded-xl border border-border bg-surface-2 p-4">
+          <div className={cardClass({ padding: "p-4" })}>
             <p className="text-xs text-on-surface-3">Jarak</p>
-            <p className="mt-1 text-lg font-bold">
+            <p className="mt-1 text-lg font-bold text-on-surface">
               {distanceKm != null ? `${distanceKm.toFixed(1)} km` : "—"}
             </p>
           </div>
@@ -101,11 +111,11 @@ export default function TrackingPage({
         <div className="mt-5 space-y-3 border-t border-border pt-4 text-sm">
           <div>
             <p className="text-xs text-on-surface-3">Layanan</p>
-            <p className="font-medium">{booking?.service?.name ?? "-"}</p>
+            <p className="font-medium text-on-surface">{booking?.service?.name ?? "-"}</p>
           </div>
           <div>
             <p className="text-xs text-on-surface-3">Jadwal</p>
-            <p className="font-medium">
+            <p className="font-medium text-on-surface">
               {booking
                 ? `${new Date(booking.booking_date + "T00:00:00").toLocaleDateString("id-ID", {
                     weekday: "long",
@@ -116,10 +126,10 @@ export default function TrackingPage({
             </p>
           </div>
           <div className="flex items-start gap-2">
-            <MapPin size={13} className="mt-0.5 shrink-0 text-on-surface-3" />
+            <MapPin size={13} className="mt-0.5 shrink-0 text-on-surface-3" aria-hidden="true" />
             <div>
               <p className="text-xs text-on-surface-3">Tujuan</p>
-              <p className="font-medium">{booking?.shop?.address ?? "-"}</p>
+              <p className="font-medium text-on-surface">{booking?.shop?.address ?? "-"}</p>
             </div>
           </div>
         </div>

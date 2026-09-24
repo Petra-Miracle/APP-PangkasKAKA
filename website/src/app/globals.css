@@ -26,6 +26,19 @@
   --border: #e7e1d6;
   --border-strong: #cbccc9;
   --divider: #e7e1d6;
+
+  /* Aksen biru dari brand asset — dipakai sebagai highlight sekunder,
+     bukan pengganti amber (CTA utama tetap amber). */
+  --accent-blue: #2f6fed;
+  --accent-blue-dim: #e8f0fe;
+
+  /* Bayangan bertona navy (bukan hitam murni) supaya terasa hangat dan
+     senada dengan palet krem/navy, dipakai lewat class .shadow-soft/.shadow-elevated. */
+  --shadow-tint: 15, 26, 46;
+  --shadow-soft: 0 1px 2px rgba(var(--shadow-tint), 0.04), 0 8px 24px -8px rgba(var(--shadow-tint), 0.10);
+  --shadow-elevated: 0 2px 4px rgba(var(--shadow-tint), 0.06), 0 16px 40px -12px rgba(var(--shadow-tint), 0.18);
+
+  --container-w: 1152px;
 }
 
 @theme inline {
@@ -47,6 +60,8 @@
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-divider: var(--divider);
+  --color-accent-blue: var(--accent-blue);
+  --color-accent-blue-dim: var(--accent-blue-dim);
   --font-display: var(--font-jakarta);
   --font-sans: var(--font-jakarta);
 }
@@ -55,4 +70,45 @@ body {
   background: var(--surface);
   color: var(--on-surface);
   font-family: var(--font-jakarta), Arial, Helvetica, sans-serif;
+}
+
+/* Focus terlihat jelas untuk keyboard nav (WCAG) — dipakai otomatis lewat
+   :focus-visible, tidak menyalakan ring saat elemen diklik mouse. */
+:focus-visible {
+  outline: 2px solid var(--brand-secondary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.shadow-soft {
+  box-shadow: var(--shadow-soft);
+}
+
+.shadow-elevated {
+  box-shadow: var(--shadow-elevated);
+}
+
+/* Section wrapper standar — dipakai lewat komponen <Section> di src/components/ui. */
+.section-shell {
+  width: 100%;
+  max-width: var(--container-w);
+  margin-inline: auto;
+  padding-inline: 1.5rem;
+}
+
+@media (min-width: 1024px) {
+  .section-shell {
+    padding-inline: 3rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

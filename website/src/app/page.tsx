@@ -1,7 +1,14 @@
 import Link from "next/link";
-import Image from "next/image";
-import { Zap, UserRoundCheck, Radar, ScanFace, Store, Bike, ShoppingBag } from "lucide-react";
+import { Zap, UserRoundCheck, Radar, ScanFace, Store, Bike, ShoppingBag, Download } from "lucide-react";
 import { api, APK_URL } from "@/lib/api";
+import Hero from "@/components/Hero";
+import StepsRow from "@/components/StepsRow";
+import Section from "@/components/ui/Section";
+import SectionHeading from "@/components/ui/SectionHeading";
+import Button from "@/components/ui/Button";
+import Reveal from "@/components/ui/Reveal";
+import StatCounter from "@/components/ui/StatCounter";
+import { cardClass } from "@/components/ui/card";
 
 // Mengikuti 3 quick-tile di layar Beranda aplikasi mobile (Barbershop /
 // StreetBarber / Produk) — lihat frontend/app/(customer)/home.tsx.
@@ -23,15 +30,19 @@ const QUICK_ACCESS = [
   },
 ];
 
-async function getLiveStats() {
+type LiveStats = {
+  shop_count: number | null;
+  streetbarber_active_count: number | null;
+  avg_rating: number | null;
+  status: "ok" | "error";
+};
+
+async function getLiveStats(): Promise<LiveStats> {
   try {
-    return await api.publicStats();
+    const stats = await api.publicStats();
+    return { ...stats, status: "ok" };
   } catch {
-    return { shop_count: null, streetbarber_active_count: null, avg_rating: null } as {
-      shop_count: number | null;
-      streetbarber_active_count: number | null;
-      avg_rating: number | null;
-    };
+    return { shop_count: null, streetbarber_active_count: null, avg_rating: null, status: "error" };
   }
 }
 
@@ -66,149 +77,219 @@ const STEPS = [
   { n: "3", title: "Bayar & Selesai", desc: "Konfirmasi booking dan bayar via QRIS. Tinggal datang atau tunggu StreetBarber tiba." },
 ];
 
+const FAQS = [
+  {
+    q: "Apakah booking di PangkasKAKA gratis?",
+    a: "Ya. Tidak ada biaya pendaftaran atau biaya booking tersembunyi — kamu cuma bayar layanan potong rambut yang dipilih.",
+  },
+  {
+    q: "Apa bedanya Barbershop dan StreetBarber?",
+    a: "Barbershop adalah toko fisik yang kamu datangi langsung. StreetBarber adalah barber panggilan independen yang tervalidasi barbershop, dan datang ke lokasi kamu.",
+  },
+  {
+    q: "Bagaimana cara pembayarannya?",
+    a: "Pembayaran dilakukan langsung dari aplikasi atau website via QRIS, instan setelah booking dikonfirmasi.",
+  },
+  {
+    q: "Apa yang terjadi kalau saya belum bayar?",
+    a: "Booking yang belum dibayar otomatis kedaluwarsa setelah beberapa saat, supaya jadwal bisa dipakai pelanggan lain.",
+  },
+  {
+    q: "Perlu punya akun untuk booking?",
+    a: "Ya, kamu perlu daftar dan login dulu sebelum booking — supaya riwayat dan status pesanan kamu bisa dilacak dengan aman.",
+  },
+];
+
+function StatBlock({
+  value,
+  decimals = 0,
+  suffix = "",
+  label,
+}: {
+  value: number;
+  decimals?: number;
+  suffix?: string;
+  label: string;
+}) {
+  return (
+    <div>
+      <div className="font-[family-name:var(--font-display)] text-4xl font-extrabold text-brand-secondary">
+        <StatCounter value={value} decimals={decimals} suffix={suffix} />
+      </div>
+      <div className="mt-1 text-xs font-semibold tracking-wide text-on-surface-3">{label}</div>
+    </div>
+  );
+}
+
 export default async function Home() {
   const stats = await getLiveStats();
+  const hasAnyStat = stats.shop_count || stats.streetbarber_active_count || stats.avg_rating;
 
   return (
     <main className="flex-1">
-      {/* Hero */}
-      <section className="flex flex-col items-center gap-12 px-6 py-16 md:flex-row md:px-20 md:py-24">
-        <div className="w-full md:flex-1">
-          
-          <h1 className="mt-5 font-[family-name:var(--font-display)] text-5xl font-semibold leading-[1.05] tracking-wide md:text-6xl">
-            Rapikan gaya, tanpa antre.
-          </h1>
-          <p className="mt-5 max-w-md text-[17px] leading-relaxed text-on-surface-2">
-            Booking barbershop favorit atau panggil StreetBarber independen langsung ke lokasi
-            kamu cepat, transparan, dan bisa dilacak real-time.
-          </p>
-          <div className="mt-7 grid gap-3 sm:grid-cols-3">
-            {QUICK_ACCESS.map(({ title, Icon, href }) => (
+      <Hero />
+
+      {/* Akses Cepat */}
+      <Section innerClassName="max-w-4xl">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {QUICK_ACCESS.map(({ title, Icon, href }, i) => (
+            <Reveal key={title} delay={i * 0.08}>
               <Link
-                key={title}
                 href={href}
-                className="group flex flex-col items-start gap-2.5 rounded-xl border border-border bg-surface-2 p-4 transition hover:border-brand-primary/50 hover:bg-surface"
+                className={cardClass({
+                  hoverable: true,
+                  padding: "p-4",
+                  className: "group flex flex-col items-start gap-2.5",
+                })}
               >
                 <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-primary">
-                  <Icon size={17} className="text-on-brand-primary" />
+                  <Icon size={17} className="text-on-brand-primary" aria-hidden="true" />
                 </div>
-                <span className="text-sm font-bold">{title}</span>
+                <span className="text-sm font-bold text-on-surface">{title}</span>
               </Link>
-            ))}
-          </div>
-          <div className="mt-7 flex max-w-lg gap-8 border-t border-border pt-5">
+            </Reveal>
+          ))}
+        </div>
+      </Section>
+
+      {/* Statistik */}
+      <Section tone="surface-2" border="y" innerClassName="max-w-4xl">
+        {stats.status === "error" ? (
+          <p role="status" className="text-center text-sm text-on-surface-3">
+            Statistik sedang tidak tersedia saat ini — coba muat ulang halaman.
+          </p>
+        ) : !hasAnyStat ? (
+          <p role="status" className="text-center text-sm text-on-surface-3">
+            PangkasKAKA baru saja mulai di Kupang — jadilah salah satu yang pertama coba.
+          </p>
+        ) : (
+          <div className="grid gap-8 text-center sm:grid-cols-3">
             {stats.shop_count != null && (
-              <div>
-                <div className="font-[family-name:var(--font-display)] text-2xl font-semibold text-brand-secondary">
-                  {stats.shop_count}
-                </div>
-                <div className="text-xs text-on-surface-3">Barbershop Mitra</div>
-              </div>
+              <StatBlock value={stats.shop_count} suffix="+" label="BARBERSHOP MITRA" />
             )}
             {stats.streetbarber_active_count != null && (
-              <div>
-                <div className="font-[family-name:var(--font-display)] text-2xl font-semibold text-brand-secondary">
-                  {stats.streetbarber_active_count}
-                </div>
-                <div className="text-xs text-on-surface-3">StreetBarber Aktif</div>
-              </div>
+              <StatBlock value={stats.streetbarber_active_count} suffix="+" label="STREETBARBER AKTIF" />
             )}
             {stats.avg_rating != null && (
-              <div>
-                <div className="font-[family-name:var(--font-display)] text-2xl font-semibold text-brand-secondary">
-                  {stats.avg_rating.toFixed(1)}
-                </div>
-                <div className="text-xs text-on-surface-3">Rating Rata-rata</div>
-              </div>
+              <StatBlock value={stats.avg_rating} decimals={1} label="RATING RATA-RATA" />
             )}
           </div>
-        </div>
-        <div className="relative h-[400px] w-full overflow-hidden rounded-2xl md:h-[560px] md:w-[480px] md:shrink-0">
-          <Image
-            src="https://images.unsplash.com/photo-1622286342621-4bd786c2447c?auto=format&fit=crop&w=900&q=80"
-            alt="Barber sedang memangkas rambut pelanggan"
-            fill
-            sizes="(min-width: 768px) 480px, 100vw"
-            className="object-cover"
-            priority
-          />
-        </div>
-      </section>
+        )}
+      </Section>
 
       {/* Fitur */}
-      <section id="fitur" className="bg-surface-2 px-6 py-20 md:px-20">
-        <span className="text-xs font-bold tracking-widest text-brand-secondary">
-          KENAPA PANGKASKAKA
-        </span>
-        <h2 className="mt-3 max-w-xl font-[family-name:var(--font-display)] text-3xl font-extrabold md:text-4xl">
-          Semua yang kamu butuh untuk rapi, dalam satu app.
-        </h2>
+      <Section id="fitur">
+        <SectionHeading
+          eyebrow="KENAPA PANGKASKAKA"
+          title="Semua yang kamu butuh untuk rapi, dalam satu app."
+        />
         <div className="mt-10 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          {FEATURES.map(({ title, desc, Icon, badge, href }) => {
-            const cardClass =
-              "relative rounded-xl border border-border bg-surface p-6 transition hover:border-brand-primary/50";
+          {FEATURES.map(({ title, desc, Icon, badge, href }, i) => {
+            const classes = cardClass({
+              hoverable: true,
+              className: "relative flex h-full flex-col hover:-translate-y-1",
+            });
             const content = (
               <>
+                <div className="flex items-center justify-between">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-surface-3">
+                    <Icon size={20} className="text-brand-secondary" aria-hidden="true" />
+                  </div>
+                  <span className="font-[family-name:var(--font-display)] text-xl font-bold text-border-strong">
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
+                </div>
                 {badge && (
-                  <span className="absolute right-4 top-4 rounded-full bg-surface-3 px-2 py-0.5 text-[10px] font-medium text-on-surface-3">
+                  <span className="mt-3.5 inline-block rounded-full bg-surface-3 px-2 py-0.5 text-[10px] font-medium text-on-surface-3">
                     {badge}
                   </span>
                 )}
-                <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-surface-3">
-                  <Icon size={20} className="text-brand-secondary" />
-                </div>
-                <h3 className="mt-3.5 text-lg font-semibold">{title}</h3>
+                <h3 className="mt-2 text-lg font-semibold text-on-surface">{title}</h3>
                 <p className="mt-1.5 text-[13px] leading-5 text-on-surface-3">{desc}</p>
               </>
             );
-            return href ? (
-              <Link key={title} href={href} className={cardClass}>
-                {content}
-              </Link>
-            ) : (
-              <div key={title} className={cardClass}>
-                {content}
-              </div>
+            return (
+              <Reveal key={title} delay={i * 0.08}>
+                {href ? (
+                  <Link href={href} className={classes}>
+                    {content}
+                  </Link>
+                ) : (
+                  <div className={classes}>{content}</div>
+                )}
+              </Reveal>
             );
           })}
         </div>
-      </section>
+      </Section>
 
       {/* Cara Kerja */}
-      <section id="cara-kerja" className="scroll-mt-24 px-6 py-20 text-center md:px-20">
-        <span className="text-xs font-bold tracking-widest text-brand-secondary">CARA KERJA</span>
-        <h2 className="mx-auto mt-3 font-[family-name:var(--font-display)] text-3xl font-extrabold md:text-4xl">
-          Booking dalam 3 langkah
-        </h2>
-        <div className="mx-auto mt-12 grid max-w-4xl gap-10 text-left md:grid-cols-3">
-          {STEPS.map((s) => (
-            <div key={s.n}>
-              <span className="text-xs font-bold tracking-widest text-on-surface-3">
-                LANGKAH {s.n}
-              </span>
-              <h3 className="mt-2 text-lg font-semibold">{s.title}</h3>
-              <p className="mt-1.5 text-sm text-on-surface-2">{s.desc}</p>
-            </div>
+      <Section id="cara-kerja" tone="surface-2" navTheme="light" className="text-center">
+        <SectionHeading
+          eyebrow="CARA KERJA"
+          title="Booking dalam 3 langkah"
+          align="center"
+        />
+        <StepsRow steps={STEPS} />
+      </Section>
+
+      {/* FAQ */}
+      <Section id="faq">
+        <SectionHeading
+          eyebrow="FAQ"
+          title="Pertanyaan yang sering ditanyakan"
+          align="center"
+        />
+        <div className="mx-auto mt-10 max-w-2xl space-y-3">
+          {FAQS.map((f) => (
+            <details
+              key={f.q}
+              className={cardClass({ className: "group open:border-brand-primary/40" })}
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4 text-sm font-semibold text-on-surface">
+                {f.q}
+                <span className="shrink-0 text-lg text-on-surface-3 transition group-open:rotate-45" aria-hidden="true">
+                  +
+                </span>
+              </summary>
+              <p className="mt-2.5 text-sm leading-relaxed text-on-surface-2">{f.a}</p>
+            </details>
           ))}
         </div>
-      </section>
+      </Section>
 
       {/* CTA */}
-      <section id="tentang" className="scroll-mt-24 border-t border-border px-6 py-20 text-center md:px-20">
-        <h2 className="mx-auto max-w-lg font-[family-name:var(--font-display)] text-3xl font-extrabold md:text-4xl">
-          Siap coba PangkasKAKA?
-        </h2>
-        <p className="mx-auto mt-3 max-w-md text-on-surface-2">
-          Panggil StreetBarber langsung ke rumahmu lewat browser, atau install aplikasinya untuk
-          pengalaman penuh termasuk AI Face Scan.
-        </p>
-        <Link
-          href="/jelajahi?filter=StreetBarber"
-          className="mt-7 inline-block rounded-lg bg-brand-primary px-6 py-3.5 text-sm font-bold text-on-brand-primary transition hover:brightness-110"
-        >
-          Mulai Booking di Web
-        </Link>
-      </section>
+      <Section id="tentang" navTheme="dark" className="pb-14 md:pb-20">
+        <Reveal>
+          <div className="relative flex flex-col items-center gap-8 overflow-hidden rounded-3xl bg-[#0f1a2e] px-8 py-14 text-center md:flex-row md:justify-between md:px-16 md:text-left">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 opacity-50 [background-image:radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:20px_20px] [mask-image:radial-gradient(ellipse_80%_100%_at_0%_0%,black,transparent_70%)]"
+            />
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -bottom-16 -right-10 h-64 w-64 rounded-full bg-accent-blue/25 blur-[100px]"
+            />
+            <div className="relative">
+              <h2 className="max-w-md font-[family-name:var(--font-display)] text-3xl font-extrabold text-white md:text-4xl">
+                Siap coba PangkasKAKA?
+              </h2>
+              <p className="mt-3 max-w-md text-white/70">
+                Panggil StreetBarber langsung ke rumahmu, atau install aplikasinya untuk pengalaman
+                penuh termasuk AI Face Scan. Gratis, tanpa biaya pendaftaran.
+              </p>
+            </div>
+            <div className="relative flex shrink-0 flex-col gap-3 sm:flex-row">
+              <Button href={APK_URL} target="_blank" rel="noopener noreferrer" icon={<Download size={16} aria-hidden="true" />}>
+                Unduh Aplikasi
+              </Button>
+              <Button href="/jelajahi?filter=StreetBarber" variant="outline-dark">
+                Mulai Booking di Web
+              </Button>
+            </div>
+          </div>
+        </Reveal>
+      </Section>
 
       <footer className="border-t border-border px-6 py-14 md:px-20">
         <div className="grid gap-10 md:grid-cols-4">

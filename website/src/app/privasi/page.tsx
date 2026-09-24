@@ -9,12 +9,12 @@ export default function PrivasiPage() {
   return (
     <main className="flex-1 px-6 py-14 md:px-20">
       <div className="mx-auto max-w-2xl">
-        <h1 className="font-[family-name:var(--font-display)] text-3xl font-extrabold">
+        <h1 className="font-[family-name:var(--font-display)] text-3xl font-extrabold text-on-surface">
           Kebijakan Privasi
         </h1>
         <p className="mt-2 text-xs text-on-surface-3">Terakhir diperbarui: September 2026</p>
 
-        <div className="mt-8 space-y-6 text-sm leading-relaxed text-on-surface-2">
+        <div className="mt-8 space-y-6 divide-y divide-border text-sm leading-relaxed text-on-surface-2 [&>section:not(:first-child)]:pt-6">
           <section>
             <h2 className="text-base font-semibold text-on-surface">1. Data yang Dikumpulkan</h2>
             <p className="mt-2">

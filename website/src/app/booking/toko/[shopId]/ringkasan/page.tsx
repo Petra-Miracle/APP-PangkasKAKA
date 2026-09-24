@@ -2,11 +2,13 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertCircle } from "lucide-react";
 import { api, Shop, formatIDR } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import BookingStepper from "@/components/BookingStepper";
 import InlineLoading from "@/components/InlineLoading";
+import { ErrorState } from "@/components/ui/StatePanel";
+import Button from "@/components/ui/Button";
+import { cardClass } from "@/components/ui/card";
 
 function formatTanggal(iso: string) {
   const d = new Date(iso + "T00:00:00");
@@ -49,15 +51,8 @@ export default function RingkasanTokoPage({
     return (
       <main className="flex-1">
         <BookingStepper active={3} />
-        <div role="alert" className="mx-auto flex max-w-2xl flex-col items-center gap-3 px-6 py-16 text-center">
-          <AlertCircle size={28} className="text-error" />
-          <p className="text-sm text-on-surface-2">{error ?? "Toko tidak ditemukan."}</p>
-          <button
-            onClick={load}
-            className="rounded-lg border border-border-strong px-5 py-2.5 text-sm font-semibold hover:bg-surface-2"
-          >
-            Coba Lagi
-          </button>
+        <div className="mx-auto max-w-2xl px-6 py-16">
+          <ErrorState title="Toko tidak ditemukan" description={error ?? undefined} onAction={load} />
         </div>
       </main>
     );
@@ -71,19 +66,21 @@ export default function RingkasanTokoPage({
     router.push(`/booking/toko/${shopId}/pembayaran?${qs}`);
   }
 
+  const canConfirm = !!service && !!barber && !!date && !!time;
+
   return (
     <main className="flex-1">
       <BookingStepper active={3} />
-      <div className="mx-auto max-w-2xl px-6 py-10">
-        <h1 className="text-lg font-semibold">Ringkasan Booking</h1>
+      <div className="mx-auto max-w-2xl px-6 py-10 pb-28 md:pb-10">
+        <h1 className="text-lg font-bold text-on-surface">Ringkasan Booking</h1>
         {shop && (
           <>
-            <p className="mt-4 text-sm font-semibold">{shop.name}</p>
+            <p className="mt-4 text-sm font-semibold text-on-surface">{shop.name}</p>
             <p className="text-xs text-on-surface-3">{shop.address}</p>
           </>
         )}
 
-        <div className="mt-6 space-y-3 rounded-xl border border-border bg-surface-2 p-5 text-sm">
+        <div className={cardClass({ padding: "p-5", className: "mt-6 space-y-3 text-sm" })}>
           <Row label="Barber" value={barber?.name ?? "-"} />
           <Row label="Layanan" value={service?.name ?? "-"} />
           <Row label="Tanggal" value={date ? formatTanggal(date) : "-"} />
@@ -97,13 +94,15 @@ export default function RingkasanTokoPage({
           </p>
         </div>
 
-        <button
-          onClick={onConfirm}
-          disabled={!service || !barber || !date || !time}
-          className="mt-6 w-full rounded-lg bg-brand-primary py-3.5 text-sm font-bold text-on-brand-primary transition hover:brightness-110 disabled:opacity-40"
-        >
+        <Button onClick={onConfirm} disabled={!canConfirm} fullWidth size="lg" className="mt-6 hidden md:inline-flex">
           Lanjut ke Pembayaran
-        </button>
+        </Button>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface-2/95 px-6 py-3 backdrop-blur-sm md:hidden">
+        <Button onClick={onConfirm} disabled={!canConfirm} fullWidth size="lg">
+          Lanjut ke Pembayaran
+        </Button>
       </div>
     </main>
   );

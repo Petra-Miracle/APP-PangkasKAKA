@@ -4,9 +4,12 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
-import { Search, Star, MapPin, Home, AlertCircle } from "lucide-react";
+import { Search, Star, MapPin, Home, Store, Bike, SlidersHorizontal } from "lucide-react";
 import { api, formatIDR, Shop, Barber } from "@/lib/api";
-import InlineLoading from "@/components/InlineLoading";
+import Badge from "@/components/ui/Badge";
+import { cardClass } from "@/components/ui/card";
+import { EmptyState, ErrorState } from "@/components/ui/StatePanel";
+import { CardSkeleton } from "@/components/ui/Skeleton";
 
 // Sama seperti fallback di aplikasi mobile — kalau izin lokasi ditolak/gagal,
 // StreetBarber terdekat tetap dicari dari titik default Kupang, bukan dibiarkan
@@ -26,6 +29,10 @@ type Card = {
 };
 
 const FILTERS = ["Semua", "Barbershop", "StreetBarber", "Rating 4.5+"] as const;
+const FILTER_ICON: Partial<Record<(typeof FILTERS)[number], typeof Store>> = {
+  Barbershop: Store,
+  StreetBarber: Bike,
+};
 
 function JelajahiContent() {
   const searchParams = useSearchParams();
@@ -104,109 +111,123 @@ function JelajahiContent() {
   }, [shops, barbers, filter, query]);
 
   return (
-    <main className="flex-1 px-6 py-10 md:px-20">
+    <main className="mx-auto max-w-[1152px] flex-1 px-6 py-10 md:px-12 lg:px-20">
       {homeService && (
-        <span className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-brand-dim px-3 py-1.5 text-xs font-bold text-brand-secondary">
-          <Home size={13} /> LAYANAN PANGGIL KE RUMAH
-        </span>
+        <Badge tone="brand" icon={<Home size={12} aria-hidden="true" />} className="mb-3">
+          LAYANAN PANGGIL KE RUMAH
+        </Badge>
       )}
       <h1 className="font-[family-name:var(--font-display)] text-3xl font-extrabold md:text-4xl">
         {homeService ? "Booking StreetBarber ke Rumah" : "Jelajahi Barber"}
       </h1>
-      <p className="mt-2 text-sm text-on-surface-2">
+      <p className="mt-2 max-w-lg text-sm text-on-surface-2">
         {homeService
           ? "Nggak perlu keluar rumah — pilih StreetBarber terdekat, dia yang datang ke kamu."
           : `${shops.length || "..."} barbershop dan StreetBarber siap melayani di sekitar Kupang.`}
       </p>
 
-      <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center">
-        <div className="flex flex-1 items-center gap-2 rounded-lg border border-border bg-surface-2 px-4 py-3">
-          <Search size={16} className="text-on-surface-3" />
+      <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-border bg-surface-2 p-3 shadow-soft md:flex-row md:items-center">
+        <label className="flex flex-1 items-center gap-2 rounded-xl border border-border bg-surface px-4 py-3">
+          <Search size={16} className="shrink-0 text-on-surface-3" aria-hidden="true" />
+          <span className="sr-only">Cari barbershop atau StreetBarber</span>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Cari nama barbershop atau StreetBarber..."
             className="w-full bg-transparent text-sm outline-none placeholder:text-on-surface-3"
           />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {FILTERS.map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              aria-pressed={filter === f}
-              className={`rounded-full border px-4 py-2 text-xs font-semibold transition ${
-                filter === f
-                  ? "border-brand-primary bg-brand-primary text-on-brand-primary"
-                  : "border-border text-on-surface-2 hover:border-border-strong"
-              }`}
-            >
-              {f}
-            </button>
-          ))}
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <SlidersHorizontal size={14} className="hidden shrink-0 text-on-surface-3 md:block" aria-hidden="true" />
+          {FILTERS.map((f) => {
+            const FIcon = FILTER_ICON[f];
+            return (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                aria-pressed={filter === f}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-semibold transition ${
+                  filter === f
+                    ? "border-brand-primary bg-brand-primary text-on-brand-primary"
+                    : "border-border text-on-surface-2 hover:border-border-strong hover:bg-surface"
+                }`}
+              >
+                {FIcon && <FIcon size={12} aria-hidden="true" />}
+                {f}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {loading ? (
-        <InlineLoading message="Menjelajahi barber di sekitarmu..." />
+        <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-live="polite">
+          <span className="sr-only">Menjelajahi barber di sekitarmu...</span>
+          {Array.from({ length: 6 }).map((_, i) => (
+            <CardSkeleton key={i} />
+          ))}
+        </div>
       ) : error ? (
-        <div role="alert" className="mt-16 flex flex-col items-center gap-3 text-center">
-          <AlertCircle size={28} className="text-error" />
-          <p className="max-w-xs text-sm text-on-surface-2">{error}</p>
-          <button
-            onClick={loadShops}
-            className="rounded-lg border border-border-strong px-5 py-2.5 text-sm font-semibold hover:bg-surface-2"
-          >
-            Coba Lagi
-          </button>
-        </div>
+        <ErrorState className="mt-8" description={error} onAction={loadShops} />
       ) : cards.length === 0 ? (
-        <div className="mt-16 text-center text-sm text-on-surface-3">
-          Tidak ada hasil yang cocok.
-        </div>
+        <EmptyState
+          className="mt-8"
+          title="Tidak ada hasil yang cocok"
+          description="Coba ubah kata kunci pencarian atau ganti filter di atas."
+        />
       ) : (
         <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {cards.map((c) => (
             <Link
               key={`${c.kind}-${c.id}`}
               href={c.href}
-              className="group overflow-hidden rounded-xl border border-border bg-surface-2 transition hover:border-border-strong"
+              className={cardClass({ hoverable: true, padding: "p-0", className: "group flex h-full flex-col overflow-hidden" })}
             >
-              <div className="relative h-40 w-full overflow-hidden bg-surface-3">
-                {c.image && (
+              <div className="relative h-40 w-full shrink-0 overflow-hidden bg-surface-3">
+                {c.image ? (
                   <Image
                     src={c.image}
                     alt={c.name}
                     fill
                     sizes="(min-width: 1024px) 360px, (min-width: 640px) 50vw, 100vw"
-                    className="object-cover"
+                    className="object-cover transition duration-300 group-hover:scale-105"
                   />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-on-surface-3">
+                    {c.kind === "shop" ? <Store size={28} aria-hidden="true" /> : <Bike size={28} aria-hidden="true" />}
+                  </div>
                 )}
-              </div>
-              <div className="p-4">
-                <span className="text-[10px] font-bold uppercase tracking-wide text-brand-secondary">
+                <Badge
+                  tone={c.kind === "shop" ? "blue" : "brand"}
+                  icon={c.kind === "shop" ? <Store size={11} aria-hidden="true" /> : <Bike size={11} aria-hidden="true" />}
+                  className="absolute left-3 top-3 bg-white/95 shadow-soft"
+                >
                   {c.category}
-                </span>
-                <h3 className="mt-1 text-base font-semibold">{c.name}</h3>
+                </Badge>
+              </div>
+              <div className="flex flex-1 flex-col p-4">
+                <h3 className="text-base font-semibold text-on-surface">{c.name}</h3>
                 <div className="mt-1.5 flex items-center gap-3 text-xs text-on-surface-3">
-                  {c.rating != null && (
+                  {c.rating != null ? (
                     <span className="flex items-center gap-1">
-                      <Star size={12} className="fill-brand-secondary text-brand-secondary" />
+                      <Star size={12} className="fill-brand-secondary text-brand-secondary" aria-hidden="true" />
                       {c.rating.toFixed(1)}
                     </span>
+                  ) : (
+                    <span>Belum ada rating</span>
                   )}
                   {c.distanceKm != null && (
                     <span className="flex items-center gap-1">
-                      <MapPin size={12} />
+                      <MapPin size={12} aria-hidden="true" />
                       {c.distanceKm.toFixed(1)} km
                     </span>
                   )}
                 </div>
-                <div className="mt-3 flex items-center justify-between">
+                <div className="mt-3 flex flex-1 items-end justify-between gap-2">
                   <span className="text-sm font-bold text-on-surface">
-                    {c.priceFrom != null ? `Mulai ${formatIDR(c.priceFrom)}` : ""}
+                    {c.priceFrom != null ? `Mulai ${formatIDR(c.priceFrom)}` : " "}
                   </span>
-                  <span className="rounded-lg bg-brand-primary px-4 py-2 text-xs font-bold text-on-brand-primary transition group-hover:brightness-110">
+                  <span className="shrink-0 rounded-lg bg-brand-primary px-4 py-2 text-xs font-bold text-on-brand-primary transition group-hover:bg-brand-secondary group-hover:text-white">
                     Lihat Detail
                   </span>
                 </div>

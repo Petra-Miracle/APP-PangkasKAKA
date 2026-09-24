@@ -63,11 +63,11 @@ export default function PilihJadwalPage({
     <main className="flex-1">
       <BookingStepper active={2} />
       <div className="mx-auto max-w-2xl px-6 py-10">
-        <h2 className="text-sm font-semibold text-on-surface-2">Pilih Jadwal</h2>
+        <h1 className="text-sm font-semibold text-on-surface-2">Pilih Jadwal</h1>
 
         {missingService && (
           <div role="status" className="mt-4 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-xs text-on-surface-2">
-            <AlertCircle size={15} className="mt-0.5 shrink-0 text-warning" />
+            <AlertCircle size={15} className="mt-0.5 shrink-0 text-warning" aria-hidden="true" />
             <span>
               Layanan belum dipilih. Silakan{" "}
               <a href={`/booking/${id}/layanan`} className="font-semibold text-brand-secondary underline">
@@ -85,10 +85,11 @@ export default function PilihJadwalPage({
               key={d.iso}
               onClick={() => setDate(d.iso)}
               aria-pressed={date === d.iso}
-              className={`flex w-14 shrink-0 flex-col items-center gap-1 rounded-xl border px-2 py-3 text-xs ${
+              aria-label={`Tanggal ${d.day} (${d.label})`}
+              className={`flex w-14 shrink-0 flex-col items-center gap-1 rounded-xl border px-2 py-3 text-xs transition ${
                 date === d.iso
-                  ? "border-brand-primary bg-brand-primary text-on-brand-primary"
-                  : "border-border text-on-surface-2"
+                  ? "border-brand-primary bg-brand-primary text-on-brand-primary shadow-soft"
+                  : "border-border text-on-surface-2 hover:border-border-strong"
               }`}
             >
               <span>{d.label}</span>
@@ -99,7 +100,7 @@ export default function PilihJadwalPage({
 
         <p className="mt-6 text-xs font-semibold text-on-surface-3">Jam</p>
         {missingService ? null : loading ? (
-          <div className="mt-6 flex items-center justify-center gap-2 text-sm text-on-surface-3">
+          <div role="status" className="mt-6 flex items-center justify-center gap-2 text-sm text-on-surface-3">
             <Spinner size="sm" color="current" className="text-brand" /> Memuat slot...
           </div>
         ) : (
@@ -109,10 +110,11 @@ export default function PilihJadwalPage({
                 key={s.time}
                 disabled={!s.available}
                 onClick={() => pick(s.time)}
-                className={`rounded-lg border py-2.5 text-sm font-semibold ${
+                aria-label={s.available ? `Jam ${s.time}` : `Jam ${s.time}, tidak tersedia`}
+                className={`rounded-lg border py-2.5 text-sm font-semibold transition ${
                   !s.available
                     ? "cursor-not-allowed border-border text-on-surface-3 opacity-40"
-                    : "border-border-strong text-on-surface hover:border-brand-primary hover:text-brand-secondary"
+                    : "border-border-strong text-on-surface hover:border-brand-primary hover:bg-brand-dim hover:text-brand-secondary"
                 }`}
               >
                 {s.time}

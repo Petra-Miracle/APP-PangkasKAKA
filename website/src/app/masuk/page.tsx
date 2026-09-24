@@ -96,7 +96,7 @@ function LoginForm() {
           <form onSubmit={onSubmit} className="mt-8 flex flex-col gap-4">
             <div className="relative">
               <label htmlFor="login-email" className="sr-only">Email</label>
-              <Mail size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" />
+              <Mail size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" aria-hidden="true" />
               <input
                 id="login-email"
                 type="email"
@@ -109,7 +109,7 @@ function LoginForm() {
             </div>
             <div className="relative">
               <label htmlFor="login-password" className="sr-only">Password</label>
-              <Lock size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" />
+              <Lock size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" aria-hidden="true" />
               <input
                 id="login-password"
                 type="password"

@@ -3,9 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Mail, KeyRound, Lock } from "lucide-react";
+import { ArrowLeft, Mail, KeyRound, Lock, ShieldCheck } from "lucide-react";
 import { Spinner } from "@heroui/react";
 import { api } from "@/lib/api";
+import { cardClass } from "@/components/ui/card";
 
 export default function LupaPasswordPage() {
   const router = useRouter();
@@ -47,21 +48,25 @@ export default function LupaPasswordPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-[80vh] max-w-sm flex-1 flex-col justify-center px-6">
-      <h1 className="font-[family-name:var(--font-display)] text-2xl font-extrabold">
-        Lupa Password
-      </h1>
-      <p className="mt-2 text-sm text-on-surface-2">
-        {step === "email"
-          ? "Masukkan email akunmu, kami kirimkan kode reset."
-          : `Masukkan kode yang dikirim ke ${email} dan password baru.`}
-      </p>
+    <main className="mx-auto flex min-h-[80vh] max-w-sm flex-1 flex-col justify-center px-6 py-12">
+      <div className={cardClass({ padding: "p-7", className: "shadow-elevated" })}>
+        <div className="flex h-11 w-11 items-center justify-center rounded-full bg-brand-dim text-brand-secondary">
+          <ShieldCheck size={20} aria-hidden="true" />
+        </div>
+        <h1 className="mt-4 font-[family-name:var(--font-display)] text-2xl font-extrabold text-on-surface">
+          Lupa Password
+        </h1>
+        <p className="mt-2 text-sm text-on-surface-2">
+          {step === "email"
+            ? "Masukkan email akunmu, kami kirimkan kode reset."
+            : `Masukkan kode yang dikirim ke ${email} dan password baru.`}
+        </p>
 
-      {step === "email" ? (
+        {step === "email" ? (
         <form onSubmit={onRequestCode} className="mt-8 flex flex-col gap-4">
           <div className="relative">
             <label htmlFor="forgot-email" className="sr-only">Email</label>
-            <Mail size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" />
+            <Mail size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" aria-hidden="true" />
             <input
               id="forgot-email"
               type="email"
@@ -87,7 +92,7 @@ export default function LupaPasswordPage() {
           {message && <p role="status" className="text-xs text-success">{message}</p>}
           <div className="relative">
             <label htmlFor="reset-code" className="sr-only">Kode reset 6 digit</label>
-            <KeyRound size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" />
+            <KeyRound size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" aria-hidden="true" />
             <input
               id="reset-code"
               type="text"
@@ -101,7 +106,7 @@ export default function LupaPasswordPage() {
           </div>
           <div className="relative">
             <label htmlFor="reset-new-password" className="sr-only">Password baru</label>
-            <Lock size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" />
+            <Lock size={17} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" aria-hidden="true" />
             <input
               id="reset-new-password"
               type="password"
@@ -123,13 +128,14 @@ export default function LupaPasswordPage() {
             {loading ? "Memproses..." : "Reset Password"}
           </button>
         </form>
-      )}
+        )}
+      </div>
 
       <Link
         href="/masuk"
         className="mt-6 flex items-center justify-center gap-1.5 text-center text-xs text-on-surface-3 hover:text-on-surface"
       >
-        <ArrowLeft size={13} /> Kembali ke halaman masuk
+        <ArrowLeft size={13} aria-hidden="true" /> Kembali ke halaman masuk
       </Link>
     </main>
   );

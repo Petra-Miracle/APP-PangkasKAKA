@@ -2,11 +2,14 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertCircle } from "lucide-react";
+import { MapPin } from "lucide-react";
 import { api, Barber, formatIDR } from "@/lib/api";
 import { useRequireAuth } from "@/lib/auth";
 import BookingStepper from "@/components/BookingStepper";
 import InlineLoading from "@/components/InlineLoading";
+import { ErrorState } from "@/components/ui/StatePanel";
+import Button from "@/components/ui/Button";
+import { cardClass } from "@/components/ui/card";
 
 function formatTanggal(iso: string) {
   const d = new Date(iso + "T00:00:00");
@@ -52,15 +55,8 @@ export default function RingkasanPage({
     return (
       <main className="flex-1">
         <BookingStepper active={3} />
-        <div role="alert" className="mx-auto flex max-w-2xl flex-col items-center gap-3 px-6 py-16 text-center">
-          <AlertCircle size={28} className="text-error" />
-          <p className="text-sm text-on-surface-2">{error ?? "Barber tidak ditemukan."}</p>
-          <button
-            onClick={load}
-            className="rounded-lg border border-border-strong px-5 py-2.5 text-sm font-semibold hover:bg-surface-2"
-          >
-            Coba Lagi
-          </button>
+        <div className="mx-auto max-w-2xl px-6 py-16">
+          <ErrorState title="Barber tidak ditemukan" description={error ?? undefined} onAction={load} />
         </div>
       </main>
     );
@@ -73,34 +69,40 @@ export default function RingkasanPage({
     router.push(`/booking/${id}/pembayaran?${qs}`);
   }
 
+  const canConfirm = !!service && !!date && !!time && !!address.trim();
+
   return (
     <main className="flex-1">
       <BookingStepper active={3} />
-      <div className="mx-auto max-w-2xl px-6 py-10">
-        <h1 className="text-lg font-semibold">Ringkasan Booking</h1>
+      <div className="mx-auto max-w-2xl px-6 py-10 pb-28 md:pb-10">
+        <h1 className="text-lg font-bold text-on-surface">Ringkasan Booking</h1>
         {barber && (
           <>
-            <p className="mt-4 text-sm font-semibold">{barber.name}</p>
+            <p className="mt-4 text-sm font-semibold text-on-surface">{barber.name}</p>
             <p className="text-xs text-on-surface-3">StreetBarber Independen</p>
           </>
         )}
 
-        <div className="mt-6 space-y-3 rounded-xl border border-border bg-surface-2 p-5 text-sm">
+        <div className={cardClass({ padding: "p-5", className: "mt-6 space-y-3 text-sm" })}>
           <Row label="Layanan" value={service?.name ?? "-"} />
           <Row label="Tanggal" value={date ? formatTanggal(date) : "-"} />
           <Row label="Jam" value={time ? `${time} WITA` : "-"} />
         </div>
 
         <div className="mt-5">
-          <label className="text-xs font-semibold text-on-surface-2">
+          <label htmlFor="alamat" className="text-xs font-semibold text-on-surface-2">
             Lokasi — alamat rumah untuk dikunjungi
           </label>
-          <input
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder="Jl. Timor Raya No. 12, Naikoten"
-            className="mt-1.5 w-full rounded-lg border border-border bg-surface-2 px-4 py-3 text-sm outline-none focus:border-brand-primary"
-          />
+          <div className="relative mt-1.5">
+            <MapPin size={16} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-on-surface-3" aria-hidden="true" />
+            <input
+              id="alamat"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Jl. Timor Raya No. 12, Naikoten"
+              className="w-full rounded-lg border border-border bg-surface-2 py-3 pl-10 pr-4 text-sm outline-none transition focus:border-brand-primary"
+            />
+          </div>
         </div>
 
         <div className="mt-5 space-y-2 border-t border-border pt-4 text-sm">
@@ -110,13 +112,16 @@ export default function RingkasanPage({
           </p>
         </div>
 
-        <button
-          onClick={onConfirm}
-          disabled={!service || !date || !time || !address.trim()}
-          className="mt-6 w-full rounded-lg bg-brand-primary py-3.5 text-sm font-bold text-on-brand-primary transition hover:brightness-110 disabled:opacity-40"
-        >
+        <Button onClick={onConfirm} disabled={!canConfirm} fullWidth size="lg" className="mt-6 hidden md:inline-flex">
           Lanjut ke Pembayaran
-        </button>
+        </Button>
+      </div>
+
+      {/* CTA sticky di mobile supaya selalu terjangkau tanpa perlu scroll ke bawah. */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface-2/95 px-6 py-3 backdrop-blur-sm md:hidden">
+        <Button onClick={onConfirm} disabled={!canConfirm} fullWidth size="lg">
+          Lanjut ke Pembayaran
+        </Button>
       </div>
     </main>
   );

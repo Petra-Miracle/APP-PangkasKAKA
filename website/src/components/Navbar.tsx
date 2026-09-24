@@ -37,6 +37,7 @@ export default function Navbar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, loading, logout } = useAuth();
+  const [navTheme, setNavTheme] = React.useState<"light" | "dark" | "transparent">("transparent");
 
   const [anchorElNav, setAnchorElNav] = React.useState<null | HTMLElement>(null);
   const [anchorElUser, setAnchorElUser] = React.useState<null | HTMLElement>(null);
@@ -52,18 +53,58 @@ export default function Navbar() {
     router.push("/");
   };
 
+  React.useEffect(() => {
+    if (pathname !== "/") return;
+
+    // Setiap section beri tahu tema navbar-nya sendiri lewat data-nav-theme
+    // ("transparent" di Hero, "dark" di CTA navy, dst). Section tanpa atribut
+    // (mis. Akses Cepat, Statistik) otomatis jatuh ke fallback "light" saat
+    // tidak ada section lain yang sedang melewati garis deteksi.
+    const sections = Array.from(document.querySelectorAll<HTMLElement>("[data-nav-theme]"));
+    if (!sections.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries.find((entry) => entry.isIntersecting);
+        const theme = visible?.target.getAttribute("data-nav-theme") as
+          | "light"
+          | "dark"
+          | "transparent"
+          | null;
+        setNavTheme(theme ?? "light");
+      },
+      { rootMargin: "-72px 0px -65% 0px", threshold: 0 },
+    );
+
+    sections.forEach((section) => observer.observe(section));
+    return () => observer.disconnect();
+  }, [pathname]);
+
   if (CHROMELESS_ROUTES.includes(pathname)) return null;
+
+  const effectiveNavTheme = pathname === "/" ? navTheme : "light";
 
   return (
     <AppBar
       position="sticky"
       elevation={0}
       sx={{
-        bgcolor: "rgba(247, 243, 236, 0.95)",
-        backdropFilter: "blur(8px)",
+        bgcolor:
+          effectiveNavTheme === "dark"
+            ? "rgba(15, 26, 46, 0.96)"
+            : effectiveNavTheme === "transparent"
+              ? "transparent"
+              : "rgba(247, 243, 236, 0.94)",
+        backdropFilter: effectiveNavTheme === "transparent" ? "none" : "blur(8px)",
         borderBottom: "1px solid",
-        borderColor: "#e7e1d6",
-        color: "#0f1a2e",
+        borderColor:
+          effectiveNavTheme === "dark"
+            ? "rgba(255, 255, 255, 0.14)"
+            : effectiveNavTheme === "transparent"
+              ? "transparent"
+              : "#e7e1d6",
+        color: effectiveNavTheme === "dark" ? "#ffffff" : "#0f1a2e",
+        transition: "background-color 220ms ease, color 220ms ease, border-color 220ms ease, backdrop-filter 220ms ease",
       }}
     >
       <Box sx={{ maxWidth: "1152px", mx: "auto", width: "100%", px: { xs: 2, lg: 5 } }}>
@@ -112,12 +153,26 @@ export default function Navbar() {
               sx={{ display: { xs: "block", md: "none" } }}
             >
               {PAGES.map((page) => (
-                <MenuItem key={page.href} component={Link} href={page.href} onClick={handleCloseNavMenu}>
+                <MenuItem
+                  key={page.href}
+                  component={Link}
+                  href={page.href}
+                  onClick={handleCloseNavMenu}
+                  aria-current={pathname === page.href ? "page" : undefined}
+                >
                   <Typography sx={{ textAlign: "center", fontWeight: pathname === page.href ? 700 : 500 }}>
                     {page.label}
                   </Typography>
                 </MenuItem>
               ))}
+              {!loading && !user && (
+                <>
+                  <Divider />
+                  <MenuItem component={Link} href="/masuk" onClick={handleCloseNavMenu}>
+                    <Typography sx={{ textAlign: "center", fontWeight: 700 }}>Masuk</Typography>
+                  </MenuItem>
+                </>
+              )}
             </Menu>
           </Box>
 
@@ -128,8 +183,9 @@ export default function Navbar() {
                 key={page.href}
                 component={Link}
                 href={page.href}
+                aria-current={pathname === page.href ? "page" : undefined}
                 sx={{
-                  color: "#0f1a2e",
+                  color: "inherit",
                   fontWeight: pathname === page.href ? 700 : 500,
                   textTransform: "none",
                   fontSize: "0.875rem",
@@ -183,7 +239,7 @@ export default function Navbar() {
               <Button
                 component={Link}
                 href="/masuk"
-                sx={{ display: { xs: "none", sm: "inline-flex" }, color: "#3a4761", fontWeight: 700, textTransform: "none", fontSize: "0.875rem" }}
+                sx={{ display: { xs: "none", sm: "inline-flex" }, color: "inherit", fontWeight: 700, textTransform: "none", fontSize: "0.875rem", opacity: 0.82 }}
               >
                 Masuk
               </Button>
