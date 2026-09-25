@@ -2,81 +2,119 @@
 
 import type { PointerEvent } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { motion, useMotionValue, useTransform, useReducedMotion, type Variants } from "framer-motion";
 import {
   Star,
   ChevronLeft,
-  ChevronRight,
   Scissors,
   Sparkles,
   MapPin,
   Store,
   Bike,
+  ShoppingBag,
+  Bell,
+  MessageCircle,
+  Search,
+  SlidersHorizontal,
   CheckCircle2,
 } from "lucide-react";
 import { APK_URL } from "@/lib/api";
 import PhoneMockup from "./PhoneMockup";
 
+// Cermin dari 4 layanan di frontend/app/(customer)/shop/[id].tsx step "PILIH LAYANAN".
 const SERVICES = [
-  { name: "Potong Rambut", price: "Rp35.000" },
-  { name: "Cukur Jenggot", price: "Rp20.000" },
-  { name: "Creambath", price: "Rp45.000" },
-  { name: "Hair Styling", price: "Rp30.000" },
+  { name: "Potong Rambut", price: "Rp35.000", duration: "30 menit" },
+  { name: "Cukur Jenggot", price: "Rp20.000", duration: "15 menit" },
+  { name: "Creambath", price: "Rp45.000", duration: "40 menit" },
+  { name: "Hair Styling", price: "Rp30.000", duration: "20 menit" },
 ];
 
+const QUICK_TILES = [
+  { label: "Barbershop", Icon: Store },
+  { label: "StreetBarber", Icon: Bike },
+  { label: "Produk", Icon: ShoppingBag },
+];
+
+// Cermin dari 2 produk placeholder di frontend/app/(customer)/home.tsx —
+// dipakai untuk carousel "Katalog Produk" (productCard + productShopBadge).
+const CATALOG_PREVIEW = [
+  { name: "Pomade Matte", price: "Rp45.000", shop: "Toko Rapi" },
+  { name: "Minyak Rambut", price: "Rp38.000", shop: "Barbershop Jaya" },
+];
+
+// Cermin dari layar Beranda aplikasi (frontend/app/(customer)/home.tsx):
+// header lokasi + 2 ikon (chat, notifikasi), search bar, 3 quick-tile, lalu
+// carousel horizontal "Katalog Produk" — pola kartu + badge toko yang khas
+// dan sebelumnya hilang total dari mockup ini.
 function FrontScreen() {
   return (
-    <div className="flex h-full flex-col pt-12">
-      <div className="flex items-center justify-between px-5">
-        <span className="font-[family-name:var(--font-display)] text-sm font-bold text-on-surface">
-          PangkasKAKA
+    <div className="flex h-full flex-col gap-3 px-4 pt-12">
+      <div className="flex items-center gap-1.5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-brand-primary/25 bg-brand-dim">
+          <MapPin size={15} className="text-brand-secondary" aria-hidden="true" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[8px] font-medium text-on-surface-3">Lokasi kamu</p>
+          <p className="truncate text-[12px] font-extrabold text-on-surface">Kupang, NTT</p>
+        </div>
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface">
+          <MessageCircle size={13} className="text-on-surface" aria-hidden="true" />
+        </div>
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-surface">
+          <Bell size={13} className="text-on-surface" aria-hidden="true" />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-1.5 rounded-2xl border border-border bg-surface px-3 py-2.5">
+        <Search size={12} className="shrink-0 text-on-surface-3" aria-hidden="true" />
+        <span className="flex-1 truncate text-[9px] font-medium text-on-surface-3">
+          Cari barbershop atau gaya rambut
         </span>
-        <Sparkles size={15} className="text-brand-secondary" aria-hidden="true" />
-      </div>
-
-      <div className="mx-4 mt-4 overflow-hidden rounded-2xl">
-        <div className="relative h-36 w-full">
-          <Image
-            src="https://images.unsplash.com/photo-1622286342621-4bd786c2447c?auto=format&fit=crop&w=400&q=80"
-            alt="StreetBarber sedang memangkas rambut pelanggan"
-            fill
-            sizes="252px"
-            priority
-            className="object-cover"
-          />
-        </div>
-        <div className="bg-surface-2 px-3 py-2.5">
-          <p className="text-xs font-bold text-on-surface">Rizky — StreetBarber</p>
-          <div className="mt-0.5 flex items-center gap-1 text-[10px] text-on-surface-3">
-            <Star size={10} className="fill-brand-primary text-brand-primary" aria-hidden="true" />
-            4.9 · 1.2 km dari kamu
-          </div>
+        <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-brand-dim">
+          <SlidersHorizontal size={10} className="text-brand-secondary" aria-hidden="true" />
         </div>
       </div>
 
-      <div className="mt-4 space-y-2 px-4">
-        {SERVICES.slice(0, 2).map((s) => (
+      <div className="grid grid-cols-3 gap-2">
+        {QUICK_TILES.map(({ label, Icon }) => (
           <div
-            key={s.name}
-            className="flex items-center justify-between rounded-xl bg-surface-2 px-3 py-2.5"
+            key={label}
+            className="flex flex-col items-center gap-1.5 rounded-xl border border-border bg-surface py-3"
           >
-            <span className="text-[11px] font-semibold text-on-surface">{s.name}</span>
-            <span className="text-[11px] font-bold text-brand-secondary">{s.price}</span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-primary">
+              <Icon size={15} className="text-on-brand-primary" aria-hidden="true" />
+            </div>
+            <span className="text-[7px] font-bold text-on-surface">{label}</span>
           </div>
         ))}
       </div>
 
-      <div className="mt-auto px-4 pb-6">
-        <div className="w-full rounded-xl bg-brand-primary py-3 text-center text-xs font-bold text-on-brand-primary">
-          Booking Sekarang
+      <div className="mt-1">
+        <p className="text-[11px] font-extrabold text-on-surface">Katalog Produk</p>
+        <div className="mt-2 flex gap-2">
+          {CATALOG_PREVIEW.map((item) => (
+            <div key={item.name} className="flex-1 rounded-xl border border-border bg-surface p-2">
+              <div className="relative flex h-12 items-center justify-center overflow-hidden rounded-lg bg-surface-2">
+                <ShoppingBag size={16} className="text-brand-secondary/70" aria-hidden="true" />
+                <span className="absolute left-1 top-1 max-w-[85%] truncate rounded-full bg-[#0f1a2e]/60 px-1.5 py-[1.5px] text-[6px] font-bold text-white">
+                  {item.shop}
+                </span>
+              </div>
+              <p className="mt-1.5 truncate text-[9px] font-bold text-on-surface">{item.name}</p>
+              <p className="text-[9px] font-extrabold text-brand-secondary">{item.price}</p>
+            </div>
+          ))}
         </div>
       </div>
     </div>
   );
 }
 
+// Cermin dari step "PILIH LAYANAN" di frontend/app/(customer)/shop/[id].tsx:
+// stepper 4 langkah, lalu daftar layanan dengan ikon gunting + durasi + harga.
 function BackScreen() {
+  const STEPS = ["Layanan", "Barber", "Jadwal", "Bayar"];
+
   return (
     <div className="flex h-full flex-col pt-11">
       <div className="flex items-center gap-2 px-4">
@@ -84,28 +122,58 @@ function BackScreen() {
         <span className="text-xs font-bold text-on-surface">Pilih Layanan</span>
       </div>
 
-      <div className="mt-3 flex-1 space-y-1 px-3">
-        {SERVICES.map((s) => (
+      <div className="mt-3 flex items-center gap-1 px-4">
+        {STEPS.map((label, i) => (
+          <div key={label} className="flex flex-1 items-center gap-1 last:flex-none">
+            <div
+              className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[7px] font-bold ${
+                i === 0 ? "bg-brand-primary text-on-brand-primary" : "bg-surface-3 text-on-surface-3"
+              }`}
+            >
+              {i + 1}
+            </div>
+            {i < STEPS.length - 1 && <div className="h-px flex-1 bg-border" />}
+          </div>
+        ))}
+      </div>
+
+      <p className="mt-4 px-4 text-[8.5px] font-bold uppercase tracking-wide text-on-surface-3">
+        Pilih Layanan
+      </p>
+
+      <div className="mt-2 flex-1 space-y-1.5 px-3">
+        {SERVICES.map((s, i) => (
           <div
             key={s.name}
-            className="flex items-center justify-between rounded-lg px-2.5 py-2.5"
+            className={`flex items-center gap-2 rounded-xl px-2.5 py-2 ${
+              i === 0 ? "border border-brand-primary/40 bg-brand-dim" : ""
+            }`}
           >
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-3">
-                <Scissors size={12} className="text-brand-secondary" aria-hidden="true" />
-              </div>
-              <span className="text-[10.5px] font-semibold text-on-surface">{s.name}</span>
+            <div
+              className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg ${
+                i === 0 ? "bg-brand-primary" : "bg-surface-3"
+              }`}
+            >
+              <Scissors
+                size={12}
+                className={i === 0 ? "text-on-brand-primary" : "text-brand-secondary"}
+                aria-hidden="true"
+              />
             </div>
-            <div className="flex items-center gap-1">
-              <span className="text-[10.5px] font-bold text-on-surface-2">{s.price}</span>
-              <ChevronRight size={12} className="text-on-surface-3" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <span className="block truncate text-[10.5px] font-semibold text-on-surface">{s.name}</span>
+              <span className="text-[8.5px] text-on-surface-3">{s.duration}</span>
             </div>
+            <span className="shrink-0 text-[10px] font-bold text-on-surface-2">{s.price}</span>
+            {i === 0 && (
+              <CheckCircle2 size={13} className="shrink-0 text-brand-secondary" aria-hidden="true" />
+            )}
           </div>
         ))}
       </div>
 
       <div className="px-3 pb-5">
-        <div className="w-full rounded-xl border border-border-strong py-2.5 text-center text-[11px] font-bold text-on-surface">
+        <div className="w-full rounded-xl bg-brand-primary py-2.5 text-center text-[11px] font-bold text-on-brand-primary">
           Lanjut
         </div>
       </div>
